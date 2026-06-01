@@ -70,7 +70,6 @@ import (
 	"encoding/ascii85"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"sort"
 	"strconv"
@@ -825,8 +824,12 @@ func (v Value) Reader() io.ReadCloser {
 	if !ok {
 		return &errorReadCloser{fmt.Errorf("stream not present")}
 	}
+	streamLen := v.Key("Length").Int64()
+	if streamLen == 0 {
+		return io.NopCloser(bytes.NewReader(nil))
+	}
 	var rd io.Reader
-	rd = io.NewSectionReader(v.r.f, x.offset, v.Key("Length").Int64())
+	rd = io.NewSectionReader(v.r.f, x.offset, streamLen)
 	if v.r.key != nil {
 		rd = decryptStream(v.r.key, v.r.useAES, x.ptr, rd)
 	}
@@ -845,7 +848,7 @@ func (v Value) Reader() io.ReadCloser {
 		}
 	}
 
-	return ioutil.NopCloser(rd)
+	return io.NopCloser(rd)
 }
 
 func applyFilter(rd io.Reader, name string, param Value) io.Reader {
