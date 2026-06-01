@@ -316,6 +316,7 @@ func (e *multibyteCMapEncoder) Decode(raw string) (text string) {
 // Used for predefined CMaps such as UniGB-UCS2-H/V, UniCNS-UCS2-H/V,
 // UniJIS-UCS2-H/V, and UniKS-UCS2-H/V. Each glyph selector is a 2-byte
 // big-endian Unicode code point (e.g. 中 = 0x4E2D). No external dependency needed.
+// UCS-2/BMP-only — no surrogate-pair handling; correct for Uni*-UCS2-* CMaps.
 type ucs2BEEncoder struct{}
 
 func (e *ucs2BEEncoder) Decode(raw string) (text string) {
