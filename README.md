@@ -145,3 +145,14 @@ func main() {
 | Context / cancellation | Added |
 | Crash/CPU-spike on PDFs with inline images ([upstream #57](https://github.com/ledongthuc/pdf/issues/57)) | Fixed — `readHexString` EOF guard + `Interpret` inline-image skip |
 | Upstream PRs incorporated | #37, #42, #45, #58, #61, #63, #64, #66 |
+
+### Resolved upstream issues
+
+| Issue | Title | How it was fixed | Status |
+|-------|-------|------------------|--------|
+| [#57](https://github.com/ledongthuc/pdf/issues/57) | Crash when image is in there (malformed PNG) | `case "ID":` skip in `ps.go` `Interpret()`; `readHexString` EOF guard in `lex.go` | Directly fixed |
+| [#55](https://github.com/ledongthuc/pdf/issues/55) | GetPlainText do not support encoding "UniGB-UCS2-H" | `ucs2BEEncoder` wired for all 8 `Uni*-UCS2-H/V` CMap names | Directly fixed |
+| [#44](https://github.com/ledongthuc/pdf/issues/44) | Cannot read Chinese | GBK / Big5 / UniGB / UniCNS CMaps all wired in `getEncoder()` | Directly fixed |
+| [#21](https://github.com/ledongthuc/pdf/issues/21) | unknown encoding UniGB-UCS2-H | Same fix as #55 — `ucs2BEEncoder` handles `UniGB-UCS2-H` | Directly fixed |
+| [#30](https://github.com/ledongthuc/pdf/issues/30) | crash when encountering some CJK text amongst English | `dictEncoder` rewrite; `maxObjectDepth` guard; `readArray` EOF fix | Directly fixed |
+| [#13](https://github.com/ledongthuc/pdf/issues/13) | Load Reader from bytes instead of file path | `OpenBytes(src []byte)` added in `read.go` | Directly fixed |
