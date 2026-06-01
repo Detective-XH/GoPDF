@@ -16,14 +16,14 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24'
+        go-version: '1.25'
         cache: true
 
     - name: Install dependencies
       run: go mod download
 
-    - name: Run tests
-      run: go test -v ./...
-
     - name: Build
-      run: go build -v ./... 
+      run: go build -v ./...
+
+    - name: Run tests
+      run: go test -race -v ./...
