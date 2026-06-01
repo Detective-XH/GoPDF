@@ -126,6 +126,11 @@ func NewReader(f io.ReaderAt, size int64) (*Reader, error) {
 	return NewReaderEncrypted(f, size, nil)
 }
 
+// OpenBytes opens a PDF from an in-memory byte slice.
+func OpenBytes(src []byte) (*Reader, error) {
+	return NewReader(bytes.NewReader(src), int64(len(src)))
+}
+
 // NewReaderEncrypted opens a file for reading, using the data in f with the given total size.
 // If the PDF is encrypted, NewReaderEncrypted calls pw repeatedly to obtain passwords
 // to try. If pw returns the empty string, NewReaderEncrypted stops trying to decrypt
