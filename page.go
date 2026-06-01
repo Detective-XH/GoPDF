@@ -206,6 +206,18 @@ func (f Font) Encoder() TextEncoding {
 }
 
 func (f Font) getEncoder() TextEncoding {
+	// Check ToUnicode first - it's the authoritative character mapping
+	// per PDF spec and takes precedence over Encoding
+	toUnicode := f.V.Key("ToUnicode")
+	if toUnicode.Kind() == Stream {
+		if m := readCmap(toUnicode); m != nil {
+			return m
+		}
+		if DebugOn {
+			println("ToUnicode stream failed to parse, falling back to Encoding")
+		}
+	}
+
 	enc := f.V.Key("Encoding")
 	switch enc.Kind() {
 	case Name:
@@ -215,7 +227,7 @@ func (f Font) getEncoder() TextEncoding {
 		case "MacRomanEncoding":
 			return &byteEncoder{&macRomanEncoding}
 		case "Identity-H":
-			return f.charmapEncoding()
+			return &byteEncoder{&pdfDocEncoding}
 		case "90ms-RKSJ-H", "90ms-RKSJ-V", "90pv-RKSJ-H":
 			return &multibyteCMapEncoder{japanese.ShiftJIS}
 		case "UniGB-UCS2-H", "UniGB-UCS2-V",
@@ -233,60 +245,64 @@ func (f Font) getEncoder() TextEncoding {
 			if DebugOn {
 				println("unknown encoding", enc.Name())
 			}
-			return &nopEncoder{}
+			return &byteEncoder{&pdfDocEncoding}
 		}
 	case Dict:
-		return &dictEncoder{enc.Key("Differences")}
+		return newDictEncoder(enc)
 	case Null:
-		return f.charmapEncoding()
+		return &byteEncoder{&pdfDocEncoding}
 	default:
 		if DebugOn {
 			println("unexpected encoding", enc.String())
 		}
-		return &nopEncoder{}
+		return &byteEncoder{&pdfDocEncoding}
 	}
 }
 
-func (f *Font) charmapEncoding() TextEncoding {
-	toUnicode := f.V.Key("ToUnicode")
-	if toUnicode.Kind() == Stream {
-		m := readCmap(toUnicode)
-		if m == nil {
-			return &nopEncoder{}
-		}
-		return m
-	}
-
-	return &byteEncoder{&pdfDocEncoding}
-}
-
+// dictEncoder handles fonts with Encoding dictionaries containing
+// BaseEncoding and/or Differences arrays per PDF spec section 9.6.6.
 type dictEncoder struct {
-	v Value
+	table [256]rune
+}
+
+func newDictEncoder(enc Value) *dictEncoder {
+	e := &dictEncoder{}
+	baseEnc := enc.Key("BaseEncoding")
+	var baseTable *[256]rune
+	switch baseEnc.Name() {
+	case "WinAnsiEncoding":
+		baseTable = &winAnsiEncoding
+	case "MacRomanEncoding":
+		baseTable = &macRomanEncoding
+	default:
+		baseTable = &pdfDocEncoding
+	}
+	copy(e.table[:], baseTable[:])
+
+	diff := enc.Key("Differences")
+	if diff.Kind() == Array {
+		code := -1
+		for j := 0; j < diff.Len(); j++ {
+			x := diff.Index(j)
+			if x.Kind() == Integer {
+				code = int(x.Int64())
+				continue
+			}
+			if x.Kind() == Name && code >= 0 && code < 256 {
+				if r := nameToRune[x.Name()]; r != 0 {
+					e.table[code] = r
+				}
+				code++
+			}
+		}
+	}
+	return e
 }
 
 func (e *dictEncoder) Decode(raw string) (text string) {
 	r := make([]rune, 0, len(raw))
 	for i := 0; i < len(raw); i++ {
-		ch := rune(raw[i])
-		n := -1
-		for j := 0; j < e.v.Len(); j++ {
-			x := e.v.Index(j)
-			if x.Kind() == Integer {
-				n = int(x.Int64())
-				continue
-			}
-			if x.Kind() == Name {
-				if int(raw[i]) == n {
-					r := nameToRune[x.Name()]
-					if r != 0 {
-						ch = r
-						break
-					}
-				}
-				n++
-			}
-		}
-		r = append(r, ch)
+		r = append(r, e.table[raw[i]])
 	}
 	return string(r)
 }
