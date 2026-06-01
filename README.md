@@ -159,3 +159,4 @@ func main() {
 | [#16](https://github.com/ledongthuc/pdf/issues/16) | GetTextByRow returns disordered text | `sort.Sort` → `sort.Stable` in `GetTextByRow`/`GetTextByColumn` | Directly fixed |
 | [#22](https://github.com/ledongthuc/pdf/issues/22) | Handle space after header | Relaxed byte-8 check in `NewReaderEncrypted` to accept space/tab | Directly fixed |
 | [#48](https://github.com/ledongthuc/pdf/issues/48) | `\n` added by recent version breaks old systems | Removed `showText("\n")` from `case "BT":` — BT is matrix-init, not line-break | Directly fixed |
+| [#60](https://github.com/ledongthuc/pdf/issues/60) | Parse PDF, some content appears garbled | Removed shared `fonts` map from `(*Reader).GetPlainText`; each page now passes `nil` so `(*Page).GetPlainText` builds a fresh per-page font map | Directly fixed |

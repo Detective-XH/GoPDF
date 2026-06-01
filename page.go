@@ -75,7 +75,6 @@ func (r *Reader) GetPlainText(ctx context.Context) (reader io.Reader, err error)
 	}
 	pages := r.NumPage()
 	var buf bytes.Buffer
-	fonts := make(map[string]*Font)
 	for i := 1; i <= pages; i++ {
 		select {
 		case <-ctx.Done():
@@ -83,13 +82,7 @@ func (r *Reader) GetPlainText(ctx context.Context) (reader io.Reader, err error)
 		default:
 		}
 		p := r.Page(i)
-		for _, name := range p.Fonts() { // cache fonts so we don't continually parse charmap
-			if _, ok := fonts[name]; !ok {
-				f := p.Font(name)
-				fonts[name] = &f
-			}
-		}
-		text, err := p.GetPlainText(fonts)
+		text, err := p.GetPlainText(nil)
 		if err != nil {
 			return &bytes.Buffer{}, err
 		}
