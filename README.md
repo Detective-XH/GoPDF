@@ -1,5 +1,6 @@
 # PDF Reader
 
+[![Go CI](https://github.com/Detective-XH/pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/Detective-XH/pdf/actions/workflows/ci.yml)
 [![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Detective-XH/pdf.svg)](https://pkg.go.dev/github.com/Detective-XH/pdf)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Detective-XH/pdf)](https://goreportcard.com/report/github.com/Detective-XH/pdf)
@@ -142,4 +143,5 @@ func main() {
 | Metadata API (`r.Info()`) | Added |
 | Outline page numbers (`Outline.Page`) | Added |
 | Context / cancellation | Added |
+| Crash/CPU-spike on PDFs with inline images ([upstream #57](https://github.com/ledongthuc/pdf/issues/57)) | Fixed — `readHexString` EOF guard + `Interpret` inline-image skip |
 | Upstream PRs incorporated | #37, #42, #45, #58, #61, #63, #64, #66 |
