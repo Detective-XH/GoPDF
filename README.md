@@ -156,3 +156,6 @@ func main() {
 | [#21](https://github.com/ledongthuc/pdf/issues/21) | unknown encoding UniGB-UCS2-H | Same fix as #55 — `ucs2BEEncoder` handles `UniGB-UCS2-H` | Directly fixed |
 | [#30](https://github.com/ledongthuc/pdf/issues/30) | crash when encountering some CJK text amongst English | `dictEncoder` rewrite; `maxObjectDepth` guard; `readArray` EOF fix | Directly fixed |
 | [#13](https://github.com/ledongthuc/pdf/issues/13) | Load Reader from bytes instead of file path | `OpenBytes(src []byte)` added in `read.go` | Directly fixed |
+| [#16](https://github.com/ledongthuc/pdf/issues/16) | GetTextByRow returns disordered text | `sort.Sort` → `sort.Stable` in `GetTextByRow`/`GetTextByColumn` | Directly fixed |
+| [#22](https://github.com/ledongthuc/pdf/issues/22) | Handle space after header | Relaxed byte-8 check in `NewReaderEncrypted` to accept space/tab | Directly fixed |
+| [#48](https://github.com/ledongthuc/pdf/issues/48) | `\n` added by recent version breaks old systems | Removed `showText("\n")` from `case "BT":` — BT is matrix-init, not line-break | Directly fixed |
