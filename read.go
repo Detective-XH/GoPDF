@@ -135,7 +135,18 @@ func OpenBytes(src []byte) (*Reader, error) {
 // If the PDF is encrypted, NewReaderEncrypted calls pw repeatedly to obtain passwords
 // to try. If pw returns the empty string, NewReaderEncrypted stops trying to decrypt
 // the file and returns an error.
-func NewReaderEncrypted(f io.ReaderAt, size int64, pw func() string) (*Reader, error) {
+func NewReaderEncrypted(f io.ReaderAt, size int64, pw func() string) (r *Reader, err error) {
+	defer func() {
+		if x := recover(); x != nil {
+			r = nil
+			if e, ok := x.(error); ok {
+				err = e
+			} else {
+				err = fmt.Errorf("malformed PDF: %v", x)
+			}
+		}
+	}()
+
 	buf := make([]byte, 10)
 	f.ReadAt(buf, 0)
 	if !bytes.HasPrefix(buf, []byte("%PDF-1.")) || buf[7] < '0' || buf[7] > '7' || buf[8] != '\r' && buf[8] != '\n' {
@@ -157,7 +168,7 @@ func NewReaderEncrypted(f io.ReaderAt, size int64, pw func() string) (*Reader, e
 		return nil, fmt.Errorf("malformed PDF file: missing final startxref")
 	}
 
-	r := &Reader{
+	r = &Reader{
 		f:   f,
 		end: end,
 	}
@@ -171,11 +182,14 @@ func NewReaderEncrypted(f io.ReaderAt, size int64, pw func() string) (*Reader, e
 		return nil, fmt.Errorf("malformed PDF file: startxref not followed by integer")
 	}
 	b = newBuffer(io.NewSectionReader(r.f, startxref, r.end-startxref), startxref)
-	xref, trailerptr, trailer, err := readXref(r, b)
+	var xrefs []xref
+	var trailerptr objptr
+	var trailer dict
+	xrefs, trailerptr, trailer, err = readXref(r, b)
 	if err != nil {
 		return nil, err
 	}
-	r.xref = xref
+	r.xref = xrefs
 	r.trailer = trailer
 	r.trailerptr = trailerptr
 	if trailer["Encrypt"] == nil {
