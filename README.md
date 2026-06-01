@@ -1,5 +1,8 @@
 # PDF Reader
 
+[![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Detective-XH/pdf.svg)](https://pkg.go.dev/github.com/Detective-XH/pdf)
+
 A Go library for reading PDF files, with active CJK text extraction support.
 
 Forked from [ledongthuc/pdf](https://github.com/ledongthuc/pdf) (upstream inactive since 2024).
