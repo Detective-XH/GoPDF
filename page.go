@@ -11,6 +11,9 @@ import (
 	"io"
 	"sort"
 	"strings"
+
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/japanese"
 )
 
 // A Page represent a single page in a PDF file.
@@ -210,6 +213,8 @@ func (f Font) getEncoder() TextEncoding {
 			return &byteEncoder{&macRomanEncoding}
 		case "Identity-H":
 			return f.charmapEncoding()
+		case "90ms-RKSJ-H", "90ms-RKSJ-V", "90pv-RKSJ-H":
+			return &multibyteCMapEncoder{japanese.ShiftJIS}
 		default:
 			if DebugOn {
 				println("unknown encoding", enc.Name())
@@ -285,6 +290,21 @@ type nopEncoder struct {
 
 func (e *nopEncoder) Decode(raw string) (text string) {
 	return raw
+}
+
+// multibyteCMapEncoder decodes PDF content-stream bytes using an x/text Encoding.
+// Used for predefined CMaps whose raw bytes are a well-known legacy encoding
+// (e.g. Shift-JIS for 90ms-RKSJ-H). Silently falls back to raw bytes on error.
+type multibyteCMapEncoder struct {
+	enc encoding.Encoding
+}
+
+func (e *multibyteCMapEncoder) Decode(raw string) (text string) {
+	decoded, err := e.enc.NewDecoder().Bytes([]byte(raw))
+	if err != nil {
+		return raw
+	}
+	return string(decoded)
 }
 
 type byteEncoder struct {
