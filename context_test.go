@@ -46,7 +46,7 @@ func (c *triggerCtx) Err() error {
 }
 
 func (c *triggerCtx) Deadline() (time.Time, bool) { return time.Time{}, false }
-func (c *triggerCtx) Value(_ any) any              { return nil }
+func (c *triggerCtx) Value(_ any) any             { return nil }
 
 func TestGetPlainTextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
