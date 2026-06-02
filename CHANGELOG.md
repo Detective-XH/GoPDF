@@ -1,30 +1,33 @@
 # Changelog
 
-All notable changes to GoPDF are documented here.
+All notable changes to GoPDF are documented here (from v0.6.0 onward).
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## v0.7.0 — 2026-06-02
+## v0.6.3 — 2026-06-02
 
 ### Changed
-- Renamed project from `pdf` to **GoPDF** — module path is now `github.com/Detective-XH/gopdf`; update your import paths accordingly.
+- Renamed project from `pdf` to **GoPDF** — module path is now `github.com/Detective-XH/gopdf`; update your import paths accordingly. The package name remains `pdf`.
 
 ### Fixed
 - TJ kerning arrays now correctly insert word spaces when the kern gap indicates a word boundary, fixing silent word concatenation in `Content()`, `GetStyledTexts()`, `GetTextByRow()`, and `GetTextByColumn()`.
 
 ---
 
-## v0.6.0 — 2026-06-02
+## v0.6.2 — 2026-06-02
+
+### Changed
+- `encoderForCMapName` switch replaced with a package-level lookup map — all 30 CMap name keys preserved, no behaviour change.
+- `gofmt -s` applied across the codebase.
+
+---
+
+## v0.6.1 — 2026-06-02
 
 ### Added
 - `Pages() iter.Seq2[int, Page]` and `Texts() iter.Seq[Text]` — lazy range-over-func iterators for streaming page and text access (Go 1.23+).
 - `Page.MediaBox()` and `Page.CropBox()` — page dimension accessors; `CropBox` falls back to `MediaBox` when absent.
-- `OpenBytes([]byte)` — parse a PDF from an in-memory byte slice without a file on disk.
-- CJK text extraction: Shift-JIS, UCS-2 BE, GBK / GB-EUC / GBKp-EUC, Big5-ETen / ETenms, UHC / KSC-EUC / UHC-HW CMap decoders.
-- Document metadata API (`r.Info()`) — title, author, creation date, modification date, and other `/Info` fields.
-- Outline page numbers (`Outline.Page`) resolved to 1-based page numbers.
-- Context/cancellation support on `GetPlainText` and `GetStyledTexts`.
 
 ### Fixed
 - **Security:** CMap parser hardened against malformed input — panics converted to recoverable errors; entry count capped at 65,536 to prevent resource exhaustion.
@@ -34,6 +37,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Security:** Cross-reference object numbers capped at the PDF spec maximum (8,388,607).
 - **Security:** Maximum object nesting depth enforced to prevent stack overflow.
 - Form XObject text extraction — content inside Form XObjects is now included in all extraction paths ([#67](https://github.com/ledongthuc/pdf/issues/67), [#26](https://github.com/ledongthuc/pdf/issues/26)).
+
+### Internal
+- Large-scale file decomposition (god-file split of `lex.go`, `xref.go`, `value.go`, `read.go`, `page.go`, `cmap.go` into focused units) and cyclomatic-complexity reduction across the parser; Go idiom modernization. No behaviour change.
+
+---
+
+## v0.6.0 — 2026-06-02
+
+### Added
+- CJK text extraction: Shift-JIS, UCS-2 BE, GBK / GB-EUC / GBKp-EUC, Big5-ETen / ETenms, UHC / KSC-EUC / UHC-HW CMap decoders.
+- Document metadata API (`r.Info()`) — title, author, creation date, modification date, and other `/Info` fields.
+- Outline page numbers (`Outline.Page`) resolved to 1-based page numbers.
+- Context/cancellation support on `GetPlainText` and `GetStyledTexts`.
+
+### Fixed
 - Per-page font map in `GetPlainText` — stale encoder reuse across pages with the same font name is fixed ([#60](https://github.com/ledongthuc/pdf/issues/60)).
 - Inline image crash and CPU spin — PDFs with inline images no longer hang or crash ([#57](https://github.com/ledongthuc/pdf/issues/57)).
 - Text position tracking — `GetTextByRow` / `GetTextByColumn` X/Y coordinates were always 0; `Td`, `TD`, `T*`, `TL`, and `BT` operators are now tracked correctly ([#18](https://github.com/ledongthuc/pdf/issues/18), [#27](https://github.com/ledongthuc/pdf/issues/27)).
@@ -47,3 +65,5 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - CJK crash on mixed CJK/Latin PDFs — `dictEncoder` rewritten to handle the collision ([#30](https://github.com/ledongthuc/pdf/issues/30)).
 - `GetTextByRow` no longer returns disordered or empty rows ([#16](https://github.com/ledongthuc/pdf/issues/16), [#27](https://github.com/ledongthuc/pdf/issues/27)).
 - Multi-stream arrays use `io.MultiReader` — prevents out-of-memory on large PDFs.
+
+> `OpenBytes([]byte)` (in-memory PDF parsing) shipped in **v0.5.0**, before this changelog's coverage begins.
