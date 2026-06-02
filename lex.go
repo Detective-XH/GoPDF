@@ -7,7 +7,6 @@
 package pdf
 
 import (
-	"fmt"
 	"io"
 	"strconv"
 )
@@ -29,89 +28,6 @@ type name string
 // Delimiter tokens used in higher-level syntax,
 // such as "<<", ">>", "[", "]", "{", "}", are also treated as keywords.
 type keyword string
-
-// A buffer holds buffered input bytes from the PDF file.
-type buffer struct {
-	r           io.Reader // source of data
-	buf         []byte    // buffered data
-	pos         int       // read index in buf
-	offset      int64     // offset at end of buf; aka offset of next read
-	tmp         []byte    // scratch space for accumulating token
-	unread      []token   // queue of read but then unread tokens
-	allowEOF    bool
-	allowObjptr bool
-	allowStream bool
-	eof         bool
-	key         []byte
-	useAES      bool
-	objptr      objptr
-	depth       int
-}
-
-// newBuffer returns a new buffer reading from r at the given offset.
-func newBuffer(r io.Reader, offset int64) *buffer {
-	return &buffer{
-		r:           r,
-		offset:      offset,
-		buf:         make([]byte, 0, 4096),
-		allowObjptr: true,
-		allowStream: true,
-	}
-}
-
-func (b *buffer) readByte() byte {
-	if b.pos >= len(b.buf) {
-		b.reload()
-		if b.pos >= len(b.buf) {
-			return '\n'
-		}
-	}
-	c := b.buf[b.pos]
-	b.pos++
-	return c
-}
-
-func (b *buffer) errorf(format string, args ...any) {
-	panic(fmt.Errorf(format, args...))
-}
-
-func (b *buffer) reload() bool {
-	n := cap(b.buf) - int(b.offset%int64(cap(b.buf)))
-	n, err := b.r.Read(b.buf[:n])
-	if n == 0 && err != nil {
-		b.buf = b.buf[:0]
-		b.pos = 0
-		if b.allowEOF && err == io.EOF {
-			b.eof = true
-			return false
-		}
-		b.errorf("malformed PDF: reading at offset %d: %v", b.offset, err)
-		return false
-	}
-	b.offset += int64(n)
-	b.buf = b.buf[:n]
-	b.pos = 0
-	return true
-}
-
-func (b *buffer) seekForward(offset int64) {
-	for b.offset < offset {
-		if !b.reload() {
-			return
-		}
-	}
-	b.pos = len(b.buf) - int(b.offset-offset)
-}
-
-func (b *buffer) readOffset() int64 {
-	return b.offset - int64(len(b.buf)) + int64(b.pos)
-}
-
-func (b *buffer) unreadByte() {
-	if b.pos > 0 {
-		b.pos--
-	}
-}
 
 func (b *buffer) unreadToken(t token) {
 	b.unread = append(b.unread, t)
@@ -237,28 +153,6 @@ func (b *buffer) readHexString() token {
 	}
 	b.tmp = tmp
 	return string(tmp)
-}
-
-func unhex(b byte) int {
-	switch {
-	case '0' <= b && b <= '9':
-		return int(b) - '0'
-	case 'a' <= b && b <= 'f':
-		return int(b) - 'a' + 10
-	case 'A' <= b && b <= 'F':
-		return int(b) - 'A' + 10
-	}
-	return -1
-}
-
-// namedEscapeByte maps a single-character escape letter to its decoded byte.
-// Returns the decoded byte and true if the escape is a recognised named escape.
-var namedEscapeByte = map[byte]byte{
-	'n': '\n',
-	'r': '\r',
-	'b': '\b',
-	't': '\t',
-	'f': '\f',
 }
 
 // appendEscape decodes the backslash-escape sequence whose character after
@@ -395,58 +289,4 @@ func (b *buffer) parseNumericToken(s string) (token, bool) {
 		return x, true
 	}
 	return nil, false
-}
-
-func stripSign(s string) string {
-	if len(s) > 0 && (s[0] == '+' || s[0] == '-') {
-		return s[1:]
-	}
-	return s
-}
-
-func isInteger(s string) bool {
-	s = stripSign(s)
-	if len(s) == 0 {
-		return false
-	}
-	for _, c := range s {
-		if c < '0' || '9' < c {
-			return false
-		}
-	}
-	return true
-}
-
-func isReal(s string) bool {
-	s = stripSign(s)
-	if len(s) == 0 {
-		return false
-	}
-	ndot := 0
-	for _, c := range s {
-		if c == '.' {
-			ndot++
-			continue
-		}
-		if c < '0' || '9' < c {
-			return false
-		}
-	}
-	return ndot == 1
-}
-
-func isSpace(b byte) bool {
-	switch b {
-	case '\x00', '\t', '\n', '\f', '\r', ' ':
-		return true
-	}
-	return false
-}
-
-func isDelim(b byte) bool {
-	switch b {
-	case '<', '>', '(', ')', '[', ']', '{', '}', '/', '%':
-		return true
-	}
-	return false
 }
