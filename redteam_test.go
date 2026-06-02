@@ -227,7 +227,7 @@ func TestRedTeamFlateTrailingGarbage(t *testing.T) {
 		if err != nil {
 			return
 		}
-		io.Copy(io.Discard, rd) //nolint:errcheck
+		io.Copy(io.Discard, rd) //nolint:errcheck,gosec
 	}()
 	if pv != nil {
 		t.Fatalf("P5: FlateDecode with trailing garbage panicked: %v", pv)
