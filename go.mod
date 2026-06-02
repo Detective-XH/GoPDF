@@ -1,4 +1,4 @@
-module github.com/Detective-XH/pdf
+module github.com/Detective-XH/gopdf
 
 go 1.25.0
 

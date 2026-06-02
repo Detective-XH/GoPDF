@@ -1,15 +1,15 @@
-# PDF Reader
+# GoPDF
 
-[![Go CI](https://github.com/Detective-XH/pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/Detective-XH/pdf/actions/workflows/ci.yml)
+[![Go CI](https://github.com/Detective-XH/gopdf/actions/workflows/ci.yml/badge.svg)](https://github.com/Detective-XH/gopdf/actions/workflows/ci.yml)
 [![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
-[![Go Reference](https://pkg.go.dev/badge/github.com/Detective-XH/pdf.svg)](https://pkg.go.dev/github.com/Detective-XH/pdf)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Detective-XH/pdf)](https://goreportcard.com/report/github.com/Detective-XH/pdf)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Detective-XH/gopdf.svg)](https://pkg.go.dev/github.com/Detective-XH/gopdf)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Detective-XH/gopdf)](https://goreportcard.com/report/github.com/Detective-XH/gopdf)
 
 A Go library for reading PDF files, with active CJK text extraction support.
 
 **Requires Go 1.25+** (`go.mod` directive).
 
-Forked from [ledongthuc/pdf](https://github.com/ledongthuc/pdf) (upstream inactive since 2024).
+Originally forked from [ledongthuc/pdf](https://github.com/ledongthuc/pdf); now an independent project.
 Original lineage: [rsc/pdf](https://github.com/rsc/pdf).
 
 ## Features
@@ -29,7 +29,7 @@ Original lineage: [rsc/pdf](https://github.com/rsc/pdf).
 ## Install
 
 ```bash
-go get github.com/Detective-XH/pdf
+go get github.com/Detective-XH/gopdf
 ```
 
 ## Examples
@@ -46,7 +46,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Detective-XH/pdf"
+	"github.com/Detective-XH/gopdf"
 )
 
 func main() {
@@ -75,7 +75,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Detective-XH/pdf"
+	"github.com/Detective-XH/gopdf"
 )
 
 func main() {
@@ -105,7 +105,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Detective-XH/pdf"
+	"github.com/Detective-XH/gopdf"
 )
 
 func main() {
@@ -132,11 +132,10 @@ func main() {
 }
 ```
 
-## Fork status
+## Status
 
 | Area | Status |
 |------|--------|
-| Upstream sync | Merged through upstream@HEAD (2024) |
 | Shift-JIS CMaps | Added |
 | UCS-2 BE CMaps | Added |
 | GBK / GB-EUC / GBKp-EUC CMaps | Added |
@@ -148,7 +147,7 @@ func main() {
 | Crash/CPU-spike on PDFs with inline images ([upstream #57](https://github.com/ledongthuc/pdf/issues/57)) | Fixed — `readHexString` EOF guard + `Interpret` inline-image skip |
 | Upstream PRs incorporated | #37, #42, #45, #58, #61, #63, #64, #66 |
 
-### Resolved upstream issues
+### Resolved issues
 
 | Issue | Title | How it was fixed | Status |
 |-------|-------|------------------|--------|

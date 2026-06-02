@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Detective-XH/pdf"
+	"github.com/Detective-XH/gopdf"
 )
 
 func main() {

@@ -12,7 +12,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/Detective-XH/pdf"
+	"github.com/Detective-XH/gopdf"
 )
 
 var (
