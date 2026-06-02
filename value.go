@@ -1,9 +1,6 @@
 package pdf
 
 import (
-	"bytes"
-	"fmt"
-	"io"
 	"sort"
 )
 
@@ -234,69 +231,3 @@ func (v Value) Len() int {
 	return len(x)
 }
 
-type errorReadCloser struct {
-	err error
-}
-
-func (e *errorReadCloser) Read([]byte) (int, error) {
-	return 0, e.err
-}
-
-func (e *errorReadCloser) Close() error {
-	return e.err
-}
-
-// Reader returns the data contained in the stream v.
-// If v.Kind() != Stream, Reader returns a ReadCloser that
-// responds to all reads with a "stream not present" error.
-func (v Value) Reader() io.ReadCloser {
-	x, ok := v.data.(stream)
-	if !ok {
-		return &errorReadCloser{fmt.Errorf("stream not present")}
-	}
-	streamLen := v.Key("Length").Int64()
-	if streamLen == 0 {
-		return io.NopCloser(bytes.NewReader(nil))
-	}
-	rd := v.buildStreamReader(x, streamLen)
-	filter := v.Key("Filter")
-	param := v.Key("DecodeParms")
-	out, err := applyStreamFilters(rd, filter, param)
-	if err != nil {
-		return &errorReadCloser{err}
-	}
-	return io.NopCloser(out)
-}
-
-func (v Value) buildStreamReader(x stream, streamLen int64) io.Reader {
-	var rd io.Reader
-	rd = io.NewSectionReader(v.r.f, x.offset, streamLen)
-	if v.r.key != nil {
-		rd = decryptStream(v.r.key, v.r.useAES, x.ptr, rd)
-	}
-	return rd
-}
-
-func applyStreamFilters(rd io.Reader, filter, param Value) (io.Reader, error) {
-	switch filter.Kind() {
-	case Null:
-		return rd, nil
-	case Name:
-		return applyFilter(rd, filter.Name(), param)
-	case Array:
-		return applyArrayFilters(rd, filter, param)
-	default:
-		return nil, fmt.Errorf("unsupported filter %v", filter)
-	}
-}
-
-func applyArrayFilters(rd io.Reader, filter, param Value) (io.Reader, error) {
-	for i := 0; i < filter.Len(); i++ {
-		var err error
-		rd, err = applyFilter(rd, filter.Index(i).Name(), param.Index(i))
-		if err != nil {
-			return nil, err
-		}
-	}
-	return rd, nil
-}
