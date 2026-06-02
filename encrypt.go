@@ -263,7 +263,9 @@ func decryptStream(key []byte, useAES bool, ptr objptr, rd io.Reader) io.Reader 
 			return rd
 		}
 		iv := make([]byte, 16)
-		io.ReadFull(rd, iv)
+		if _, err = io.ReadFull(rd, iv); err != nil {
+			return rd
+		}
 		cbc := cipher.NewCBCDecrypter(cb, iv)
 		rd = &cbcReader{cbc: cbc, rd: rd, buf: make([]byte, 16)}
 	} else {

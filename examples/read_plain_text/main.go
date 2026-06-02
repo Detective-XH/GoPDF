@@ -15,14 +15,14 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var buf bytes.Buffer
 	b, err := r.GetPlainText(context.Background())
 	if err != nil {
 		panic(err)
 	}
-	buf.ReadFrom(b)
+	_, _ = buf.ReadFrom(b)
 	content := buf.String()
 	fmt.Println(content)
 }

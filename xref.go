@@ -175,14 +175,18 @@ func findStartxrefFallback(f io.ReaderAt, size int64) (int64, error) {
 		start := max(pos-scanChunk, 0)
 		chunkLen := pos - start
 		combined := make([]byte, chunkLen+int64(len(suffix)))
-		f.ReadAt(combined[:chunkLen], start)
+		if _, err := f.ReadAt(combined[:chunkLen], start); err != nil && err != io.EOF {
+			return -1, err
+		}
 		copy(combined[chunkLen:], suffix)
 
 		if idx := bytes.LastIndex(combined, []byte("%%EOF")); idx >= 0 {
 			eofAbs := start + int64(idx)
 			ctxStart := max(eofAbs-512, 0)
 			ctx := make([]byte, eofAbs-ctxStart)
-			f.ReadAt(ctx, ctxStart)
+			if _, err := f.ReadAt(ctx, ctxStart); err != nil && err != io.EOF {
+				return -1, err
+			}
 			j := findLastLine(ctx, "startxref")
 			if j < 0 {
 				return -1, fmt.Errorf("%%EOF found but startxref missing")
@@ -210,7 +214,9 @@ func isValidPDFTerminator(b byte) bool {
 // the %PDF-n.m header is missing or malformed.
 func validatePDFHeader(f io.ReaderAt) error {
 	buf := make([]byte, 10)
-	f.ReadAt(buf, 0)
+	if _, err := f.ReadAt(buf, 0); err != nil && err != io.EOF {
+		return err
+	}
 	if !bytes.HasPrefix(buf, []byte("%PDF-1.")) || buf[7] < '0' || buf[7] > '7' || !isValidPDFTerminator(buf[8]) {
 		return fmt.Errorf("not a PDF file: invalid header")
 	}
@@ -224,7 +230,9 @@ func findStartxrefOffset(f io.ReaderAt, size int64) (int64, error) {
 	const endChunk = 1024
 	readStart := max(size-endChunk, 0)
 	buf := make([]byte, size-readStart)
-	f.ReadAt(buf, readStart)
+	if _, err := f.ReadAt(buf, readStart); err != nil && err != io.EOF {
+		return -1, err
+	}
 	buf = bytes.TrimRight(buf, "\r\n\t ")
 	if bytes.HasSuffix(buf, []byte("%%EOF")) {
 		i := findLastLine(buf, "startxref")

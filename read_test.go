@@ -389,8 +389,8 @@ func TestEnsureXrefSlotLimit(t *testing.T) {
 func TestFlateDecode_ColumnsLimit(t *testing.T) {
 	var buf bytes.Buffer
 	zw := zlib.NewWriter(&buf)
-	zw.Write([]byte("x"))
-	zw.Close()
+	_, _ = zw.Write([]byte("x"))
+	_ = zw.Close()
 
 	r := &Reader{f: bytes.NewReader(nil), end: 0}
 	param := Value{r, objptr{}, dict{

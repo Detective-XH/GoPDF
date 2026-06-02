@@ -46,7 +46,7 @@ func TestRedTeamStreamLengthOverflow(t *testing.T) {
 	done := make(chan struct{}, 1)
 	go func() {
 		defer func() {
-			recover()
+			_ = recover()
 			select {
 			case done <- struct{}{}:
 			default:
@@ -187,8 +187,8 @@ func TestRedTeamXrefSizeOverflow(t *testing.T) {
 	// format (W=[1 1 1], one free entry).  The hostile field is /Size.
 	var compressed bytes.Buffer
 	zw := zlib.NewWriter(&compressed)
-	zw.Write([]byte{0, 0, 0, 0}) // one type-0 (free) entry: type=0, off=0, gen=0
-	zw.Close()
+	_, _ = zw.Write([]byte{0, 0, 0, 0}) // one type-0 (free) entry: type=0, off=0, gen=0
+	_ = zw.Close()
 	xrefStream := compressed.Bytes()
 
 	var buf bytes.Buffer
@@ -216,8 +216,8 @@ func TestRedTeamXrefSizeOverflow(t *testing.T) {
 func TestRedTeamFlateTrailingGarbage(t *testing.T) {
 	var compressed bytes.Buffer
 	zw := zlib.NewWriter(&compressed)
-	zw.Write([]byte("hello world")) //nolint:errcheck
-	zw.Close()
+	_, _ = zw.Write([]byte("hello world"))
+	_ = zw.Close()
 	withGarbage := append(compressed.Bytes(), 0xFF, 0xFE, 0x00, 0xAB, 0xCD, 0xEF)
 
 	var pv interface{}

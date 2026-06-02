@@ -84,17 +84,17 @@ type Reader struct {
 func Open(file string) (*os.File, *Reader, error) {
 	f, err := os.Open(file)
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, nil, err
 	}
 	fi, err := f.Stat()
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, nil, err
 	}
 	reader, err := NewReader(f, fi.Size())
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, nil, err
 	}
 	return f, reader, err
