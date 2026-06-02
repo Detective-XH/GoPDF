@@ -1,12 +1,13 @@
 // redteam_test.go — hostile-input probes for the PDF attack surface.
 //
 // Probe map (§7 of the security-audit skill, redteam mode):
-//   P1  stream Length > file size — graceful EOF, no hang
-//   P2  truncated xref table — error returned, no panic
-//   P3  object depth > maxObjectDepth at OpenBytes level — error, no panic
-//   P4a malformed CMap: endbfchar without beginbfchar — no panic from readCmap
-//   P4b malformed CMap: endbfrange without beginbfrange — no panic from readCmap
-//   P5  FlateDecode stream followed by trailing garbage — no panic, readable
+//
+//	P1  stream Length > file size — graceful EOF, no hang
+//	P2  truncated xref table — error returned, no panic
+//	P3  object depth > maxObjectDepth at OpenBytes level — error, no panic
+//	P4a malformed CMap: endbfchar without beginbfchar — no panic from readCmap
+//	P4b malformed CMap: endbfrange without beginbfrange — no panic from readCmap
+//	P5  FlateDecode stream followed by trailing garbage — no panic, readable
 package pdf
 
 import (
