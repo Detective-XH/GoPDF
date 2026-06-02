@@ -1,0 +1,25 @@
+version: "2"
+
+linters:
+  enable:
+    - gosec
+
+  settings:
+    gosec:
+      excludes:
+        # Intentional narrowing conversions throughout the PDF parser.
+        # PDF object IDs, generation numbers, and byte fields are fixed-width
+        # by spec; the values are range-validated before conversion.
+        - G115
+
+  exclusions:
+    rules:
+      # PDF 1.x encryption spec mandates MD5 + RC4 (G401/G405/G501/G503).
+      # These primitives are required for compatibility; we do not choose them.
+      - path: "encrypt\\.go"
+        linters: [gosec]
+
+      # Public API: the caller supplies the file path — G304 is expected here.
+      - path: "read\\.go"
+        text: "G304"
+        linters: [gosec]
