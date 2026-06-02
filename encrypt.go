@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/md5"
 	"crypto/rc4"
+	"crypto/subtle"
 	"fmt"
 	"io"
 )
@@ -122,7 +123,7 @@ func buildEncryptKey(password, O string, P uint32, n, R int64, ID []byte) ([]byt
 	h.Write(ID)
 	key := h.Sum(nil)
 	if R >= 3 {
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			h.Reset()
 			h.Write(key[:n/8])
 			key = h.Sum(key[:0])
@@ -162,7 +163,8 @@ func verifyEncryptKey(R int64, key []byte, c *rc4.Cipher, U string, ID []byte) b
 			c.XORKeyStream(u, u)
 		}
 	}
-	return bytes.HasPrefix([]byte(U), u)
+	// Fix 2: constant-time comparison to avoid timing side-channel.
+	return subtle.ConstantTimeCompare([]byte(U)[:len(u)], u) == 1
 }
 
 func (r *Reader) initEncrypt(password string) error {
@@ -221,6 +223,7 @@ func validateCFParam(cfparam dict) bool {
 	return cfparam["CFM"] == name("AESV2")
 }
 
+// Fix 1: truncate per-object key to min(len(key)+5, 16) per PDF spec §7.6.2 Algorithm 1 step (f).
 func cryptKey(key []byte, useAES bool, ptr objptr) []byte {
 	h := md5.New()
 	h.Write(key)
@@ -228,7 +231,8 @@ func cryptKey(key []byte, useAES bool, ptr objptr) []byte {
 	if useAES {
 		h.Write([]byte("sAlT"))
 	}
-	return h.Sum(nil)
+	sum := h.Sum(nil)
+	return sum[:min(len(key)+5, 16)]
 }
 
 func decryptString(key []byte, useAES bool, ptr objptr, x string) string {
@@ -245,7 +249,15 @@ func decryptString(key []byte, useAES bool, ptr objptr, x string) string {
 
 		stream := cipher.NewCBCDecrypter(block, iv)
 		stream.CryptBlocks(s, s)
-		x = string(s)
+		// Fix 3: strip PKCS7 padding after AES-CBC decryption.
+		if len(s) == 0 {
+			return ""
+		}
+		pad := int(s[len(s)-1])
+		if pad == 0 || pad > aes.BlockSize || pad > len(s) {
+			return ""
+		}
+		x = string(s[:len(s)-pad])
 	} else {
 		c, _ := rc4.NewCipher(key)
 		data := []byte(x)
@@ -255,43 +267,34 @@ func decryptString(key []byte, useAES bool, ptr objptr, x string) string {
 	return x
 }
 
+// Fix 4: read-all approach for AES decryption — handles padding and eliminates
+// silent error fallthrough. The cbcReader struct is removed entirely.
 func decryptStream(key []byte, useAES bool, ptr objptr, rd io.Reader) io.Reader {
 	key = cryptKey(key, useAES, ptr)
 	if useAES {
+		data, err := io.ReadAll(rd)
+		if err != nil {
+			return bytes.NewReader(nil)
+		}
+		if len(data) < aes.BlockSize || (len(data)-aes.BlockSize)%aes.BlockSize != 0 {
+			return bytes.NewReader(nil)
+		}
 		cb, err := aes.NewCipher(key)
 		if err != nil {
-			return rd
+			return bytes.NewReader(nil)
 		}
-		iv := make([]byte, 16)
-		if _, err = io.ReadFull(rd, iv); err != nil {
-			return rd
+		iv := data[:aes.BlockSize]
+		ct := data[aes.BlockSize:]
+		cipher.NewCBCDecrypter(cb, iv).CryptBlocks(ct, ct)
+		if len(ct) == 0 {
+			return bytes.NewReader(nil)
 		}
-		cbc := cipher.NewCBCDecrypter(cb, iv)
-		rd = &cbcReader{cbc: cbc, rd: rd, buf: make([]byte, 16)}
-	} else {
-		c, _ := rc4.NewCipher(key)
-		rd = &cipher.StreamReader{S: c, R: rd}
+		pad := int(ct[len(ct)-1])
+		if pad == 0 || pad > aes.BlockSize || pad > len(ct) {
+			return bytes.NewReader(nil)
+		}
+		return bytes.NewReader(ct[:len(ct)-pad])
 	}
-	return rd
-}
-
-type cbcReader struct {
-	cbc  cipher.BlockMode
-	rd   io.Reader
-	buf  []byte
-	pend []byte
-}
-
-func (r *cbcReader) Read(b []byte) (n int, err error) {
-	if len(r.pend) == 0 {
-		_, err = io.ReadFull(r.rd, r.buf)
-		if err != nil {
-			return 0, err
-		}
-		r.cbc.CryptBlocks(r.buf, r.buf)
-		r.pend = r.buf
-	}
-	n = copy(b, r.pend)
-	r.pend = r.pend[n:]
-	return n, nil
+	c, _ := rc4.NewCipher(key)
+	return &cipher.StreamReader{S: c, R: rd}
 }
