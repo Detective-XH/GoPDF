@@ -152,17 +152,17 @@ func (s *contentState) handleTextParams(op string, args []Value) {
 	requireOneArg(args, op)
 	switch op {
 	case "Tc":
-		s.g.Tc = args[0].Float64()
+		s.g.Tc = args[0].Float64() //nolint:gosec // requireOneArg guarantees len==1
 	case "TL":
-		s.g.Tl = args[0].Float64()
+		s.g.Tl = args[0].Float64() //nolint:gosec // requireOneArg guarantees len==1
 	case "Tr":
-		s.g.Tmode = int(args[0].Int64())
+		s.g.Tmode = int(args[0].Int64()) //nolint:gosec // requireOneArg guarantees len==1
 	case "Ts":
-		s.g.Trise = args[0].Float64()
+		s.g.Trise = args[0].Float64() //nolint:gosec // requireOneArg guarantees len==1
 	case "Tw":
-		s.g.Tw = args[0].Float64()
+		s.g.Tw = args[0].Float64() //nolint:gosec // requireOneArg guarantees len==1
 	case "Tz":
-		s.g.Th = args[0].Float64() / 100
+		s.g.Th = args[0].Float64() / 100 //nolint:gosec // requireOneArg guarantees len==1
 	}
 }
 
