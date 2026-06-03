@@ -235,36 +235,41 @@ func cryptKey(key []byte, useAES bool, ptr objptr) []byte {
 	return sum[:min(len(key)+5, 16)]
 }
 
+// decryptAES decrypts an AES-CBC payload: data = [BlockSize IV] || [PKCS7-padded ciphertext].
+// Modifies data in-place. Returns nil on any validation or cipher error.
+func decryptAES(key, data []byte) []byte {
+	if len(data) < aes.BlockSize || (len(data)-aes.BlockSize)%aes.BlockSize != 0 {
+		return nil
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil
+	}
+	iv := data[:aes.BlockSize]
+	ct := data[aes.BlockSize:]
+	cipher.NewCBCDecrypter(block, iv).CryptBlocks(ct, ct)
+	if len(ct) == 0 {
+		return nil
+	}
+	pad := int(ct[len(ct)-1])
+	if pad == 0 || pad > aes.BlockSize || pad > len(ct) {
+		return nil
+	}
+	return ct[:len(ct)-pad]
+}
+
 func decryptString(key []byte, useAES bool, ptr objptr, x string) string {
 	key = cryptKey(key, useAES, ptr)
 	if useAES {
-		s := []byte(x)
-		if len(s) < aes.BlockSize || (len(s)-aes.BlockSize)%aes.BlockSize != 0 {
-			return ""
+		if plain := decryptAES(key, []byte(x)); plain != nil {
+			return string(plain)
 		}
-
-		block, _ := aes.NewCipher(key)
-		iv := s[:aes.BlockSize]
-		s = s[aes.BlockSize:]
-
-		stream := cipher.NewCBCDecrypter(block, iv)
-		stream.CryptBlocks(s, s)
-		// Fix 3: strip PKCS7 padding after AES-CBC decryption.
-		if len(s) == 0 {
-			return ""
-		}
-		pad := int(s[len(s)-1])
-		if pad == 0 || pad > aes.BlockSize || pad > len(s) {
-			return ""
-		}
-		x = string(s[:len(s)-pad])
-	} else {
-		c, _ := rc4.NewCipher(key)
-		data := []byte(x)
-		c.XORKeyStream(data, data)
-		x = string(data)
+		return ""
 	}
-	return x
+	c, _ := rc4.NewCipher(key)
+	data := []byte(x)
+	c.XORKeyStream(data, data)
+	return string(data)
 }
 
 // Fix 4: read-all approach for AES decryption — handles padding and eliminates
@@ -276,24 +281,10 @@ func decryptStream(key []byte, useAES bool, ptr objptr, rd io.Reader) io.Reader 
 		if err != nil {
 			return bytes.NewReader(nil)
 		}
-		if len(data) < aes.BlockSize || (len(data)-aes.BlockSize)%aes.BlockSize != 0 {
-			return bytes.NewReader(nil)
+		if plain := decryptAES(key, data); plain != nil {
+			return bytes.NewReader(plain)
 		}
-		cb, err := aes.NewCipher(key)
-		if err != nil {
-			return bytes.NewReader(nil)
-		}
-		iv := data[:aes.BlockSize]
-		ct := data[aes.BlockSize:]
-		cipher.NewCBCDecrypter(cb, iv).CryptBlocks(ct, ct)
-		if len(ct) == 0 {
-			return bytes.NewReader(nil)
-		}
-		pad := int(ct[len(ct)-1])
-		if pad == 0 || pad > aes.BlockSize || pad > len(ct) {
-			return bytes.NewReader(nil)
-		}
-		return bytes.NewReader(ct[:len(ct)-pad])
+		return bytes.NewReader(nil)
 	}
 	c, _ := rc4.NewCipher(key)
 	return &cipher.StreamReader{S: c, R: rd}
