@@ -58,6 +58,7 @@ func (s *plainTextState) handlePlainShow(op string, args []Value) {
 		if len(args) != 3 {
 			panic("bad \" operator")
 		}
+		args = args[2:] // trim Aw/Ac; leave only the string operand
 		fallthrough
 	case "'":
 		if len(args) != 1 {

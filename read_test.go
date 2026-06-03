@@ -405,7 +405,7 @@ func TestFlateDecode_ColumnsLimit(t *testing.T) {
 func TestNewReaderMaliciousPDF(t *testing.T) {
 	var pdf bytes.Buffer
 	pdf.WriteString("%PDF-1.0\n")
-	for i := 0; i < 10_000; i++ {
+	for range 10_000 {
 		pdf.WriteString("0\n0\nobj\n")
 	}
 	pdf.WriteString("startxref\n0\n%%EOF\n")
@@ -413,5 +413,164 @@ func TestNewReaderMaliciousPDF(t *testing.T) {
 	_, err := NewReader(bytes.NewReader(data), int64(len(data)))
 	if err == nil {
 		t.Fatal("expected error from malicious PDF, got nil")
+	}
+}
+
+// ---- findStartxrefFallback tests ----------------------------------------
+
+// TestFindStartxrefFallbackBasic verifies that the fallback finds %%EOF and
+// returns the offset of the preceding startxref line.  The payload is larger
+// than the standard 1024-byte endChunk window so that findStartxrefOffset
+// would actually call the fallback, but we test findStartxrefFallback directly.
+func TestFindStartxrefFallbackBasic(t *testing.T) {
+	// \n before startxref satisfies findLastLine's i>0 && buf[i-1]=='\n' guard.
+	// \n after startxref satisfies buf[i+len("startxref")]=='\n' guard.
+	// 42\n occupies the line between startxref and %%EOF.
+	data := []byte("\nstartxref\n42\n%%EOF\nsome extra bytes appended after eof")
+	r := bytes.NewReader(data)
+	offset, err := findStartxrefFallback(r, int64(len(data)))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// The returned offset must point at the 's' of "startxref".
+	if string(data[offset:offset+9]) != "startxref" {
+		t.Errorf("offset %d does not point to 'startxref'; got %q", offset, string(data[offset:offset+9]))
+	}
+}
+
+// TestFindStartxrefFallbackEOFBeforeEnd verifies the case where %%EOF is NOT
+// within the last endChunk bytes — more trailing data exists after it.
+// This is the canonical "non-conformant PDF with appended signature" scenario.
+func TestFindStartxrefFallbackEOFBeforeEnd(t *testing.T) {
+	// 1500 'x' bytes after %%EOF pushes it well beyond the 1024-byte window.
+	base := []byte("\nstartxref\n99\n%%EOF\n")
+	data := append(base, bytes.Repeat([]byte("x"), 1500)...)
+	r := bytes.NewReader(data)
+	offset, err := findStartxrefFallback(r, int64(len(data)))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(data[offset:offset+9]) != "startxref" {
+		t.Errorf("offset %d does not point to 'startxref'; got %q", offset, string(data[offset:offset+9]))
+	}
+}
+
+// TestFindStartxrefFallbackNoStartxref verifies that %%EOF present but no
+// preceding startxref line returns a specific error.
+func TestFindStartxrefFallbackNoStartxref(t *testing.T) {
+	// %%EOF is present but there is nothing before it in the 512-byte context.
+	data := []byte("%%EOF\n")
+	r := bytes.NewReader(data)
+	_, err := findStartxrefFallback(r, int64(len(data)))
+	if err == nil {
+		t.Fatal("expected error when startxref is absent, got nil")
+	}
+	if !strings.Contains(err.Error(), "startxref missing") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// TestFindStartxrefFallbackNoEOF verifies that a file with no %%EOF at all
+// returns the "not found" error.
+func TestFindStartxrefFallbackNoEOF(t *testing.T) {
+	data := []byte("this is not a pdf at all")
+	r := bytes.NewReader(data)
+	_, err := findStartxrefFallback(r, int64(len(data)))
+	if err == nil {
+		t.Error("expected error when percent-EOF is absent, got nil")
+		return
+	}
+	if !strings.Contains(err.Error(), "EOF not found") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// TestFindStartxrefFallbackChunkBoundary verifies that %%EOF straddling a
+// 4096-byte chunk boundary is found via the 4-byte overlap mechanism.
+//
+// Construction: head (18 bytes) + 4094 'x' bytes = 4112 bytes total.
+// Chunk boundary = 4112-4096 = 16.  %%EOF starts at offset 13 (inside head),
+// so the split is at position 16, which cuts through the middle of "%%EOF".
+// The overlap stitches the two chunks together and %%EOF is found.
+func TestFindStartxrefFallbackChunkBoundary(t *testing.T) {
+	// head: \n(0) s(1)..f(9) \n(10) 9(11) \n(12) %(13)%(14)E(15)O(16)F(17)
+	head := []byte("\nstartxref\n9\n%%EOF")
+	data := append(head, bytes.Repeat([]byte("x"), 4094)...)
+	// Sanity: %%EOF starts at index 13 within head.
+	if string(data[13:18]) != "%%EOF" {
+		t.Fatalf("test construction error: %%EOF not at expected offset 13")
+	}
+	r := bytes.NewReader(data)
+	offset, err := findStartxrefFallback(r, int64(len(data)))
+	if err != nil {
+		t.Fatalf("unexpected error on chunk-boundary case: %v", err)
+	}
+	if string(data[offset:offset+9]) != "startxref" {
+		t.Errorf("offset %d does not point to 'startxref'; got %q", offset, string(data[offset:offset+9]))
+	}
+	// startxref is at index 1 (after the leading \n).
+	if offset != 1 {
+		t.Errorf("expected offset 1, got %d", offset)
+	}
+}
+
+// ---- NewReaderEncrypted tests --------------------------------------------
+
+// TestNewReaderEncryptedInvalidHeader verifies that a buffer not starting with
+// a valid %PDF-n.m header is rejected immediately.
+func TestNewReaderEncryptedInvalidHeader(t *testing.T) {
+	buf := []byte("not a pdf\nstartxref\n0\n%%EOF\n")
+	_, err := NewReaderEncrypted(bytes.NewReader(buf), int64(len(buf)), nil)
+	if err == nil {
+		t.Fatal("expected error for invalid PDF header, got nil")
+	}
+}
+
+// TestNewReaderEncryptedNoStartxref verifies that a valid header followed by
+// %%EOF but no startxref line produces an error from findStartxrefOffset.
+func TestNewReaderEncryptedNoStartxref(t *testing.T) {
+	// %%EOF present but findLastLine cannot find "startxref" → missing final startxref.
+	buf := []byte("%PDF-1.4\n%%EOF\n")
+	_, err := NewReaderEncrypted(bytes.NewReader(buf), int64(len(buf)), nil)
+	if err == nil {
+		t.Fatal("expected error when startxref line is absent, got nil")
+	}
+}
+
+// TestNewReaderEncryptedStartxrefNotInteger verifies that "startxref" followed
+// by a non-integer token returns an error.
+func TestNewReaderEncryptedStartxrefNotInteger(t *testing.T) {
+	// Build a payload: valid header, then startxref followed by a word (not int).
+	// findStartxrefOffset will locate the startxref line; the buffer will then
+	// try to read the next token as int64 and fail.
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	// Padding to push startxref/%%EOF within the last 1024 bytes.
+	sxOff := buf.Len()
+	buf.WriteString("\nstartxref\nNOTANUMBER\n%%EOF\n")
+	_ = sxOff
+	data := buf.Bytes()
+	_, err := NewReaderEncrypted(bytes.NewReader(data), int64(len(data)), nil)
+	if err == nil {
+		t.Fatal("expected error when startxref offset is not an integer, got nil")
+	}
+}
+
+// TestNewReaderEncryptedBrokenXref verifies that a startxref pointing at
+// content that is not a valid xref table or stream returns an error from readXref.
+func TestNewReaderEncryptedBrokenXref(t *testing.T) {
+	// Build payload where the number after startxref points at "garbage\n" which
+	// is neither "xref" nor an integer, so readXref returns an error.
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	// The "xref content" is replaced by garbage at offset 9.
+	garbageOff := buf.Len() // offset 9
+	buf.WriteString("GARBAGE JUNK HERE\n")
+	// Now write startxref pointing at garbageOff, then %%EOF.
+	fmt.Fprintf(&buf, "\nstartxref\n%d\n%%%%EOF\n", garbageOff)
+	data := buf.Bytes()
+	_, err := NewReaderEncrypted(bytes.NewReader(data), int64(len(data)), nil)
+	if err == nil {
+		t.Fatal("expected error from broken xref section, got nil")
 	}
 }
