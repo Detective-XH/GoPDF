@@ -31,7 +31,6 @@ func makeCmapStream(body string) Value {
 // Values in the map must be raw object types (string, name, int64, array, dict).
 // A non-nil minimal Reader is attached so that Key() can call r.resolve without
 // panicking; for plain (non-indirect) entries resolve returns the value as-is.
-// Also used by filter_test.go.
 func makeDictValue(m map[string]any) Value {
 	r := &Reader{f: bytes.NewReader(nil), end: 0}
 	d := make(dict)
@@ -42,7 +41,6 @@ func makeDictValue(m map[string]any) Value {
 }
 
 // makeArrayValue builds a Value of Kind Array from the provided objects.
-// Also used by filter_test.go.
 func makeArrayValue(elems ...any) Value {
 	r := &Reader{f: bytes.NewReader(nil), end: 0}
 	a := make(array, len(elems))
@@ -50,12 +48,6 @@ func makeArrayValue(elems ...any) Value {
 		a[i] = e
 	}
 	return Value{r, objptr{}, a}
-}
-
-// makeNameValue returns a Value of Kind Name.
-// Also used by filter_test.go.
-func makeNameValue(n string) Value {
-	return Value{nil, objptr{}, name(n)}
 }
 
 // cmapTestStrVal returns a Value of Kind String whose RawString() is s.

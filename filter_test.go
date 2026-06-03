@@ -16,6 +16,31 @@ func makeIntValue(i int64) Value {
 	return Value{r: &Reader{f: bytes.NewReader(nil), end: 0}, data: i}
 }
 
+// filterMakeDict builds a Value of Kind Dict from a Go map.
+func filterMakeDict(m map[string]any) Value {
+	r := &Reader{f: bytes.NewReader(nil), end: 0}
+	d := make(dict)
+	for k, v := range m {
+		d[name(k)] = v
+	}
+	return Value{r, objptr{}, d}
+}
+
+// filterMakeArray builds a Value of Kind Array from the provided objects.
+func filterMakeArray(elems ...any) Value {
+	r := &Reader{f: bytes.NewReader(nil), end: 0}
+	a := make(array, len(elems))
+	for i, e := range elems {
+		a[i] = e
+	}
+	return Value{r, objptr{}, a}
+}
+
+// filterMakeName returns a Value of Kind Name.
+func filterMakeName(n string) Value {
+	return Value{nil, objptr{}, name(n)}
+}
+
 // zlibCompress compresses src using zlib and returns the compressed bytes.
 func zlibCompress(src []byte) []byte {
 	var buf bytes.Buffer
@@ -74,7 +99,7 @@ func TestFlateDecodePNGUp(t *testing.T) {
 	// Wrap the raw rows in zlib so applyFilter can open it.
 	compressed := zlibCompress(rawRows)
 
-	param := makeDictValue(map[string]any{
+	param := filterMakeDict(map[string]any{
 		"Predictor": int64(12),
 		"Columns":   int64(columns),
 	})
@@ -274,9 +299,9 @@ func TestFilterChain(t *testing.T) {
 	twice := zlibCompress(once)
 
 	// filter array: [/FlateDecode, /FlateDecode]
-	filterArr := makeArrayValue(name("FlateDecode"), name("FlateDecode"))
+	filterArr := filterMakeArray(name("FlateDecode"), name("FlateDecode"))
 	// param array: empty — Index out-of-bounds returns null Value for each.
-	paramArr := makeArrayValue()
+	paramArr := filterMakeArray()
 
 	rd, err := applyArrayFilters(bytes.NewReader(twice), filterArr, paramArr)
 	if err != nil {
@@ -295,8 +320,8 @@ func TestFilterChain(t *testing.T) {
 // one of the filters fails.
 func TestFilterChainError(t *testing.T) {
 	// Filter array contains an unsupported filter name — must return error.
-	filterArr := makeArrayValue(name("UnknownFilter"))
-	paramArr := makeArrayValue()
+	filterArr := filterMakeArray(name("UnknownFilter"))
+	paramArr := filterMakeArray()
 
 	_, err := applyArrayFilters(bytes.NewReader([]byte("data")), filterArr, paramArr) // error path
 	if err == nil {
@@ -313,7 +338,7 @@ func TestFilterChainError(t *testing.T) {
 // exercises the errorReadCloser path in Reader().
 func TestFilterNotStream(t *testing.T) {
 	// A name Value (not a stream) should return an errorReadCloser.
-	v := makeNameValue("NotAStream")
+	v := filterMakeName("NotAStream")
 	rc := v.Reader()
 	if rc == nil {
 		t.Fatal("Reader() returned nil for non-stream Value")
@@ -351,7 +376,7 @@ func TestApplyStreamFiltersName(t *testing.T) {
 	payload := []byte("stream data for name filter")
 	compressed := zlibCompress(payload)
 
-	filterVal := makeNameValue("FlateDecode")
+	filterVal := filterMakeName("FlateDecode")
 	rd, err := applyStreamFilters(bytes.NewReader(compressed), filterVal, Value{})
 	if err != nil {
 		t.Fatalf("applyStreamFilters Name: %v", err)
@@ -369,8 +394,8 @@ func TestApplyStreamFiltersName(t *testing.T) {
 func TestApplyStreamFiltersArray(t *testing.T) {
 	payload := []byte("array filter stream data")
 	compressed := zlibCompress(payload)
-	filterArr := makeArrayValue(name("FlateDecode"))
-	paramArr := makeArrayValue()
+	filterArr := filterMakeArray(name("FlateDecode"))
+	paramArr := filterMakeArray()
 
 	rd, err := applyStreamFilters(bytes.NewReader(compressed), filterArr, paramArr)
 	if err != nil {
@@ -414,7 +439,7 @@ func TestApplyFilterUnsupported(t *testing.T) {
 func TestApplyFilterASCII85WithDecodeParms(t *testing.T) {
 	// A dict param with at least one key triggers the default case in the
 	// param.Keys() switch inside applyFilter for ASCII85Decode.
-	param := makeDictValue(map[string]any{"SomeKey": int64(1)})
+	param := filterMakeDict(map[string]any{"SomeKey": int64(1)})
 	_, err := applyFilter(bytes.NewReader([]byte("9jqo^~>")), "ASCII85Decode", param) // error path
 	if err == nil {
 		t.Fatal("expected error for ASCII85Decode with DecodeParms, got nil")
@@ -425,7 +450,7 @@ func TestApplyFilterASCII85WithDecodeParms(t *testing.T) {
 // path inside applyFilter for FlateDecode with predictor 12.
 func TestApplyFilterPNGUpBadColumns(t *testing.T) {
 	compressed := zlibCompress([]byte("x"))
-	param := makeDictValue(map[string]any{
+	param := filterMakeDict(map[string]any{
 		"Predictor": int64(12),
 		"Columns":   int64(maxPNGColumns + 1),
 	})
@@ -439,7 +464,7 @@ func TestApplyFilterPNGUpBadColumns(t *testing.T) {
 // error path (predictor != 12) inside applyFilter for FlateDecode.
 func TestApplyFilterUnsupportedPredictor(t *testing.T) {
 	compressed := zlibCompress([]byte("data"))
-	param := makeDictValue(map[string]any{
+	param := filterMakeDict(map[string]any{
 		"Predictor": int64(99),
 		"Columns":   int64(4),
 	})
@@ -461,7 +486,7 @@ func TestPNGUpReaderMalformed(t *testing.T) {
 	badRow := []byte{0, 10, 20}
 	compressed := zlibCompress(badRow)
 
-	param := makeDictValue(map[string]any{
+	param := filterMakeDict(map[string]any{
 		"Predictor": int64(12),
 		"Columns":   int64(columns),
 	})
