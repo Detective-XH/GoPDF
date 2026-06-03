@@ -25,6 +25,37 @@ func usage() {
 	os.Exit(2)
 }
 
+type passwordIter struct {
+	alpha string
+	ctr   []int
+	last  string
+}
+
+func newPasswordIter(alpha string, maxLen int) *passwordIter {
+	return &passwordIter{alpha: alpha, ctr: make([]int, maxLen)}
+}
+
+func (it *passwordIter) next() string {
+	inc(it.ctr, len(it.alpha)+1)
+	for !valid(it.ctr) {
+		inc(it.ctr, len(it.alpha)+1)
+	}
+	if done(it.ctr) {
+		return ""
+	}
+	buf := make([]byte, len(it.ctr))
+	var i int
+	for i = 0; i < len(buf); i++ {
+		if it.ctr[i] == 0 {
+			break
+		}
+		buf[i] = it.alpha[it.ctr[i]-1]
+	}
+	it.last = string(buf[:i])
+	println(it.last)
+	return it.last
+}
+
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("pdfpasswd: ")
@@ -40,41 +71,19 @@ func main() {
 		log.Fatal(err)
 	}
 
-	last := ""
-	alpha := *alphabet
-	ctr := make([]int, *maxLength)
-	pw := func() string {
-		inc(ctr, len(alpha)+1)
-		for !valid(ctr) {
-			inc(ctr, len(alpha)+1)
-		}
-		if done(ctr) {
-			return ""
-		}
-		buf := make([]byte, len(ctr))
-		var i int
-		for i = 0; i < len(buf); i++ {
-			if ctr[i] == 0 {
-				break
-			}
-			buf[i] = alpha[ctr[i]-1]
-		}
-		last = string(buf[:i])
-		println(last)
-		return last
-	}
+	it := newPasswordIter(*alphabet, *maxLength)
 	st, err := f.Stat()
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, err = pdf.NewReaderEncrypted(f, st.Size(), pw)
+	_, err = pdf.NewReaderEncrypted(f, st.Size(), it.next)
 	if err != nil {
 		if err == pdf.ErrInvalidPassword {
 			log.Fatal("password not found")
 		}
 		log.Fatalf("reading pdf: %v", err)
 	}
-	fmt.Printf("password: %q\n", last)
+	fmt.Printf("password: %q\n", it.last)
 }
 
 func inc(ctr []int, n int) {
