@@ -321,3 +321,85 @@ func TestXrefStreamReadSizeOutOfRange(t *testing.T) {
 		}
 	}
 }
+
+// --- followXrefStreamPrevChain ------------------------------------------------
+
+// xrefStreamBuildPrevBlock returns raw PDF bytes for a complete xref stream
+// object followed by a safe trailing token so the buffer look-ahead after
+// ">>" never hits EOF.  W=[1,2,1] is assumed (4 bytes per entry).
+// hdrExtra is appended verbatim after /Type /XRef /Size and /W in the dict.
+func xrefStreamBuildPrevBlock(objNum int, size int, entries [][]byte, hdrExtra string) []byte {
+	body := buildXrefBody(entries)
+	hdrEntries := fmt.Sprintf("/Type /XRef /Size %d /W [1 2 1]%s", size, hdrExtra)
+	block := buildStreamObjBytes(objNum, hdrEntries, body)
+	// Append a safe trailing token so the internal buffer look-ahead for
+	// "stream" after ">>" does not hit EOF and panic.
+	block = append(block, []byte("\nstartxref\n0\n%%%%EOF\n")...)
+	return block
+}
+
+// TestXrefFollowStreamPrevChain exercises followXrefStreamPrevChain with a
+// two-entry /Prev chain: the "newer" stream's header has /Prev pointing at an
+// "older" XRef stream embedded in the Reader's file.
+func TestXrefFollowStreamPrevChain(t *testing.T) {
+	// The older XRef stream is placed at offset 0.
+	// W=[1,2,1]: 3 entries x 4 bytes = 12 bytes body.
+	//   slot 0: type=0 (free)     -> [0x00 0x00 0x00 0x00]
+	//   slot 1: type=1, offset=50 -> [0x01 0x00 0x32 0x00]
+	//   slot 2: type=0 (free)     -> [0x00 0x00 0x00 0x00]
+	olderEntries := [][]byte{
+		{0x00, 0x00, 0x00, 0x00}, // slot 0: free
+		{0x01, 0x00, 0x32, 0x00}, // slot 1: type=1, offset=50 (0x32), gen=0
+		{0x00, 0x00, 0x00, 0x00}, // slot 2: free
+	}
+	olderBlock := xrefStreamBuildPrevBlock(1, 3, olderEntries, "")
+	fileBytes := olderBlock
+
+	r := makeXrefReader(fileBytes)
+
+	// Newer stream's header dict has /Prev pointing to offset 0 (the older block).
+	hdr := dict{
+		name("Prev"): int64(0),
+	}
+	table := make([]xref, 3)
+
+	got, err := followXrefStreamPrevChain(r, table, 3, hdr)
+	if err != nil {
+		t.Fatalf("followXrefStreamPrevChain: unexpected error: %v", err)
+	}
+	// Slot 1 should have been populated by the older stream (offset 50).
+	if got[1].offset != 50 {
+		t.Errorf("slot 1: expected offset 50, got %d", got[1].offset)
+	}
+}
+
+// --- applyPrevXrefStream ------------------------------------------------------
+
+// TestXrefApplyPrevXrefStream exercises applyPrevXrefStream directly with a
+// minimal XRef stream: /Size 2, two entries, no further /Prev.
+func TestXrefApplyPrevXrefStream(t *testing.T) {
+	// W=[1,2,1]: 2 entries x 4 bytes = 8 bytes body.
+	//   slot 0: type=0 (free)     -> [0x00 0x00 0x00 0x00]
+	//   slot 1: type=1, offset=77 -> [0x01 0x00 0x4D 0x00]  (0x4D = 77)
+	entries := [][]byte{
+		{0x00, 0x00, 0x00, 0x00}, // slot 0: free
+		{0x01, 0x00, 0x4D, 0x00}, // slot 1: type=1, offset=77, gen=0
+	}
+	// /Size 2 <= maxSize=2, so the size guard passes.
+	block := xrefStreamBuildPrevBlock(1, 2, entries, "")
+	r := makeXrefReader(block)
+
+	table := make([]xref, 2)
+	got, nextPrev, err := applyPrevXrefStream(r, 0, table, 2)
+	if err != nil {
+		t.Fatalf("applyPrevXrefStream: unexpected error: %v", err)
+	}
+	// No /Prev in the stream header -> nextPrev must be nil.
+	if nextPrev != nil {
+		t.Errorf("applyPrevXrefStream: expected nil nextPrev, got %v", nextPrev)
+	}
+	// Slot 1 should have offset 77.
+	if got[1].offset != 77 {
+		t.Errorf("slot 1: expected offset 77, got %d", got[1].offset)
+	}
+}

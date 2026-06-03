@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -572,5 +573,41 @@ func TestNewReaderEncryptedBrokenXref(t *testing.T) {
 	_, err := NewReaderEncrypted(bytes.NewReader(data), int64(len(data)), nil)
 	if err == nil {
 		t.Fatal("expected error from broken xref section, got nil")
+	}
+}
+
+// TestReadOpen verifies that Open reads a real PDF file from disk,
+// returns a non-nil *os.File and *Reader, and that NumPage is correct.
+func TestReadOpen(t *testing.T) {
+	data := buildTextPDF("")
+	f, err := os.CreateTemp("", "gopdf-test-*.pdf")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = f.Close(); _ = os.Remove(f.Name()) })
+	if _, err := f.Write(data); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := f.Sync(); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	fh, r, err := Open(f.Name())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = fh.Close() })
+
+	if r.NumPage() != 1 {
+		t.Errorf("NumPage = %d, want 1", r.NumPage())
+	}
+}
+
+// TestReadOpenNonexistent verifies that Open returns a non-nil error when
+// the requested file does not exist.
+func TestReadOpenNonexistent(t *testing.T) {
+	_, _, err := Open("/nonexistent/gopdf-test-file-that-does-not-exist.pdf")
+	if err == nil {
+		t.Fatal("expected error for nonexistent file, got nil")
 	}
 }
