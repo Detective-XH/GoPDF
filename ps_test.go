@@ -267,100 +267,108 @@ func TestPsSkipInlineImage(t *testing.T) {
 // TestPsExecPS — execPS: keyword dispatch and return values
 // ---------------------------------------------------------------------------
 
+func testPsExecPSPop(t *testing.T) {
+	t.Helper()
+	stk := psMakeStack()
+	stk.Push(psMakeIntValue(1))
+	var dicts []dict
+	if !execPS("pop", stk, &dicts) {
+		t.Error("execPS(pop): got false, want true")
+	}
+	if stk.Len() != 0 {
+		t.Errorf("stack after pop: len=%d, want 0", stk.Len())
+	}
+}
+
+func testPsExecPSDict(t *testing.T) {
+	t.Helper()
+	stk := psMakeStack()
+	stk.Push(psMakeIntValue(5))
+	var dicts []dict
+	if !execPS("dict", stk, &dicts) {
+		t.Error("execPS(dict): got false, want true")
+	}
+	if stk.Len() != 1 {
+		t.Errorf("stack after dict: len=%d, want 1", stk.Len())
+	}
+	if stk.Pop().Kind() != Dict {
+		t.Error("execPS(dict): top of stack is not a Dict")
+	}
+}
+
+func testPsExecPSCurrentdict(t *testing.T) {
+	t.Helper()
+	stk := psMakeStack()
+	d := make(dict)
+	dicts := []dict{d}
+	if !execPS("currentdict", stk, &dicts) {
+		t.Error("execPS(currentdict): got false, want true")
+	}
+	if stk.Len() != 1 {
+		t.Errorf("stack after currentdict: len=%d, want 1", stk.Len())
+	}
+}
+
+func testPsExecPSBegin(t *testing.T) {
+	t.Helper()
+	stk := psMakeStack()
+	d := make(dict)
+	stk.Push(psMakeDictValue(d))
+	dicts := []dict{}
+	if !execPS("begin", stk, &dicts) {
+		t.Error("execPS(begin): got false, want true")
+	}
+	if len(dicts) != 1 {
+		t.Errorf("dicts after begin: len=%d, want 1", len(dicts))
+	}
+}
+
+func testPsExecPSEnd(t *testing.T) {
+	t.Helper()
+	stk := psMakeStack()
+	dicts := []dict{make(dict)}
+	if !execPS("end", stk, &dicts) {
+		t.Error("execPS(end): got false, want true")
+	}
+	if len(dicts) != 0 {
+		t.Errorf("dicts after end: len=%d, want 0", len(dicts))
+	}
+}
+
+func testPsExecPSDef(t *testing.T) {
+	t.Helper()
+	stk := psMakeStack()
+	d := make(dict)
+	dicts := []dict{d}
+	stk.Push(psMakeNameValue("myKey"))
+	stk.Push(psMakeIntValue(99))
+	if !execPS("def", stk, &dicts) {
+		t.Error("execPS(def): got false, want true")
+	}
+	if v, ok := d[name("myKey")]; !ok || v != int64(99) {
+		t.Errorf("dict after def: d[myKey]=%v ok=%v, want 99/true", v, ok)
+	}
+}
+
+func testPsExecPSUnknown(t *testing.T) {
+	t.Helper()
+	stk := psMakeStack()
+	var dicts []dict
+	if execPS("unknown_kw", stk, &dicts) {
+		t.Error("execPS(unknown_kw): got true, want false")
+	}
+}
+
 // TestPsExecPS verifies that execPS handles all built-in PostScript keywords
 // and returns true, and returns false for unknown keywords.
 func TestPsExecPS(t *testing.T) {
-	// "pop" — pops one item; needs one item on the stack.
-	t.Run("pop", func(t *testing.T) {
-		stk := psMakeStack()
-		stk.Push(psMakeIntValue(1))
-		var dicts []dict
-		if !execPS("pop", stk, &dicts) {
-			t.Error("execPS(pop): got false, want true")
-		}
-		if stk.Len() != 0 {
-			t.Errorf("stack after pop: len=%d, want 0", stk.Len())
-		}
-	})
-
-	// "dict" — pops a count and pushes a new dict; needs one item on the stack.
-	t.Run("dict", func(t *testing.T) {
-		stk := psMakeStack()
-		stk.Push(psMakeIntValue(5)) // size arg (consumed by psDict)
-		var dicts []dict
-		if !execPS("dict", stk, &dicts) {
-			t.Error("execPS(dict): got false, want true")
-		}
-		if stk.Len() != 1 {
-			t.Errorf("stack after dict: len=%d, want 1", stk.Len())
-		}
-		if stk.Pop().Kind() != Dict {
-			t.Error("execPS(dict): top of stack is not a Dict")
-		}
-	})
-
-	// "currentdict" — needs at least one dict on the dict stack.
-	t.Run("currentdict", func(t *testing.T) {
-		stk := psMakeStack()
-		d := make(dict)
-		dicts := []dict{d}
-		if !execPS("currentdict", stk, &dicts) {
-			t.Error("execPS(currentdict): got false, want true")
-		}
-		if stk.Len() != 1 {
-			t.Errorf("stack after currentdict: len=%d, want 1", stk.Len())
-		}
-	})
-
-	// "begin" — pops a dict and pushes it onto the dict stack.
-	t.Run("begin", func(t *testing.T) {
-		stk := psMakeStack()
-		d := make(dict)
-		stk.Push(psMakeDictValue(d))
-		dicts := []dict{}
-		if !execPS("begin", stk, &dicts) {
-			t.Error("execPS(begin): got false, want true")
-		}
-		if len(dicts) != 1 {
-			t.Errorf("dicts after begin: len=%d, want 1", len(dicts))
-		}
-	})
-
-	// "end" — pops the top dict from the dict stack.
-	t.Run("end", func(t *testing.T) {
-		stk := psMakeStack()
-		dicts := []dict{make(dict)}
-		if !execPS("end", stk, &dicts) {
-			t.Error("execPS(end): got false, want true")
-		}
-		if len(dicts) != 0 {
-			t.Errorf("dicts after end: len=%d, want 0", len(dicts))
-		}
-	})
-
-	// "def" — pops val and name-key, stores in top dict.
-	t.Run("def", func(t *testing.T) {
-		stk := psMakeStack()
-		d := make(dict)
-		dicts := []dict{d}
-		stk.Push(psMakeNameValue("myKey")) // key (pushed first, popped second)
-		stk.Push(psMakeIntValue(99))       // val (pushed second, popped first)
-		if !execPS("def", stk, &dicts) {
-			t.Error("execPS(def): got false, want true")
-		}
-		if v, ok := d[name("myKey")]; !ok || v != int64(99) {
-			t.Errorf("dict after def: d[myKey]=%v ok=%v, want 99/true", v, ok)
-		}
-	})
-
-	// unknown keyword — must return false.
-	t.Run("unknown", func(t *testing.T) {
-		stk := psMakeStack()
-		var dicts []dict
-		if execPS("unknown_kw", stk, &dicts) {
-			t.Error("execPS(unknown_kw): got true, want false")
-		}
-	})
+	t.Run("pop", testPsExecPSPop)
+	t.Run("dict", testPsExecPSDict)
+	t.Run("currentdict", testPsExecPSCurrentdict)
+	t.Run("begin", testPsExecPSBegin)
+	t.Run("end", testPsExecPSEnd)
+	t.Run("def", testPsExecPSDef)
+	t.Run("unknown", testPsExecPSUnknown)
 }
 
 // ---------------------------------------------------------------------------
