@@ -221,6 +221,64 @@ func TestRedTeamMalformedCMapHugeCount(t *testing.T) {
 	}
 }
 
+// P4d — Malformed CMap: codespace range with a 5-byte key (spec allows max 4).
+// handleEndCodespace must set ok=false and return, not panic on space[4] OOB.
+// Expect: readCmap returns nil within the timeout; no panic.
+func TestRedTeamMalformedCMapCodespaceOverflow(t *testing.T) {
+	// <1122334455> is 5 bytes — beyond the [4][]byteRange array bound.
+	data := []byte("begincmap\n1 begincodespacerange\n<1122334455> <1122334455>\nendcodespacerange\nendcmap\n")
+	v := testStream(data)
+
+	panicCh := make(chan any, 1)
+	go func() {
+		var pv any
+		func() {
+			defer func() { pv = recover() }()
+			readCmap(v)
+		}()
+		panicCh <- pv
+	}()
+
+	select {
+	case pv := <-panicCh:
+		if pv != nil {
+			t.Fatalf("P4d: readCmap panicked on 5-byte codespace range: %v", pv)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("P4d: readCmap hung on 5-byte codespace range")
+	}
+}
+
+// P4e — Malformed CMap: bfrange destination is an empty string <>.
+// decodeBfrange adjusts b[len(b)-1] which panics when the string is empty.
+// Expect: Decode returns noRune, no panic.
+func TestRedTeamMalformedCMapBfrangeEmptyDst(t *testing.T) {
+	data := []byte("begincmap\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n1 beginbfrange\n<00> <FF> <>\nendbfrange\nendcmap\n")
+	v := testStream(data)
+
+	panicCh := make(chan any, 1)
+	go func() {
+		var pv any
+		func() {
+			defer func() { pv = recover() }()
+			m := readCmap(v)
+			if m != nil {
+				_ = m.Decode("\x01")
+			}
+		}()
+		panicCh <- pv
+	}()
+
+	select {
+	case pv := <-panicCh:
+		if pv != nil {
+			t.Fatalf("P4e: decodeBfrange panicked on empty string dst: %v", pv)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("P4e: readCmap/Decode hung on empty string dst")
+	}
+}
+
 // P6 — xref stream Size field exceeds maxXrefObjects.
 // readXrefStream must reject the oversized allocation before make().
 // Expect: OpenBytes returns an error within the timeout; no hang or crash.

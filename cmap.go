@@ -108,6 +108,9 @@ func decodeBfrange(entry bfrange, text string) ([]rune, bool) {
 		s := entry.dst.RawString()
 		if entry.lo != text {
 			b := []byte(s)
+			if len(b) == 0 {
+				return []rune{noRune}, true
+			}
 			b[len(b)-1] += text[len(text)-1] - entry.lo[len(entry.lo)-1]
 			s = string(b)
 		}
@@ -186,7 +189,7 @@ func (s *cmapInterp) handleEndCodespace(stk *Stack) {
 	}
 	for i := 0; i < s.n; i++ {
 		hi, lo := stk.Pop().RawString(), stk.Pop().RawString()
-		if len(lo) == 0 || len(lo) != len(hi) {
+		if len(lo) == 0 || len(lo) > 4 || len(lo) != len(hi) {
 			if DebugOn {
 				println("bad codespace range")
 			}
