@@ -77,6 +77,22 @@ func TestHandlePlainShowTJEmpty(t *testing.T) {
 	}
 }
 
+// TestHandlePlainShowTJ verifies TJ with a mixed string/number array concatenates
+// only the String elements and skips numeric kerning adjustments.
+// A minimal *Reader{} (non-nil, empty xref) is safe here: Index calls
+// r.resolve(ptr, x[i]); for string elements resolve skips the objptr branch
+// and returns Value{r, parent, x} without any file or xref access.
+func TestHandlePlainShowTJ(t *testing.T) {
+	r := &Reader{} // non-nil so Index/resolve won't nil-panic
+	// Mixed array: "AB", numeric kerning offset, "CD" — showArray must skip the int.
+	arrVal := Value{r, objptr{}, array{"AB", int64(-100), "CD"}}
+	s := newPlainState()
+	s.handlePlainShow("TJ", []Value{arrVal})
+	if got := s.buf.String(); got != "ABCD" {
+		t.Errorf("TJ(mixed): want \"ABCD\", got %q", got)
+	}
+}
+
 // --- panic tests -----------------------------------------------------------
 
 // TestHandlePlainShowBadArgCounts verifies that wrong operand counts panic with

@@ -88,39 +88,17 @@ func (r *Reader) GetStyledTexts(ctx context.Context) (sentences []Text, err erro
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	totalPage := r.NumPage()
-	for pageIndex := 1; pageIndex <= totalPage; pageIndex++ {
+	for _, p := range r.Pages() {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
 		}
-		p := r.Page(pageIndex)
-
-		if p.V.IsNull() || p.V.Key("Contents").Kind() == Null {
-			continue
-		}
-		var lastTextStyle Text
-		texts := p.Content().Text
-		for _, text := range texts {
-			if lastTextStyle == (Text{}) {
-				lastTextStyle = text
-				continue
-			}
-
-			if IsSameSentence(lastTextStyle, text) {
-				lastTextStyle.S = lastTextStyle.S + text.S
-			} else {
-				sentences = append(sentences, lastTextStyle)
-				lastTextStyle = text
-			}
-		}
-		if len(lastTextStyle.S) > 0 {
-			sentences = append(sentences, lastTextStyle)
+		for text := range p.Texts() {
+			sentences = append(sentences, text)
 		}
 	}
-
-	return sentences, err
+	return sentences, nil
 }
 
 // Pages returns an iterator over all pages in the PDF, yielding the 1-based

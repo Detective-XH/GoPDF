@@ -5,17 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## Fixed, pending release
+## v0.6.4 — 2026-06-03
 
 ### Security
 
 - **Security:** Password verification in `verifyEncryptKey` now uses constant-time comparison — eliminates a timing side-channel that could have allowed password oracle attacks.
+- Per-object encryption key is now correctly truncated per PDF spec §7.6.2 — decryption no longer produces garbage output for PDFs encrypted with keys shorter than 128 bits (40-bit or 64-bit RC4).
+- `decryptString` now strips PKCS7 padding after AES-CBC decryption — previously every AES-encrypted string had 1–16 trailing garbage bytes, silently corrupting dict lookups and string comparisons.
+- `decryptStream` AES branch now handles PKCS7 padding correctly and returns an error on cipher failure instead of silently passing raw encrypted bytes to callers.
 
 ### Fixed
 
-- Per-object encryption key is now correctly truncated per PDF spec §7.6.2 — decryption no longer produces garbage output for PDFs encrypted with keys shorter than 128 bits (40-bit or 64-bit RC4).
-- `decryptString` now strips PKCS7 padding after AES-CBC decryption — previously every AES-encrypted string had 1–16 trailing garbage bytes, silently corrupting dict lookups and string comparisons.
-- `decryptStream` AES branch now handles PKCS7 padding correctly and returns an empty reader on cipher failure instead of silently passing raw encrypted data to callers.
 - `GetPlainText` no longer errors on PDFs that use the `"` (double-quote) text-show operator — the operator previously panicked or emitted a word-spacing number instead of the text string.
 
 ---
