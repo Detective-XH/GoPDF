@@ -1,6 +1,7 @@
 package pdf
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"testing"
@@ -140,4 +141,73 @@ func TestInfoNullWhenNoInfo(t *testing.T) {
 	if !r.Info().V.IsNull() {
 		t.Error("Info().V.IsNull() = false, want true for PDF without /Info")
 	}
+}
+
+// metadataInfoFromDict constructs an Info directly from a dict without parsing
+// a full PDF. The dict values must be non-objptr objects (name, string, etc.)
+// so that Value.Key never triggers an xref lookup on the stub Reader.
+func metadataInfoFromDict(d dict) Info {
+	r := &Reader{f: bytes.NewReader(nil), end: 0}
+	return Info{V: Value{r, objptr{}, d}}
+}
+
+func TestMetadataTrapped(t *testing.T) {
+	tests := []struct {
+		desc string
+		d    dict
+		want string
+	}{
+		{
+			desc: "Trapped True",
+			d:    dict{name("Trapped"): name("True")},
+			want: "True",
+		},
+		{
+			desc: "Trapped False",
+			d:    dict{name("Trapped"): name("False")},
+			want: "False",
+		},
+		{
+			desc: "Trapped absent",
+			d:    dict{},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			info := metadataInfoFromDict(tt.d)
+			if got := info.Trapped(); got != tt.want {
+				t.Errorf("Trapped() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMetadataModDate(t *testing.T) {
+	t.Run("valid ModDate", func(t *testing.T) {
+		d := dict{name("ModDate"): "D:20260101120000Z"}
+		info := metadataInfoFromDict(d)
+		got := info.ModDate()
+		if got.IsZero() {
+			t.Fatal("ModDate() returned zero time, want non-zero")
+		}
+		if got.Year() != 2026 {
+			t.Errorf("ModDate().Year() = %d, want 2026", got.Year())
+		}
+		if got.Month() != time.January {
+			t.Errorf("ModDate().Month() = %v, want January", got.Month())
+		}
+		if got.Day() != 1 {
+			t.Errorf("ModDate().Day() = %d, want 1", got.Day())
+		}
+	})
+
+	t.Run("absent ModDate", func(t *testing.T) {
+		d := dict{}
+		info := metadataInfoFromDict(d)
+		if got := info.ModDate(); !got.IsZero() {
+			t.Errorf("ModDate() = %v, want zero time for absent key", got)
+		}
+	})
 }

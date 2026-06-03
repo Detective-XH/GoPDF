@@ -334,3 +334,56 @@ func TestResolveDirectValueStream(t *testing.T) {
 		t.Errorf("resolve(stream): ptr=%v, want %v", got.ptr, parent)
 	}
 }
+
+// ---- TestResolveInStreamDirect ------------------------------------------------
+
+// TestResolveInStreamDirect calls resolveInStream directly and verifies that it
+// can locate and decode an object stored inside an ObjStm fetched via xref and
+// loadDirectObject — exercising the full resolveInStream code path.
+//
+// File layout (83 bytes):
+//
+//	offset 0:  " "   (1-byte prefix; ensures offset==0 triggers the null-Value
+//	                   guard in resolve, so xref[1] must have offset != 0)
+//	offset 1:  "1 0 obj << /Type /ObjStm /N 1 /First 4 /Length 6 >> stream\n"
+//	offset 60: "5 0 99"   (stream body, 6 bytes)
+//	offset 66: "\nendstream endobj"
+//
+// ObjStm stream body "5 0 99":
+//
+//	index section (First=4 bytes): "5 0 "  → id=5, body-offset=0
+//	body section  (from First=4):  "99"    → integer 99
+func TestResolveInStreamDirect(t *testing.T) {
+	// Build the file bytes: 1-byte prefix + PDF objdef for the ObjStm.
+	fileBytes := []byte(" 1 0 obj << /Type /ObjStm /N 1 /First 4 /Length 6 >> stream\n5 0 99\nendstream endobj")
+
+	r := makeResolveReader(fileBytes)
+
+	// Wire the xref table so that:
+	//   slot 1 → the ObjStm object at file offset 1 (loadDirectObject path).
+	//            xref.ptr must equal objptr{id:1} or resolve returns null.
+	r.xref = []xref{
+		{}, // slot 0: unused
+		{ptr: objptr{id: 1, gen: 0}, inStream: false, offset: 1}, // slot 1: ObjStm
+		{}, {}, {}, {}, // slots 2-5: unused
+	}
+
+	// xref entry that describes object 5 as living inside the ObjStm at slot 1.
+	// resolveInStream receives this entry and uses xr.stream to fetch the ObjStm.
+	xr := xref{
+		ptr:      objptr{id: 5, gen: 0},
+		inStream: true,
+		stream:   objptr{id: 1, gen: 0},
+		offset:   0, // index within ObjStm (not used by resolveInStream directly)
+	}
+
+	got := r.resolveInStream(objptr{}, objptr{id: 5, gen: 0}, xr)
+
+	v, ok := got.(int64)
+	if !ok {
+		t.Fatalf("resolveInStream: expected int64, got %T(%v)", got, got)
+	}
+	if v != 99 {
+		t.Errorf("resolveInStream: got %d, want 99", v)
+	}
+}

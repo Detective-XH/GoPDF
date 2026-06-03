@@ -555,3 +555,60 @@ func BenchmarkFlateDecode(b *testing.B) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestFilterFlateCloseWriterClose
+// ---------------------------------------------------------------------------
+
+// TestFilterFlateCloseWriterClose builds a FlateDecode stream Value entirely
+// in-process, calls v.Reader() to obtain an io.ReadCloser, verifies that
+// reading the decompressed content matches the original payload, and
+// confirms that Close() returns nil.
+//
+// Value.Reader() returns io.NopCloser(out) on the success path, so Close()
+// must always return nil — this test pins that invariant.
+func TestFilterFlateCloseWriterClose(t *testing.T) {
+	payload := []byte("hello world test payload")
+	compressed := zlibCompress(payload)
+
+	// Build a Reader whose backing store is a bytes.Reader positioned at
+	// offset 0; the stream body occupies [0, len(compressed)).
+	r := &Reader{f: bytes.NewReader(compressed), end: int64(len(compressed))}
+
+	s := stream{
+		hdr: dict{
+			name("Length"): int64(len(compressed)),
+			name("Filter"): name("FlateDecode"),
+		},
+		offset: 0,
+	}
+	v := Value{r, objptr{}, s}
+
+	rc := v.Reader()
+	if rc == nil {
+		t.Fatal("Reader() returned nil")
+	}
+
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("decompressed content mismatch: got %q, want %q", got, payload)
+	}
+
+	if err := rc.Close(); err != nil {
+		t.Fatalf("Close() returned non-nil error: %v", err)
+	}
+}
+
+// TestFilterErrorReadCloserClose covers errorReadCloser.Close (filter.go:141).
+// Value.Reader() returns an errorReadCloser when the Value is not a stream.
+func TestFilterErrorReadCloserClose(t *testing.T) {
+	r := &Reader{f: bytes.NewReader(nil), end: 0}
+	v := Value{r, objptr{}, dict{}} // dict is not a stream
+	rc := v.Reader()
+	if err := rc.Close(); err == nil {
+		t.Error("expected non-nil error from errorReadCloser.Close(), got nil")
+	}
+}

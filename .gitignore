@@ -2,5 +2,12 @@ CLAUDE.md
 .docgraph/
 .codegraph/
 .claude/
+.agents/
+.codex/
 plans/
 scripts/
+cover.out
+coverage.out
+*.out
+.DS_Store
+AGENTS.md
