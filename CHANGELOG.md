@@ -12,6 +12,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Security:** `Content()` no longer panics on malformed PDF content streams — operator calls with wrong argument counts (e.g. a `Td` with one operand instead of two) are now caught and return whatever text and rectangles were extracted before the fault, preventing denial-of-service via crafted PDFs.
 - **Security:** `Content()` no longer panics when a `Q` (restore graphics state) operator appears with no matching `q` (save) — the unmatched restore is silently skipped and parsing continues, so subsequent content in the same stream is still extracted.
 
+### Fixed
+
+- `GetTextByRow` / `GetTextByColumn` no longer panic when a PDF content stream contains a `Tm` (text-matrix) operator with fewer than 6 operands — the malformed operator is now silently skipped and extraction continues.
+
 ### Changed
 
 - `Text.S`, `Content`, `Content()`, `GetPlainText`, `GetTextByColumn`, and `GetTextByRow` now document that extracted text is returned as verbatim UTF-8 with no escaping applied — callers are responsible for escaping at their output sink before embedding in HTML, shell commands, or any other context-sensitive environment (e.g. `html.EscapeString` for HTML output).

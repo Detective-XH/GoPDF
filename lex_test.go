@@ -414,6 +414,16 @@ func TestLexComment(t *testing.T) {
 	})
 }
 
+// TestLexReadTokenDefaultDelim verifies that a bare ')' delimiter reaching
+// readTokenDefault triggers errorf, which panics.
+func TestLexReadTokenDefaultDelim(t *testing.T) {
+	buf := newTestBuffer([]byte(") "))
+	r := panicToError(func() { buf.readToken() })
+	if r == nil {
+		t.Fatal("expected panic for bare ')' delimiter, got none")
+	}
+}
+
 // FuzzLex feeds arbitrary bytes to the lexer and detects panics natively.
 // No recover() wrapper — the Go fuzz engine detects panics on its own.
 func FuzzLex(f *testing.F) {
