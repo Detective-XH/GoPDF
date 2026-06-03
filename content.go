@@ -277,6 +277,9 @@ func (s *contentState) interpret(stk *Stack, op string) {
 }
 
 // Content returns the page's content.
+// All Text.S values in the returned Content are verbatim UTF-8 extracted from the
+// PDF; no HTML, shell, or other escaping is applied. Callers must escape at their
+// output sink (e.g. html.EscapeString before writing to an HTML template).
 // If the content stream causes a panic (e.g. malformed operator arguments),
 // the defer/recover returns whatever text and rectangles were collected before
 // the crash rather than propagating the panic to the caller.

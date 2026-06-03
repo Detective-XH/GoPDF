@@ -112,6 +112,9 @@ func (s *plainTextState) interpretPlain(stk *Stack, op string) {
 }
 
 // GetPlainText returns the page's all text without format.
+// The returned string is verbatim UTF-8 with no escaping applied; callers must
+// escape it at their output sink before embedding in HTML, shell commands, or
+// any other context-sensitive environment.
 // fonts can be passed in (to improve parsing performance) or left nil
 func (p Page) GetPlainText(fonts map[string]*Font) (result string, err error) {
 	defer func() {

@@ -18,7 +18,10 @@ type Text struct {
 	X        float64 // the X coordinate, in points, increasing left to right
 	Y        float64 // the Y coordinate, in points, increasing bottom to top
 	W        float64 // the width of the text, in points
-	S        string  // the actual UTF-8 text
+	// S is the extracted UTF-8 text, returned verbatim with no escaping applied.
+	// Callers must escape S before embedding it in HTML, shell commands, SQL, or
+	// any other context-sensitive sink (e.g. html.EscapeString for HTML output).
+	S string
 }
 
 // A Rect represents a rectangle.
@@ -33,6 +36,8 @@ type Point struct {
 }
 
 // Content describes the basic content on a page: the text and any drawn rectangles.
+// All string fields within Text elements are verbatim UTF-8; see Text.S for the
+// escaping contract that callers must honour.
 type Content struct {
 	Text []Text
 	Rect []Rect
@@ -47,7 +52,8 @@ type Column struct {
 // Columns is a list of column
 type Columns []*Column
 
-// GetTextByColumn returns the page's all text grouped by column
+// GetTextByColumn returns the page's all text grouped by column.
+// Returned Text.S values are verbatim UTF-8; see Text.S for the escaping contract.
 func (p Page) GetTextByColumn() (Columns, error) {
 	result := Columns{}
 	var err error
@@ -117,7 +123,8 @@ type Row struct {
 // Rows is a list of rows
 type Rows []*Row
 
-// GetTextByRow returns the page's all text grouped by rows
+// GetTextByRow returns the page's all text grouped by rows.
+// Returned Text.S values are verbatim UTF-8; see Text.S for the escaping contract.
 func (p Page) GetTextByRow() (Rows, error) {
 	result := Rows{}
 	var err error
