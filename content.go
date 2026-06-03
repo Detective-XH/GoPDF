@@ -60,9 +60,10 @@ func (s *contentState) handleGraphics(op string, args []Value) {
 	case "q":
 		s.gstack = append(s.gstack, s.g)
 	case "Q":
-		n := len(s.gstack) - 1
-		s.g = s.gstack[n]
-		s.gstack = s.gstack[:n]
+		if n := len(s.gstack) - 1; n >= 0 {
+			s.g = s.gstack[n]
+			s.gstack = s.gstack[:n]
+		}
 		// f, g, l, m, cs, scn, gs: no-op
 	}
 }
@@ -276,11 +277,20 @@ func (s *contentState) interpret(stk *Stack, op string) {
 }
 
 // Content returns the page's content.
-func (p Page) Content() Content {
+// If the content stream causes a panic (e.g. malformed operator arguments),
+// the defer/recover returns whatever text and rectangles were collected before
+// the crash rather than propagating the panic to the caller.
+func (p Page) Content() (out Content) {
+	var s *contentState
+	defer func() {
+		if recover() != nil && s != nil {
+			out = Content{s.text, s.rect}
+		}
+	}()
 	if p.V.IsNull() || p.V.Key("Contents").Kind() == Null {
-		return Content{}
+		return
 	}
-	s := &contentState{
+	s = &contentState{
 		g:         gstate{Th: 1, CTM: ident},
 		enc:       &nopEncoder{},
 		p:         p,

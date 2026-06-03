@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Security
+
+- **Security:** `Content()` no longer panics on malformed PDF content streams — operator calls with wrong argument counts (e.g. a `Td` with one operand instead of two) are now caught and return whatever text and rectangles were extracted before the fault, preventing denial-of-service via crafted PDFs.
+- **Security:** `Content()` no longer panics when a `Q` (restore graphics state) operator appears with no matching `q` (save) — the unmatched restore is silently skipped and parsing continues, so subsequent content in the same stream is still extracted.
+
+---
+
 ## v0.6.4 — 2026-06-03
 
 ### Security

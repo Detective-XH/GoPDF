@@ -8,6 +8,8 @@
 //	P4a malformed CMap: endbfchar without beginbfchar — no panic from readCmap
 //	P4b malformed CMap: endbfrange without beginbfrange — no panic from readCmap
 //	P5  FlateDecode stream followed by trailing garbage — no panic, readable
+//	P7  Q operator with empty gstack — no panic from Content()
+//	P8  Td operator with wrong arg count — no panic from Content()
 package pdf
 
 import (
@@ -19,6 +21,47 @@ import (
 	"testing"
 	"time"
 )
+
+// assertNoPanic calls f and fails the test if f panics.
+func assertNoPanic(t *testing.T, f func()) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("unexpected panic: %v", r)
+		}
+	}()
+	f()
+}
+
+// buildContentPDF builds a minimal valid PDF with a single page whose content
+// stream is the given bytes.  Uses buildPDFFromObjects (page_test.go) pattern.
+func buildContentPDF(contentStream string) []byte {
+	var b strings.Builder
+	b.WriteString("%PDF-1.4\n")
+	bodies := []string{
+		// 1: Catalog
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		// 2: Pages
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		// 3: Page
+		"<< /Type /Page /Parent 2 0 R /Resources << >> /Contents 4 0 R >>",
+		// 4: Content stream
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(contentStream), contentStream),
+	}
+	offs := make([]int, len(bodies)+1)
+	for i, body := range bodies {
+		offs[i+1] = b.Len()
+		fmt.Fprintf(&b, "%d 0 obj\n%s\nendobj\n", i+1, body)
+	}
+	xrefOff := b.Len()
+	n := len(bodies) + 1
+	fmt.Fprintf(&b, "xref\n0 %d\n0000000000 65535 f \n", n)
+	for i := 1; i < n; i++ {
+		fmt.Fprintf(&b, "%010d 00000 n \n", offs[i])
+	}
+	fmt.Fprintf(&b, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", n, xrefOff)
+	return []byte(b.String())
+}
 
 // buildXrefPDF returns a minimal but structurally valid PDF where the xref
 // table sits immediately after the 9-byte "%PDF-1.4\n" header (startxref=9),
@@ -78,11 +121,11 @@ func TestRedTeamTruncatedXref(t *testing.T) {
 // NewReaderEncrypted's defer-recover() must catch the panic and return an error.
 func TestRedTeamObjectDepthExceedsMax(t *testing.T) {
 	var nested strings.Builder
-	for i := 0; i < maxObjectDepth+100; i++ {
+	for range maxObjectDepth + 100 {
 		nested.WriteString("<</A ")
 	}
 	nested.WriteString("/Size 1 /Root 1 0 R")
-	for i := 0; i < maxObjectDepth+100; i++ {
+	for range maxObjectDepth + 100 {
 		nested.WriteString(" >>")
 	}
 
@@ -101,9 +144,9 @@ func TestRedTeamMalformedCMapEndbfcharNoPreceding(t *testing.T) {
 	data := []byte("begincmap\nendbfchar\nendcmap\n")
 	v := testStream(data)
 
-	panicCh := make(chan interface{}, 1)
+	panicCh := make(chan any, 1)
 	go func() {
-		var pv interface{}
+		var pv any
 		func() {
 			defer func() { pv = recover() }()
 			readCmap(v)
@@ -130,9 +173,9 @@ func TestRedTeamMalformedCMapEndbfrangeNoPreceding(t *testing.T) {
 	data := []byte("begincmap\nendbfrange\nendcmap\n")
 	v := testStream(data)
 
-	panicCh := make(chan interface{}, 1)
+	panicCh := make(chan any, 1)
 	go func() {
-		var pv interface{}
+		var pv any
 		func() {
 			defer func() { pv = recover() }()
 			readCmap(v)
@@ -158,9 +201,9 @@ func TestRedTeamMalformedCMapHugeCount(t *testing.T) {
 	data := []byte("begincmap\n2000000000 beginbfchar\nendbfchar\nendcmap\n")
 	v := testStream(data)
 
-	done := make(chan interface{}, 1)
+	done := make(chan any, 1)
 	go func() {
-		var pv interface{}
+		var pv any
 		func() {
 			defer func() { pv = recover() }()
 			readCmap(v)
@@ -220,7 +263,7 @@ func TestRedTeamFlateTrailingGarbage(t *testing.T) {
 	_ = zw.Close()
 	withGarbage := append(compressed.Bytes(), 0xFF, 0xFE, 0x00, 0xAB, 0xCD, 0xEF)
 
-	var pv interface{}
+	var pv any
 	func() {
 		defer func() { pv = recover() }()
 		rd, err := applyFilter(bytes.NewReader(withGarbage), "FlateDecode", Value{})
@@ -232,4 +275,42 @@ func TestRedTeamFlateTrailingGarbage(t *testing.T) {
 	if pv != nil {
 		t.Fatalf("P5: FlateDecode with trailing garbage panicked: %v", pv)
 	}
+}
+
+// P7 — Q (restore graphics state) called with an empty gstack.
+// handleGraphics used to index gstack[-1], causing an out-of-bounds panic.
+// After the guard fix the bare Q is silently ignored and parsing continues,
+// so text after the Q must also appear in the extracted content.
+func TestContentBareQNoPanic(t *testing.T) {
+	// Text before Q, bare Q (no matching q), text after Q.
+	// Without the guard: panic at Q, recover fires, only "before" chars extracted.
+	// With the guard: Q is skipped, both "before" and "after" chars extracted.
+	data := buildContentPDF("(before) Tj Q (after) Tj")
+	r, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("P7: OpenBytes: %v", err)
+	}
+	c := r.Page(1).Content()
+	// "before" = 6 chars, "after" = 5 chars; guard lets parsing continue past Q.
+	const wantAtLeast = 7 // more than len("before") proves "after" was reached
+	if len(c.Text) < wantAtLeast {
+		t.Fatalf("P7: got %d text elements, want >= %d; bare Q may have stopped parsing early", len(c.Text), wantAtLeast)
+	}
+}
+
+// P8 — Td (move text position) called with only one argument instead of two.
+// handleTd used to panic("bad Td") which escaped Content() uncaught.
+// After the fix, the defer/recover in Content() must swallow the panic and
+// return partial content rather than crashing the caller.
+func TestContentMalformedArgNoPanic(t *testing.T) {
+	// "1 Td" supplies only one operand; the PDF spec requires two.
+	data := buildContentPDF("1 Td")
+	r, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("P8: OpenBytes: %v", err)
+	}
+	page := r.Page(1)
+	assertNoPanic(t, func() {
+		_ = page.Content()
+	})
 }
