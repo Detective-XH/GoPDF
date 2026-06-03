@@ -379,3 +379,48 @@ func TestObjectMaybeDecryptToken(t *testing.T) {
 		}
 	})
 }
+
+// ---------------------------------------------------------------------------
+// TestObjectMaybeDecryptTokenZeroObjptr
+// ---------------------------------------------------------------------------
+
+// TestObjectMaybeDecryptTokenZeroObjptr verifies that a string token with a
+// non-nil key but objptr.id == 0 is returned unchanged (the compound guard
+// in maybeDecryptToken requires all three conditions).
+func TestObjectMaybeDecryptTokenZeroObjptr(t *testing.T) {
+	b := objectMakeBuffer([]byte(""))
+	b.key = []byte{0x01, 0x02, 0x03, 0x04, 0x05}
+	b.objptr = objptr{id: 0, gen: 0} // zero id — decryption is skipped
+	tok := object("plaintext")
+	got := b.maybeDecryptToken(tok)
+	if got != tok {
+		t.Errorf("maybeDecryptToken (zero objptr.id): expected unchanged tok, got different")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestObjectMaybeDecryptTokenRC4
+// ---------------------------------------------------------------------------
+
+// TestObjectMaybeDecryptTokenRC4 verifies the full decryption path: a string
+// token with a non-nil key and non-zero objptr.id triggers decryptString.
+// RC4 is symmetric, so applying maybeDecryptToken twice with the same key and
+// objptr restores the original plaintext.
+func TestObjectMaybeDecryptTokenRC4(t *testing.T) {
+	b := objectMakeBuffer([]byte(""))
+	b.key = []byte{0x01, 0x02, 0x03, 0x04, 0x05}
+	b.useAES = false
+	b.objptr = objptr{id: 1, gen: 0} // non-zero id — decryption executes
+
+	original := "hello"
+	// First pass: RC4-encrypt (RC4 encrypt == decrypt).
+	encrypted, ok := b.maybeDecryptToken(object(original)).(string)
+	if !ok {
+		t.Fatal("maybeDecryptToken RC4: result is not a string")
+	}
+	// Second pass: applying RC4 again with the same key and ptr restores the original.
+	decrypted := b.maybeDecryptToken(object(encrypted))
+	if decrypted != object(original) {
+		t.Errorf("maybeDecryptToken RC4 round-trip: got %q, want %q", decrypted, original)
+	}
+}

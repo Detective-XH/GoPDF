@@ -304,3 +304,32 @@ func TestOutlinePageNumber(t *testing.T) {
 	t.Run("NoOutlines", testOutlineNoOutlines)
 	t.Run("BothDestAndAction", testOutlineBothDestAndAction)
 }
+
+// TestOutlinePageFromDestArrayExplicit covers the two branches in
+// pageFromDestArray that are not exercised by the PDF-round-trip tests:
+//
+//  1. Empty dest array  → returns 0 immediately (dest.Len() == 0 branch).
+//  2. Page not found    → dest array is non-empty but the first element's
+//     resolved ptr.id is absent from the pages map (bottom return 0).
+func TestOutlinePageFromDestArrayExplicit(t *testing.T) {
+	// Branch 1: empty dest array → returns 0.
+	emptyDest := Value{nil, objptr{}, array{}}
+	if got := pageFromDestArray(emptyDest, map[uint32]int{1: 1}); got != 0 {
+		t.Errorf("empty dest array: got %d, want 0", got)
+	}
+
+	// Branch 2: non-empty dest array whose first element resolves to a ptr.id
+	// that is NOT in the pages map → returns 0.
+	//
+	// Reader.resolve only accesses r.xref when the raw object is an objptr.
+	// Here the first array element is a name (not an objptr), so resolve returns
+	// Value{r, parent, name("XYZ")} — no xref access, no panic on &Reader{}.
+	// The returned Value's .ptr is the parent ptr (id=999), which is absent from
+	// the pages map, so pageFromDestArray returns 0.
+	r := &Reader{}
+	destVal := Value{r, objptr{id: 999, gen: 0}, array{name("XYZ"), name("Fit")}}
+	pages := map[uint32]int{1: 1, 2: 2}
+	if got := pageFromDestArray(destVal, pages); got != 0 {
+		t.Errorf("page not found: got %d, want 0", got)
+	}
+}

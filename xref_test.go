@@ -345,6 +345,118 @@ func TestXrefFollowPrevChainBrokenLink(t *testing.T) {
 	}
 }
 
+// --- TestXrefReadTable* -------------------------------------------------------
+
+// TestXrefReadTableMultiSection exercises readXrefTable directly with two xref
+// subsections and a well-formed trailer.  Verifies that both sections are
+// loaded into the returned table.
+func TestXrefReadTableMultiSection(t *testing.T) {
+	sec1 := buildXrefTableSection(0, [][3]int64{
+		{0, 65535, 'f'},
+		{100, 0, 'n'},
+	})
+	sec2 := buildXrefTableSection(3, [][3]int64{
+		{200, 0, 'n'},
+		{300, 0, 'n'},
+	})
+	trailerBytes := []byte("trailer\n<< /Size 5 >>\n")
+	data := append(append(sec1, sec2...), trailerBytes...)
+	b := newBuffer(bytes.NewReader(data), 0)
+	b.allowEOF = true
+	r := makeReaderFromBytes(data)
+
+	table, _, _, err := readXrefTable(r, b)
+	if err != nil {
+		t.Fatalf("readXrefTable: unexpected error: %v", err)
+	}
+	if len(table) < 5 {
+		t.Fatalf("expected table len >= 5, got %d", len(table))
+	}
+	if table[1].offset != 100 {
+		t.Errorf("slot 1: expected offset 100, got %d", table[1].offset)
+	}
+	if table[3].offset != 200 {
+		t.Errorf("slot 3: expected offset 200, got %d", table[3].offset)
+	}
+}
+
+// TestXrefReadTableFreeEntry verifies that a free ('f') xref entry does NOT
+// set the slot's offset (it must remain 0).
+func TestXrefReadTableFreeEntry(t *testing.T) {
+	sec := buildXrefTableSection(0, [][3]int64{
+		{0, 65535, 'f'},
+		{50, 0, 'n'},
+	})
+	trailerBytes := []byte("trailer\n<< /Size 2 >>\n")
+	data := append(sec, trailerBytes...)
+	b := newBuffer(bytes.NewReader(data), 0)
+	b.allowEOF = true
+	r := makeReaderFromBytes(data)
+
+	table, _, _, err := readXrefTable(r, b)
+	if err != nil {
+		t.Fatalf("readXrefTable: unexpected error: %v", err)
+	}
+	if len(table) < 2 {
+		t.Fatalf("expected table len >= 2, got %d", len(table))
+	}
+	// Free entry: offset must stay 0.
+	if table[0].offset != 0 {
+		t.Errorf("slot 0 (free): expected offset 0, got %d", table[0].offset)
+	}
+	if table[1].offset != 50 {
+		t.Errorf("slot 1: expected offset 50, got %d", table[1].offset)
+	}
+}
+
+// TestXrefReadTableNoTrailerDict exercises the "trailer not a dict" error path
+// in readXrefTable by feeding a "null" object instead of a dict after the xref
+// section data.
+func TestXrefReadTableNoTrailerDict(t *testing.T) {
+	sec := buildXrefTableSection(0, [][3]int64{{0, 65535, 'f'}})
+	// "null" is not a dict → triggers the !ok branch.
+	trailerBytes := []byte("trailer\nnull\nstartxref\n0\n%%%%EOF\n")
+	data := append(sec, trailerBytes...)
+	b := newBuffer(bytes.NewReader(data), 0)
+	b.allowEOF = true
+	r := makeReaderFromBytes(data)
+
+	_, _, _, err := readXrefTable(r, b)
+	if err == nil {
+		t.Fatal("expected error for non-dict trailer, got nil")
+	}
+	if !strings.Contains(err.Error(), "trailer dictionary") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// TestXrefReadTableSizeTruncates exercises the size < len(table) truncation
+// branch: the table holds 5 entries but /Size is 2, so the returned slice
+// must be truncated to length 2.
+func TestXrefReadTableSizeTruncates(t *testing.T) {
+	sec := buildXrefTableSection(0, [][3]int64{
+		{0, 65535, 'f'},
+		{100, 0, 'n'},
+		{200, 0, 'n'},
+		{300, 0, 'n'},
+		{400, 0, 'n'},
+	})
+	// /Size 2 is less than the 5 entries in the section → truncation.
+	trailerBytes := []byte("trailer\n<< /Size 2 >>\n")
+	data := append(sec, trailerBytes...)
+	b := newBuffer(bytes.NewReader(data), 0)
+	b.allowEOF = true
+	r := makeReaderFromBytes(data)
+
+	table, _, _, err := readXrefTable(r, b)
+	if err != nil {
+		t.Fatalf("readXrefTable: unexpected error: %v", err)
+	}
+	if len(table) != 2 {
+		t.Errorf("expected table truncated to size 2, got len %d", len(table))
+	}
+}
+
 // --- FuzzXrefTable -----------------------------------------------------------
 
 // FuzzXrefTable feeds arbitrary bytes as the body of an xref-table buffer to

@@ -93,6 +93,35 @@ func TestHandlePlainShowTJ(t *testing.T) {
 	}
 }
 
+// --- handlePlainTf ---------------------------------------------------------
+
+// TestPlainHandleTfNilEncoder verifies that when the font name is not found in
+// the fonts map, handlePlainTf falls through to the else branch and sets enc to
+// a nopEncoder.
+func TestPlainHandleTfNilEncoder(t *testing.T) {
+	s := &plainTextState{
+		enc:   &nopEncoder{},
+		fonts: make(map[string]*Font), // empty map — "F1" will not be found
+	}
+	args := []Value{{nil, objptr{}, name("F1")}, fltVal(12.0)}
+	s.handlePlainTf(args)
+	if _, ok := s.enc.(*nopEncoder); !ok {
+		t.Errorf("handlePlainTf with missing font: want nopEncoder, got %T", s.enc)
+	}
+}
+
+// TestPlainHandleTfBadArgCount verifies that handlePlainTf panics when called
+// with a wrong number of arguments (fewer than 2).
+func TestPlainHandleTfBadArgCount(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("handlePlainTf with 1 arg: expected panic, got none")
+		}
+	}()
+	s := &plainTextState{enc: &nopEncoder{}, fonts: make(map[string]*Font)}
+	s.handlePlainTf([]Value{fltVal(12.0)}) // only 1 arg → panic
+}
+
 // --- panic tests -----------------------------------------------------------
 
 // TestHandlePlainShowBadArgCounts verifies that wrong operand counts panic with

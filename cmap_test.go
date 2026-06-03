@@ -488,10 +488,10 @@ func TestCmapApplyDifferences(t *testing.T) {
 	t.Run("newDictEncoder_with_differences", func(t *testing.T) {
 		// Wire applyDifferences through newDictEncoder: remap 0x42 ('B') to sterling.
 		r := &Reader{f: bytes.NewReader(nil), end: 0}
-		diffArr := Value{r, objptr{}, array{int64(0x42), name("sterling")}}
+		diffArrData := array{int64(0x42), name("sterling")}
 		enc := Value{r, objptr{}, dict{
 			name("BaseEncoding"): name("WinAnsiEncoding"),
-			name("Differences"):  diffArr.data,
+			name("Differences"):  diffArrData,
 		}}
 		de := newDictEncoder(enc)
 		if de == nil {

@@ -100,6 +100,9 @@ func (s *walkState) handleWalkPos(op string, args []Value) {
 		s.y += ty
 		s.tl = -ty
 	case "Tm":
+		if len(args) != 6 {
+			return
+		}
 		s.x = args[4].Float64()
 		s.y = args[5].Float64()
 	}

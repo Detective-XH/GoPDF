@@ -421,3 +421,229 @@ func BenchmarkContentInterpret(b *testing.B) {
 		_ = page.Content()
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestContentHandleTextShowQuote — ' operator applies Td(0,-Tl) and appends text
+// ---------------------------------------------------------------------------
+
+// TestContentHandleTextShowQuote verifies that the single-quote (') operator
+// moves the text position down by Tl (equivalent to T*) and then appends the
+// string argument as individual rune entries in s.text.
+//
+// appendText appends one Text entry per rune, so the assertion collects all
+// S fields and compares the concatenation against the input string.
+func TestContentHandleTextShowQuote(t *testing.T) {
+	s := contentMakeState()
+
+	// Seed a known Tm via handleTm so that applyTd has a non-zero base.
+	s.handleTm(contentArgs6(1, 0, 0, 1, 100, 200))
+	s.g.Tl = 10.0
+
+	strVal := Value{nil, objptr{}, "hello"}
+	s.handleTextShow("'", []Value{strVal})
+
+	// Verify text was appended: concatenate all S fields (one per rune).
+	var sb strings.Builder
+	for _, tx := range s.text {
+		sb.WriteString(tx.S)
+	}
+	if got := sb.String(); got != "hello" {
+		t.Errorf("' operator: concatenated text = %q, want %q", got, "hello")
+	}
+
+	// Verify Tm shifted down by Tl=10: Tm[2][1] must equal 200 - 10 = 190.
+	// applyTd multiplied into Tlm (seeded to 100,200); Tm follows Tlm.
+	const wantY = 190.0
+	if s.g.Tm[2][1] != wantY {
+		t.Errorf("' operator: Tm[2][1] = %v, want %v", s.g.Tm[2][1], wantY)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestContentHandleTextShowDoubleQuote — " operator sets Tw, Tc, appends text
+// ---------------------------------------------------------------------------
+
+// TestContentHandleTextShowDoubleQuote verifies that the double-quote (")
+// operator correctly sets g.Tw from the first arg, g.Tc from the second arg,
+// and appends the string (third arg) to s.text.
+//
+// The implementation trims args to [str] before fallthrough to the ' case, so
+// this also exercises the Tl-shift path.
+func TestContentHandleTextShowDoubleQuote(t *testing.T) {
+	s := contentMakeState()
+	// Seed Tm so applyTd has a non-zero base (required for the ' fallthrough).
+	s.handleTm(contentArgs6(1, 0, 0, 1, 0, 0))
+
+	args := []Value{
+		contentMakeFloat64Value(0.5),  // aw → Tw
+		contentMakeFloat64Value(0.25), // ac → Tc
+		{nil, objptr{}, "dq-text"},    // string
+	}
+	s.handleTextShow("\"", args)
+
+	if s.g.Tw != 0.5 {
+		t.Errorf("\" operator: g.Tw = %v, want 0.5", s.g.Tw)
+	}
+	if s.g.Tc != 0.25 {
+		t.Errorf("\" operator: g.Tc = %v, want 0.25", s.g.Tc)
+	}
+
+	var sb strings.Builder
+	for _, tx := range s.text {
+		sb.WriteString(tx.S)
+	}
+	if got := sb.String(); got != "dq-text" {
+		t.Errorf("\" operator: concatenated text = %q, want %q", got, "dq-text")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestContentHandleTextMatrixET — ET is a no-op
+// ---------------------------------------------------------------------------
+
+// TestContentHandleTextMatrixET verifies that the ET operator leaves Tm and Tl
+// unchanged (it is documented and implemented as a deliberate no-op).
+func TestContentHandleTextMatrixET(t *testing.T) {
+	s := contentMakeState()
+	s.handleTm(contentArgs6(1, 0, 0, 1, 30, 40))
+	s.g.Tl = 14.0
+
+	tmBefore := s.g.Tm
+	s.handleTextMatrix("ET", nil)
+
+	if s.g.Tm != tmBefore {
+		t.Errorf("ET operator: Tm changed from %v to %v, want no change", tmBefore, s.g.Tm)
+	}
+	if s.g.Tl != 14.0 {
+		t.Errorf("ET operator: Tl = %v, want 14.0", s.g.Tl)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestContentHandleTextMatrixTStar — T* applies Td(0, -Tl)
+// ---------------------------------------------------------------------------
+
+// TestContentHandleTextMatrixTStar verifies that the T* operator advances the
+// text line by (0, -Tl), identical to calling Td(0, -Tl).
+func TestContentHandleTextMatrixTStar(t *testing.T) {
+	s := contentMakeState()
+	s.handleTm(contentArgs6(1, 0, 0, 1, 100, 200))
+	s.g.Tl = 12.0
+
+	s.handleTextMatrix("T*", nil)
+
+	const wantY = 200 - 12 // = 188
+	if s.g.Tm[2][1] != wantY {
+		t.Errorf("T* operator: Tm[2][1] = %v, want %v", s.g.Tm[2][1], wantY)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestContentHandleTextMatrixTD — TD sets Tl = -ty and applies Td(tx, ty)
+// ---------------------------------------------------------------------------
+
+// TestContentHandleTextMatrixTD verifies that the TD operator sets g.Tl to the
+// negation of the y argument and then moves the text position by (tx, ty).
+// BT is called first to seed identity Tm/Tlm, so applyTd starts from origin.
+func TestContentHandleTextMatrixTD(t *testing.T) {
+	s := contentMakeState()
+	// Seed identity matrices via BT so that applyTd starts from a known origin.
+	s.handleTextMatrix("BT", nil)
+
+	args := []Value{
+		contentMakeFloat64Value(10),
+		contentMakeFloat64Value(-15),
+	}
+	s.handleTextMatrix("TD", args)
+
+	// Tl must be set to -(-15) = 15.
+	if s.g.Tl != 15.0 {
+		t.Errorf("TD operator: g.Tl = %v, want 15.0", s.g.Tl)
+	}
+	// Tm must reflect the Td(10, -15) applied to the identity origin.
+	if s.g.Tm[2][0] != 10 {
+		t.Errorf("TD operator: Tm[2][0] = %v, want 10", s.g.Tm[2][0])
+	}
+	if s.g.Tm[2][1] != -15 {
+		t.Errorf("TD operator: Tm[2][1] = %v, want -15", s.g.Tm[2][1])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestContentHandleGraphicsCm — cm post-multiplies a translation into CTM
+// ---------------------------------------------------------------------------
+
+// TestContentHandleGraphicsCm verifies that the cm operator post-multiplies a
+// pure-translation matrix [1 0 0 1 50 100] into the current CTM.
+// Starting from identity, the result must have CTM[2][0]==50 and CTM[2][1]==100.
+func TestContentHandleGraphicsCm(t *testing.T) {
+	s := contentMakeState()
+	// CTM is already identity (set by contentMakeState via gstate{CTM: ident}).
+
+	s.handleGraphics("cm", contentArgs6(1, 0, 0, 1, 50, 100))
+
+	if s.g.CTM[2][0] != 50.0 {
+		t.Errorf("cm operator: CTM[2][0] = %v, want 50.0", s.g.CTM[2][0])
+	}
+	if s.g.CTM[2][1] != 100.0 {
+		t.Errorf("cm operator: CTM[2][1] = %v, want 100.0", s.g.CTM[2][1])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestContentHandleGraphicsRe — re appends a Rect derived from (x, y, w, h)
+// ---------------------------------------------------------------------------
+
+// TestContentHandleGraphicsRe verifies that the re operator appends a Rect with
+// Min=Point{x,y} and Max=Point{x+w, y+h} to s.rect.
+func TestContentHandleGraphicsRe(t *testing.T) {
+	s := contentMakeState()
+
+	args := []Value{
+		contentMakeFloat64Value(10),
+		contentMakeFloat64Value(20),
+		contentMakeFloat64Value(100),
+		contentMakeFloat64Value(50),
+	}
+	s.handleGraphics("re", args)
+
+	if len(s.rect) != 1 {
+		t.Fatalf("re operator: len(s.rect) = %d, want 1", len(s.rect))
+	}
+	wantMin := Point{10, 20}
+	wantMax := Point{110, 70}
+	if s.rect[0].Min != wantMin {
+		t.Errorf("re operator: rect.Min = %v, want %v", s.rect[0].Min, wantMin)
+	}
+	if s.rect[0].Max != wantMax {
+		t.Errorf("re operator: rect.Max = %v, want %v", s.rect[0].Max, wantMax)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestContentHandleTfNilEncoder — handleTf with missing font uses byteEncoder fallback
+// ---------------------------------------------------------------------------
+
+// TestContentHandleTfNilEncoder verifies that handleTf sets s.enc to a non-nil
+// encoder even when the font resource is absent (empty resources Value).
+//
+// The call path is: Font.Encoder() → getEncoder() → Encoding kind==Null →
+// returns &byteEncoder{&pdfDocEncoding}.  The explicit nil-check branch in
+// handleTf is dead code; this test documents the actually-reachable fallback.
+func TestContentHandleTfNilEncoder(t *testing.T) {
+	s := contentMakeState()
+	// s.resources is zero Value; Key("Font").Key("F1") resolves to null Value.
+
+	args := []Value{
+		{nil, objptr{}, name("F1")}, // font name arg
+		contentMakeFloat64Value(12), // Tfs arg
+	}
+	s.handleTf(args)
+
+	if s.enc == nil {
+		t.Error("handleTf with missing font resource: s.enc is nil, want non-nil encoder")
+	}
+	if s.g.Tfs != 12.0 {
+		t.Errorf("handleTf: g.Tfs = %v, want 12.0", s.g.Tfs)
+	}
+}

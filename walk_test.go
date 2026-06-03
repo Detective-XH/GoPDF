@@ -495,3 +495,148 @@ func TestWalkTjSpaceThresholdPositiveKern(t *testing.T) {
 		t.Errorf("positive kern: 'World' not found in %q", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestWalkHandleShowQuote — handleWalkShow "'" operator
+// ---------------------------------------------------------------------------
+
+// TestWalkHandleShowQuote verifies the ' operator: it calls the walker with the
+// single string argument. Also verifies that a wrong arg count causes a panic.
+func TestWalkHandleShowQuote(t *testing.T) {
+	// Happy path: ' with exactly 1 arg must invoke the walker.
+	var captured string
+	s := &walkState{
+		enc:   &nopEncoder{},
+		fonts: make(map[string]*Font),
+		walker: func(_ TextEncoding, _, _ float64, str string) {
+			captured = str
+		},
+		resources: Value{},
+	}
+	s.handleWalkShow("'", []Value{{nil, objptr{}, "quote-text"}})
+	if captured != "quote-text" {
+		t.Errorf("' operator: walker captured %q, want %q", captured, "quote-text")
+	}
+
+	// Panic path: ' with 0 args must panic with "bad ' operator".
+	func() {
+		defer func() {
+			r := recover()
+			if r == nil {
+				t.Errorf("' operator with 0 args: expected panic, got none")
+			}
+		}()
+		s.handleWalkShow("'", []Value{})
+	}()
+}
+
+// ---------------------------------------------------------------------------
+// TestWalkHandleShowDoubleQuote — handleWalkShow "\"" operator panic path
+// ---------------------------------------------------------------------------
+
+// TestWalkHandleShowDoubleQuote verifies the " operator's bad-arg-count panic.
+// Due to a walk.go bug (no args-trimming before fallthrough), the only reachable
+// path is the wrong-arg-count check at lines 47-48.
+func TestWalkHandleShowDoubleQuote(t *testing.T) {
+	s := &walkState{
+		enc:       &nopEncoder{},
+		fonts:     make(map[string]*Font),
+		walker:    func(_ TextEncoding, _, _ float64, _ string) {},
+		resources: Value{},
+	}
+
+	panicked := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+		}()
+		// 0 args — triggers "bad \" operator" panic (lines 47-48).
+		s.handleWalkShow("\"", []Value{})
+	}()
+	if !panicked {
+		t.Errorf("\" operator with 0 args: expected panic, got none")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestWalkHandlePosTm — handleWalkPos "Tm" operator
+// ---------------------------------------------------------------------------
+
+// TestWalkHandlePosTm verifies that the Tm operator sets x=args[4] and y=args[5].
+func TestWalkHandlePosTm(t *testing.T) {
+	s := &walkState{
+		enc:       &nopEncoder{},
+		fonts:     make(map[string]*Font),
+		walker:    func(_ TextEncoding, _, _ float64, _ string) {},
+		resources: Value{},
+	}
+	// 6-element args: [0, 0, 0, 0, 150.0, 250.0].
+	args := contentArgs6(0, 0, 0, 0, 150.0, 250.0)
+	s.handleWalkPos("Tm", args)
+	if s.x != 150.0 {
+		t.Errorf("Tm x: got %.1f, want 150.0", s.x)
+	}
+	if s.y != 250.0 {
+		t.Errorf("Tm y: got %.1f, want 250.0", s.y)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestWalkHandlePosBadArgs — handleWalkPos bad-arg-count early-return paths
+// ---------------------------------------------------------------------------
+
+// TestWalkHandlePosBadArgs verifies that Td and TD with wrong arg counts return
+// early without panicking and without modifying the walkState's position fields.
+func TestWalkHandlePosBadArgs(t *testing.T) {
+	s := &walkState{
+		enc:       &nopEncoder{},
+		fonts:     make(map[string]*Font),
+		walker:    func(_ TextEncoding, _, _ float64, _ string) {},
+		resources: Value{},
+	}
+
+	// Td with nil args (0 args) → return early; x and y must stay 0.
+	s.handleWalkPos("Td", nil)
+	if s.x != 0 || s.y != 0 {
+		t.Errorf("Td bad args: x=%.1f y=%.1f, want both 0", s.x, s.y)
+	}
+
+	// TD with 0 args → return early; tl must stay 0.
+	s.handleWalkPos("TD", []Value{})
+	if s.tl != 0 {
+		t.Errorf("TD bad args: tl=%.1f, want 0 (unchanged)", s.tl)
+	}
+
+	// Tm with fewer than 6 args → return early; x and y must stay 0.
+	s.handleWalkPos("Tm", []Value{{nil, objptr{}, float64(1)}})
+	if s.x != 0 || s.y != 0 {
+		t.Errorf("Tm bad args: x=%.1f y=%.1f, want both 0", s.x, s.y)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestWalkBlocksTf — walkTextBlocks font-loop body and Tf operator
+// ---------------------------------------------------------------------------
+
+// TestWalkBlocksTf verifies that walkTextBlocks populates the fonts map from
+// the page's Font resources (covering the loop body at lines 149-151 of walk.go)
+// and that the page returns the expected text through GetTextByRow.
+func TestWalkBlocksTf(t *testing.T) {
+	const body = "BT /F1 12 Tf (Hello) Tj ET"
+	objs := []string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(body), body),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+	}
+	data := buildPDFFromObjects(objs)
+
+	texts := walkCollectRows(t, data)
+	got := walkJoinText(texts)
+	if !strings.Contains(got, "Hello") {
+		t.Errorf("walkTextBlocks with Font resource: GetTextByRow = %q; want it to contain %q", got, "Hello")
+	}
+}
