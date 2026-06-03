@@ -351,3 +351,70 @@ func TestFontBaseFontMissing(t *testing.T) {
 		t.Errorf("BaseFont() on empty dict: got %q, want %q", got, "")
 	}
 }
+
+// ---- DebugOn coverage tests ------------------------------------------------
+
+// TestFontGetEncoderDebugToUnicodeFailedParse covers the println body at
+// font.go line 65: ToUnicode stream present but readCmap returns nil (malformed
+// CMap) while DebugOn is true. The fallback Encoding (WinAnsiEncoding) is
+// returned and verified.
+func TestFontGetEncoderDebugToUnicodeFailedParse(t *testing.T) {
+	prev := DebugOn
+	DebugOn = true
+	defer func() { DebugOn = prev }()
+
+	// Same malformed CMap as TestFontGetEncoderToUnicodeFailedParse:
+	// endbfchar before beginbfchar sets s.ok=false → readCmap returns nil.
+	malformed := []byte(
+		"/CIDInit /ProcSet findresource begin\n" +
+			"12 dict begin\n" +
+			"begincmap\n" +
+			"endbfchar\n" +
+			"endcmap\n" +
+			"end\nend\n",
+	)
+	badStream := fontTestCMapStream(malformed)
+
+	r := badStream.r
+	fontDict := dict{
+		name("ToUnicode"): badStream.data,
+		name("Encoding"):  name("WinAnsiEncoding"),
+	}
+	font := Font{V: Value{r, objptr{}, fontDict}}
+
+	enc := font.getEncoder()
+	if enc == nil {
+		t.Fatal("getEncoder returned nil after failed ToUnicode parse with DebugOn=true")
+	}
+	// WinAnsiEncoding: 0x41 → 'A'.
+	got := enc.Decode("\x41")
+	if got != "A" {
+		t.Errorf("after failed ToUnicode (DebugOn): Decode(\\x41) = %q; want %q", got, "A")
+	}
+}
+
+// TestFontGetEncoderDebugUnexpectedKind covers the println body at font.go
+// line 78: Encoding value has an unexpected Kind (Integer) while DebugOn is
+// true. The pdfDocEncoding fallback is returned and verified.
+func TestFontGetEncoderDebugUnexpectedKind(t *testing.T) {
+	prev := DebugOn
+	DebugOn = true
+	defer func() { DebugOn = prev }()
+
+	r := fontTestEmptyReader()
+	// Integer Encoding — Kind==Integer hits the default branch.
+	fontDict := dict{
+		name("Encoding"): int64(42),
+	}
+	font := fontTestFontValue(r, fontDict)
+
+	enc := font.getEncoder()
+	if enc == nil {
+		t.Fatal("getEncoder returned nil for unexpected Encoding kind with DebugOn=true")
+	}
+	// Falls back to pdfDocEncoding — ASCII range is identity.
+	got := enc.Decode("OK")
+	if got != "OK" {
+		t.Errorf("unexpected-kind fallback (DebugOn): Decode(%q) = %q; want %q", "OK", got, "OK")
+	}
+}
