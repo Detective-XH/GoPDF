@@ -3,8 +3,11 @@ version: "2"
 linters:
   enable:
     - gosec
+    - cyclop
 
   settings:
+    cyclop:
+      max-complexity: 14
     gosec:
       excludes:
         # Intentional narrowing conversions throughout the PDF parser.
@@ -23,3 +26,7 @@ linters:
       - path: "read\\.go"
         text: "G304"
         linters: [gosec]
+
+      # Test helpers can exceed cyclop threshold; complexity is acceptable in test scaffolding.
+      - path: "_test\\.go"
+        linters: [cyclop]
