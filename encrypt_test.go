@@ -66,12 +66,17 @@ func TestDecryptAESBadCiphertextLength(t *testing.T) {
 }
 
 // TestDecryptAESBadPadding verifies that corrupted PKCS7 padding returns nil.
+//
+// Strategy: use a 16-byte plaintext so PKCS7 appends a full padding block of
+// [0x10 × 16]. Payload layout: [IV(16)] [CT0(16)] [CT1(16)].
+// Flip the last byte of CT0 (data[31]). In CBC, this XOR-propagates only into
+// pt1[15]: new_pt1[15] = 0x10 ^ 0xFF = 0xEF = 239 > aes.BlockSize → nil.
+// This is deterministic regardless of key/IV.
 func TestDecryptAESBadPadding(t *testing.T) {
 	key := make([]byte, 16)
-	// Encrypt valid plaintext, then corrupt the last byte of the ciphertext so
-	// that the padding byte decrypts to an invalid value.
-	data := aesCBCEncrypt(key, []byte("test"))
-	data[len(data)-1] ^= 0xFF // flip last byte → bad padding
+	_, _ = rand.Read(key)
+	data := aesCBCEncrypt(key, bytes.Repeat([]byte{0x41}, 16))
+	data[31] ^= 0xFF // corrupt CT0[15] → pt1[15] = 0x10^0xFF = 0xEF > 16
 	if got := decryptAES(key, data); got != nil {
 		t.Errorf("bad-padding: want nil, got %q", got)
 	}
