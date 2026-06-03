@@ -88,29 +88,7 @@ func buildOutlinePDF(numPages int, title string, destPageNum int, actionPageNum 
 			actionItemObjNum = childObjNums[idx]
 		}
 
-		// Dest outline item
-		if destPageNum > 0 {
-			pageObjNum := 2 + destPageNum // page N is object 2+N
-			nextStr := ""
-			if actionItemObjNum > 0 {
-				nextStr = fmt.Sprintf(" /Next %d 0 R", actionItemObjNum)
-			}
-			objs = append(objs, fmt.Sprintf(
-				"<< /Title (%s) /Parent %d 0 R /Dest [%d 0 R /XYZ null null null]%s >>",
-				title, outlineRootObjNum, pageObjNum, nextStr))
-		}
-
-		// Action outline item
-		if actionPageNum > 0 {
-			pageObjNum := 2 + actionPageNum
-			prevStr := ""
-			if destItemObjNum > 0 {
-				prevStr = fmt.Sprintf(" /Prev %d 0 R", destItemObjNum)
-			}
-			objs = append(objs, fmt.Sprintf(
-				"<< /Title (%s via action) /Parent %d 0 R /A << /S /GoTo /D [%d 0 R /Fit] >>%s >>",
-				title, outlineRootObjNum, pageObjNum, prevStr))
-		}
+		objs = append(objs, buildOutlineItemObjs(title, outlineRootObjNum, destItemObjNum, actionItemObjNum, destPageNum, actionPageNum)...)
 	}
 
 	// Now fill in the Catalog (object 1).
@@ -172,6 +150,31 @@ func buildPDFWithNamedDest() []byte {
 	return []byte(b.String())
 }
 
+func buildOutlineItemObjs(title string, outlineRootObjNum, destItemObjNum, actionItemObjNum, destPageNum, actionPageNum int) []string {
+	var objs []string
+	if destPageNum > 0 {
+		pageObjNum := 2 + destPageNum
+		nextStr := ""
+		if actionItemObjNum > 0 {
+			nextStr = fmt.Sprintf(" /Next %d 0 R", actionItemObjNum)
+		}
+		objs = append(objs, fmt.Sprintf(
+			"<< /Title (%s) /Parent %d 0 R /Dest [%d 0 R /XYZ null null null]%s >>",
+			title, outlineRootObjNum, pageObjNum, nextStr))
+	}
+	if actionPageNum > 0 {
+		pageObjNum := 2 + actionPageNum
+		prevStr := ""
+		if destItemObjNum > 0 {
+			prevStr = fmt.Sprintf(" /Prev %d 0 R", destItemObjNum)
+		}
+		objs = append(objs, fmt.Sprintf(
+			"<< /Title (%s via action) /Parent %d 0 R /A << /S /GoTo /D [%d 0 R /Fit] >>%s >>",
+			title, outlineRootObjNum, pageObjNum, prevStr))
+	}
+	return objs
+}
+
 func TestOutlineNamedDestReturnsZero(t *testing.T) {
 	data := buildPDFWithNamedDest()
 	r, err := OpenBytes(data)
@@ -190,122 +193,114 @@ func TestOutlineNamedDestReturnsZero(t *testing.T) {
 	}
 }
 
+func testOutlineDestArray(t *testing.T) {
+	t.Helper()
+	data := buildOutlinePDF(3, "Chapter", 2, 0)
+	r, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes failed: %v", err)
+	}
+	if got := r.NumPage(); got != 3 {
+		t.Fatalf("NumPage() = %d, want 3", got)
+	}
+	outline := r.Outline()
+	if len(outline.Child) != 1 {
+		t.Fatalf("Outline.Child count = %d, want 1", len(outline.Child))
+	}
+	if got := outline.Child[0].Page; got != 2 {
+		t.Errorf("Child[0].Page = %d, want 2", got)
+	}
+	if got := outline.Child[0].Title; got != "Chapter" {
+		t.Errorf("Child[0].Title = %q, want %q", got, "Chapter")
+	}
+}
+
+func testOutlineActionGoTo(t *testing.T) {
+	t.Helper()
+	data := buildOutlinePDF(4, "Section", 0, 3)
+	r, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes failed: %v", err)
+	}
+	if got := r.NumPage(); got != 4 {
+		t.Fatalf("NumPage() = %d, want 4", got)
+	}
+	outline := r.Outline()
+	if len(outline.Child) != 1 {
+		t.Fatalf("Outline.Child count = %d, want 1", len(outline.Child))
+	}
+	if got := outline.Child[0].Page; got != 3 {
+		t.Errorf("Child[0].Page = %d, want 3", got)
+	}
+}
+
+func testOutlineNoDest(t *testing.T) {
+	t.Helper()
+	data := buildOutlinePDF(2, "NoLink", 0, 0)
+	r, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes failed: %v", err)
+	}
+	if got := r.NumPage(); got != 2 {
+		t.Fatalf("NumPage() = %d, want 2", got)
+	}
+	outline := r.Outline()
+	if got := outline.Page; got != 0 {
+		t.Errorf("root outline.Page = %d, want 0", got)
+	}
+	if len(outline.Child) != 0 {
+		t.Errorf("Outline.Child count = %d, want 0", len(outline.Child))
+	}
+}
+
+func testOutlineNoOutlines(t *testing.T) {
+	t.Helper()
+	data := buildOutlinePDF(1, "", 0, 0)
+	r, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes failed: %v", err)
+	}
+	if got := r.NumPage(); got != 1 {
+		t.Fatalf("NumPage() = %d, want 1", got)
+	}
+	outline := r.Outline()
+	if outline.Page != 0 {
+		t.Errorf("outline.Page = %d, want 0", outline.Page)
+	}
+	if outline.Title != "" {
+		t.Errorf("outline.Title = %q, want empty", outline.Title)
+	}
+	if len(outline.Child) != 0 {
+		t.Errorf("outline.Child count = %d, want 0", len(outline.Child))
+	}
+}
+
+func testOutlineBothDestAndAction(t *testing.T) {
+	t.Helper()
+	data := buildOutlinePDF(5, "Mixed", 1, 4)
+	r, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes failed: %v", err)
+	}
+	if got := r.NumPage(); got != 5 {
+		t.Fatalf("NumPage() = %d, want 5", got)
+	}
+	outline := r.Outline()
+	if len(outline.Child) != 2 {
+		t.Fatalf("Outline.Child count = %d, want 2", len(outline.Child))
+	}
+	if got := outline.Child[0].Page; got != 1 {
+		t.Errorf("Child[0].Page = %d, want 1", got)
+	}
+	if got := outline.Child[1].Page; got != 4 {
+		t.Errorf("Child[1].Page = %d, want 4", got)
+	}
+}
+
 func TestOutlinePageNumber(t *testing.T) {
-	// ----------------------------------------------------------------
-	// Case 1: explicit /Dest array → correct page number
-	// ----------------------------------------------------------------
-	t.Run("DestArray", func(t *testing.T) {
-		data := buildOutlinePDF(3, "Chapter", 2, 0)
-		r, err := OpenBytes(data)
-		if err != nil {
-			t.Fatalf("OpenBytes failed: %v", err)
-		}
-		// Guard: fixture must have the expected page count.
-		if got := r.NumPage(); got != 3 {
-			t.Fatalf("NumPage() = %d, want 3", got)
-		}
-		outline := r.Outline()
-		if len(outline.Child) != 1 {
-			t.Fatalf("Outline.Child count = %d, want 1", len(outline.Child))
-		}
-		if got := outline.Child[0].Page; got != 2 {
-			t.Errorf("Child[0].Page = %d, want 2", got)
-		}
-		if got := outline.Child[0].Title; got != "Chapter" {
-			t.Errorf("Child[0].Title = %q, want %q", got, "Chapter")
-		}
-	})
-
-	// ----------------------------------------------------------------
-	// Case 2: /A /S /GoTo → correct page number
-	// ----------------------------------------------------------------
-	t.Run("ActionGoTo", func(t *testing.T) {
-		data := buildOutlinePDF(4, "Section", 0, 3)
-		r, err := OpenBytes(data)
-		if err != nil {
-			t.Fatalf("OpenBytes failed: %v", err)
-		}
-		if got := r.NumPage(); got != 4 {
-			t.Fatalf("NumPage() = %d, want 4", got)
-		}
-		outline := r.Outline()
-		if len(outline.Child) != 1 {
-			t.Fatalf("Outline.Child count = %d, want 1", len(outline.Child))
-		}
-		if got := outline.Child[0].Page; got != 3 {
-			t.Errorf("Child[0].Page = %d, want 3", got)
-		}
-	})
-
-	// ----------------------------------------------------------------
-	// Case 3: outline item with no dest → Page == 0
-	// ----------------------------------------------------------------
-	t.Run("NoDest", func(t *testing.T) {
-		data := buildOutlinePDF(2, "NoLink", 0, 0)
-		r, err := OpenBytes(data)
-		if err != nil {
-			t.Fatalf("OpenBytes failed: %v", err)
-		}
-		if got := r.NumPage(); got != 2 {
-			t.Fatalf("NumPage() = %d, want 2", got)
-		}
-		outline := r.Outline()
-		// When title is "NoLink" but destPageNum==0 and actionPageNum==0, the
-		// Outlines root has no children (no child item objects were written).
-		// The root itself has Page==0.
-		if got := outline.Page; got != 0 {
-			t.Errorf("root outline.Page = %d, want 0", got)
-		}
-		if len(outline.Child) != 0 {
-			t.Errorf("Outline.Child count = %d, want 0", len(outline.Child))
-		}
-	})
-
-	// ----------------------------------------------------------------
-	// Case 4: PDF with no /Outlines → empty outline, Page == 0
-	// ----------------------------------------------------------------
-	t.Run("NoOutlines", func(t *testing.T) {
-		data := buildOutlinePDF(1, "", 0, 0)
-		r, err := OpenBytes(data)
-		if err != nil {
-			t.Fatalf("OpenBytes failed: %v", err)
-		}
-		if got := r.NumPage(); got != 1 {
-			t.Fatalf("NumPage() = %d, want 1", got)
-		}
-		outline := r.Outline()
-		if outline.Page != 0 {
-			t.Errorf("outline.Page = %d, want 0", outline.Page)
-		}
-		if outline.Title != "" {
-			t.Errorf("outline.Title = %q, want empty", outline.Title)
-		}
-		if len(outline.Child) != 0 {
-			t.Errorf("outline.Child count = %d, want 0", len(outline.Child))
-		}
-	})
-
-	// ----------------------------------------------------------------
-	// Case 5: both Dest and Action items in the same PDF
-	// ----------------------------------------------------------------
-	t.Run("BothDestAndAction", func(t *testing.T) {
-		data := buildOutlinePDF(5, "Mixed", 1, 4)
-		r, err := OpenBytes(data)
-		if err != nil {
-			t.Fatalf("OpenBytes failed: %v", err)
-		}
-		if got := r.NumPage(); got != 5 {
-			t.Fatalf("NumPage() = %d, want 5", got)
-		}
-		outline := r.Outline()
-		if len(outline.Child) != 2 {
-			t.Fatalf("Outline.Child count = %d, want 2", len(outline.Child))
-		}
-		if got := outline.Child[0].Page; got != 1 {
-			t.Errorf("Child[0].Page = %d, want 1", got)
-		}
-		if got := outline.Child[1].Page; got != 4 {
-			t.Errorf("Child[1].Page = %d, want 4", got)
-		}
-	})
+	t.Run("DestArray", testOutlineDestArray)
+	t.Run("ActionGoTo", testOutlineActionGoTo)
+	t.Run("NoDest", testOutlineNoDest)
+	t.Run("NoOutlines", testOutlineNoOutlines)
+	t.Run("BothDestAndAction", testOutlineBothDestAndAction)
 }
