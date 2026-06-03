@@ -562,3 +562,116 @@ func BenchmarkCmapDecode(b *testing.B) {
 		_ = m.Decode(raw)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestCmapDecodeBfrangeArrayNonStringDst — Array dst whose indexed element is
+// NOT a String (name value); exercises lines 122-124 and 130.
+// ---------------------------------------------------------------------------
+
+func TestCmapDecodeBfrangeArrayNonStringDst(t *testing.T) {
+	prev := DebugOn
+	DebugOn = true
+	defer func() { DebugOn = prev }()
+
+	// Array containing a name element (not a String) at index 0.
+	dstArr := makeArrayValue(name("NotAString"))
+	entry := bfrange{lo: "\x30", hi: "\x32", dst: dstArr}
+
+	result, ok := decodeBfrange(entry, "\x30") // offset 0 -> Index(0) = name element
+	if !ok {
+		t.Errorf("decodeBfrange: expected ok=true, got false")
+	}
+	if len(result) != 1 || result[0] != noRune {
+		t.Errorf("decodeBfrange array non-string dst: got %v, want [noRune]", result)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestCmapDecodeBfrangeUnknownDst — dst Kind is neither String nor Array
+// (integer Value); exercises lines 125-128 and 130.
+// ---------------------------------------------------------------------------
+
+func TestCmapDecodeBfrangeUnknownDst(t *testing.T) {
+	prev := DebugOn
+	DebugOn = true
+	defer func() { DebugOn = prev }()
+
+	// Integer dst — neither String nor Array.
+	intDst := Value{nil, objptr{}, int64(99)}
+	entry := bfrange{lo: "\x30", hi: "\x32", dst: intDst}
+
+	result, ok := decodeBfrange(entry, "\x30")
+	if !ok {
+		t.Errorf("decodeBfrange: expected ok=true, got false")
+	}
+	if len(result) != 1 || result[0] != noRune {
+		t.Errorf("decodeBfrange unknown dst: got %v, want [noRune]", result)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestCmapHandleEndCodespaceMissingBeginDebug — s.n < 0 with DebugOn; exercises
+// lines 181-183 (DebugOn println body) and sets s.ok = false.
+// ---------------------------------------------------------------------------
+
+func TestCmapHandleEndCodespaceMissingBeginDebug(t *testing.T) {
+	prev := DebugOn
+	DebugOn = true
+	defer func() { DebugOn = prev }()
+
+	s := &cmapInterp{n: -1, ok: true}
+	var stk Stack
+	s.handleEndCodespace(&stk)
+
+	if s.ok {
+		t.Errorf("handleEndCodespace with n<0: expected ok=false, got true")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestCmapHandleEndCodespaceBadRange — mismatched lo/hi lengths; exercises
+// lines 189-194 (bad-range true branch + DebugOn body + s.ok=false + return).
+// ---------------------------------------------------------------------------
+
+func TestCmapHandleEndCodespaceBadRange(t *testing.T) {
+	prev := DebugOn
+	DebugOn = true
+	defer func() { DebugOn = prev }()
+
+	s := &cmapInterp{n: 1, ok: true}
+	var stk Stack
+	// handleEndCodespace pops hi first, then lo: hi, lo := stk.Pop(), stk.Pop()
+	// Push lo first (bottom), then hi (top).
+	stk.Push(Value{nil, objptr{}, "\x00"})     // lo: 1 byte
+	stk.Push(Value{nil, objptr{}, "\x00\x00"}) // hi: 2 bytes (mismatched)
+	s.handleEndCodespace(&stk)
+
+	if s.ok {
+		t.Errorf("handleEndCodespace bad range: expected ok=false, got true")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestCmapInterpretCmapDefineresource — exercises lines 265-269 (all 4
+// statements in the defineresource case body).
+// ---------------------------------------------------------------------------
+
+func TestCmapInterpretCmapDefineresource(t *testing.T) {
+	s := &cmapInterp{n: -1, ok: true}
+	var stk Stack
+
+	// defineresource pops (top->bottom): category_name, value, resource_name
+	// Push resource_name first (bottom), then value, then category_name (top).
+	stk.Push(Value{nil, objptr{}, name("Identity")}) // resource name (popped last)
+	stk.Push(newDict())                              // the value (popped second)
+	stk.Push(Value{nil, objptr{}, name("CMap")})     // category name (popped first)
+
+	s.interpretCmap(&stk, "defineresource")
+
+	if !s.ok {
+		t.Errorf("interpretCmap defineresource: s.ok became false unexpectedly")
+	}
+	if stk.Len() != 1 {
+		t.Errorf("interpretCmap defineresource: stk.Len()=%d, want 1", stk.Len())
+	}
+}

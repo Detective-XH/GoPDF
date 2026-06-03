@@ -403,3 +403,132 @@ func TestXrefApplyPrevXrefStream(t *testing.T) {
 		t.Errorf("slot 1: expected offset 77, got %d", got[1].offset)
 	}
 }
+
+// --- parseWArray error paths --------------------------------------------------
+
+// TestXrefParseWArrayInvalidElement verifies that a W array containing a
+// non-int64 element is rejected.
+// Covers: xref_stream.go lines 92-94 (type-assertion failure branch).
+func TestXrefParseWArrayInvalidElement(t *testing.T) {
+	ww := array{int64(1), name("bad"), int64(1)}
+	_, err := parseWArray(ww)
+	if err == nil {
+		t.Fatal("parseWArray with non-int64 element: expected error, got nil")
+	}
+}
+
+// TestXrefParseWArrayTooFewElements verifies that a W array with fewer than
+// three elements is rejected.
+// Covers: xref_stream.go lines 97-99 (len(w) < 3 branch).
+func TestXrefParseWArrayTooFewElements(t *testing.T) {
+	ww := array{int64(1), int64(2)}
+	_, err := parseWArray(ww)
+	if err == nil {
+		t.Fatal("parseWArray with 2 elements: expected error, got nil")
+	}
+}
+
+// --- readXrefStreamData error paths ------------------------------------------
+
+// TestXrefReadStreamDataOddIndex verifies that an odd-length Index array is
+// rejected before any entry processing begins.
+// Covers: xref_stream.go lines 143-145 (len(index)%2 != 0 branch).
+func TestXrefReadStreamDataOddIndex(t *testing.T) {
+	body := buildXrefBody([][]byte{
+		{1, 0x00, 0x0A, 0}, // one valid entry
+	})
+	r := makeXrefReader(body)
+	strm := makeXrefStream(body, dict{
+		name("W"):     array{int64(1), int64(2), int64(1)},
+		name("Index"): array{int64(0)}, // odd count — invalid
+	})
+	table := make([]xref, 1)
+
+	_, err := readXrefStreamData(r, strm, table, 1)
+	if err == nil {
+		t.Fatal("readXrefStreamData odd Index: expected error, got nil")
+	}
+}
+
+// TestXrefReadStreamDataMissingW verifies that a stream whose header dict
+// contains no W entry is rejected.
+// Covers: xref_stream.go lines 147-149 (missing W array branch).
+func TestXrefReadStreamDataMissingW(t *testing.T) {
+	body := []byte{1, 0x00, 0x0A, 0}
+	r := makeXrefReader(body)
+	// Construct a stream directly without a W key so the type assertion fails.
+	strm := stream{
+		hdr:    dict{name("Length"): int64(len(body))},
+		offset: 0,
+	}
+	table := make([]xref, 1)
+
+	_, err := readXrefStreamData(r, strm, table, 1)
+	if err == nil {
+		t.Fatal("readXrefStreamData missing W: expected error, got nil")
+	}
+}
+
+// TestXrefReadStreamDataInvalidW verifies that a W array containing a
+// non-int64 element causes readXrefStreamData to propagate the parseWArray
+// error back to the caller.
+// Covers: xref_stream.go lines 151-153 (parseWArray error propagation).
+func TestXrefReadStreamDataInvalidW(t *testing.T) {
+	body := []byte{1, 0x00, 0x0A, 0}
+	r := makeXrefReader(body)
+	strm := makeXrefStream(body, dict{
+		name("W"): array{int64(1), name("bad"), int64(1)},
+	})
+	table := make([]xref, 1)
+
+	_, err := readXrefStreamData(r, strm, table, 1)
+	if err == nil {
+		t.Fatal("readXrefStreamData invalid W element: expected error, got nil")
+	}
+}
+
+// --- processXrefIndexPairs error paths ---------------------------------------
+
+// TestXrefProcessIndexPairsMalformed verifies that an Index array containing a
+// non-int64 element causes processXrefIndexPairs to return an error.
+// Covers: xref_stream.go lines 168-170 (malformed index pair branch).
+func TestXrefProcessIndexPairsMalformed(t *testing.T) {
+	// index[1] is a name, not int64 — the second type assertion fails.
+	idx := array{int64(0), name("notanint")}
+	w := []int{1, 2, 1}
+	buf := make([]byte, 4)
+	table := make([]xref, 1)
+
+	_, err := processXrefIndexPairs(nopData(nil), buf, w, idx, table)
+	if err == nil {
+		t.Fatal("processXrefIndexPairs malformed pair: expected error, got nil")
+	}
+}
+
+// --- processXrefEntry default-type path --------------------------------------
+
+// TestXrefProcessEntryUnknownType verifies that an entry whose type field is
+// an unknown value (not 0, 1, or 2) is silently ignored (slot left unchanged)
+// and no error is returned.  The DebugOn printf path is exercised as a
+// side-effect.
+// Covers: xref_stream.go lines 130-133 (default case in switch v1).
+func TestXrefProcessEntryUnknownType(t *testing.T) {
+	prev := DebugOn
+	DebugOn = true
+	defer func() { DebugOn = prev }()
+
+	// W=[1,2,1]: type(1)+offset(2)+gen(1) = 4 bytes.
+	w := []int{1, 2, 1}
+	entryBytes := []byte{0x03, 0x00, 0x00, 0x00} // type field = 3 (unknown)
+	buf := make([]byte, 4)
+	table := make([]xref, 1)
+
+	got, err := processXrefEntry(buf, w, 0, 0, table, io.NopCloser(bytes.NewReader(entryBytes)))
+	if err != nil {
+		t.Fatalf("processXrefEntry unknown type: unexpected error: %v", err)
+	}
+	// Slot must remain the zero value — unknown type leaves it untouched.
+	if got[0] != (xref{}) {
+		t.Errorf("unknown type: slot should be unmodified, got %+v", got[0])
+	}
+}
