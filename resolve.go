@@ -47,6 +47,15 @@ func scanObjStmIndex(b *buffer, n int, first int64, ptr objptr) (obj object, ok 
 			b.seekForward(first + off)
 			return b.readObject(), true
 		}
+		// /N is attacker-controlled and unbounded; after EOF readToken yields
+		// io.EOF without advancing, so without this the loop runs the full
+		// claimed /N (an effectively-unbounded post-open CPU hang the /Extends
+		// depth cap does not bound). Stop once the real index is exhausted —
+		// a well-formed ObjStm holds all n pairs before the object bodies, so
+		// EOF here only means /N over-claimed.
+		if b.eof {
+			break
+		}
 	}
 	return nil, false
 }

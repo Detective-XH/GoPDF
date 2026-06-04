@@ -23,11 +23,21 @@ func (r *Reader) Outline() Outline {
 func (r *Reader) buildPageMap() map[uint32]int {
 	m := make(map[uint32]int)
 	n := r.NumPage()
+	misses := 0
 	for i := 1; i <= n; i++ {
 		p := r.Page(i)
-		if !p.V.IsNull() {
-			m[p.V.ptr.id] = i
+		// Skip an isolated missing slot — a malformed-but-openable tree can yield
+		// null at i yet a valid page at i+1, and dropping the rest would silently
+		// lose real pages. But give up after a long run of consecutive nulls so a
+		// bogus /Count cannot drive a long scan (Outline has no context to cancel).
+		if p.V.IsNull() {
+			if misses++; misses > maxLinkDepth {
+				break
+			}
+			continue
 		}
+		misses = 0
+		m[p.V.ptr.id] = i
 	}
 	return m
 }

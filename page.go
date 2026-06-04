@@ -57,9 +57,22 @@ Search:
 	return Page{}
 }
 
+// maxPageCount bounds the page-count loops driven by the root /Pages /Count,
+// which is attacker-controlled. NumPage clamps to it so a malformed /Count (e.g.
+// 9e18) cannot drive buildPageMap / GetPlainText / Pages into an effectively
+// unbounded loop on a tiny file. The cap is far above any real document.
+const maxPageCount = 1 << 20
+
 // NumPage returns the number of pages in the PDF file.
 func (r *Reader) NumPage() int {
-	return int(r.Trailer().Key("Root").Key("Pages").Key("Count").Int64())
+	n := r.Trailer().Key("Root").Key("Pages").Key("Count").Int64()
+	if n < 0 {
+		return 0
+	}
+	if n > maxPageCount {
+		return maxPageCount
+	}
+	return int(n)
 }
 
 // GetPlainText returns all the text in the PDF file.
@@ -70,6 +83,7 @@ func (r *Reader) GetPlainText(ctx context.Context) (reader io.Reader, err error)
 	}
 	pages := r.NumPage()
 	var buf bytes.Buffer
+	misses := 0
 	for i := 1; i <= pages; i++ {
 		select {
 		case <-ctx.Done():
@@ -77,6 +91,16 @@ func (r *Reader) GetPlainText(ctx context.Context) (reader io.Reader, err error)
 		default:
 		}
 		p := r.Page(i)
+		// Skip an isolated missing slot but bail after a long run of nulls, so a
+		// bogus /Count cannot spin while a malformed-but-openable tree still
+		// yields its real pages after the gap. See buildPageMap.
+		if p.V.IsNull() {
+			if misses++; misses > maxLinkDepth {
+				break
+			}
+			continue
+		}
+		misses = 0
 		text, err := p.GetPlainText(nil)
 		if err != nil {
 			return &bytes.Buffer{}, err
@@ -110,8 +134,20 @@ func (r *Reader) GetStyledTexts(ctx context.Context) (sentences []Text, err erro
 func (r *Reader) Pages() iter.Seq2[int, Page] {
 	return func(yield func(int, Page) bool) {
 		n := r.NumPage()
+		misses := 0
 		for i := 1; i <= n; i++ {
-			if !yield(i, r.Page(i)) {
+			p := r.Page(i)
+			// Skip an isolated missing slot but bail after a long run of nulls, so
+			// a bogus /Count cannot spin yet a real page after a gap is still
+			// yielded. See buildPageMap.
+			if p.V.IsNull() {
+				if misses++; misses > maxLinkDepth {
+					return
+				}
+				continue
+			}
+			misses = 0
+			if !yield(i, p) {
 				return
 			}
 		}
