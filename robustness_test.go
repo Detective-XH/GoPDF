@@ -1,6 +1,7 @@
 package pdf
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -385,5 +386,105 @@ func TestRobustnessBNilCompositeKeyIndex(t *testing.T) {
 	arrDirect := Value{nil, objptr{}, array{name("Hi")}}
 	if got := arrDirect.Index(0); got.Name() != "Hi" {
 		t.Errorf("nil-Reader array.Index(direct): got %q, want Hi", got.Name())
+	}
+}
+
+// --- Tier 2.5: count-driven post-open loops (A9, A10) -------------------------
+
+// TestRobustnessObjStmHugeN covers A9: an ObjStm whose /N claims a near-maxint
+// entry count must not make scanObjStmIndex loop the attacker's count. The
+// /Extends depth cap bounds the number of hops but NOT the per-hop scan, so the
+// EOF break in scanObjStmIndex is what keeps each scan bounded by the real index.
+func TestRobustnessObjStmHugeN(t *testing.T) {
+	const header = "%PDF-1.7\n"
+	// ObjStm obj 5: index holds one real pair (id 999) but /N claims 9e18, and
+	// /Extends 5 0 R self-cycles. Looking up the absent id 7 forces a full scan
+	// on every hop; without the EOF break the first scan alone never returns.
+	block := buildStreamObjBytes(5, "/Type /ObjStm /N 9000000000000000000 /First 6 /Extends 5 0 R", []byte("999 0 1"))
+	data := append([]byte(header), block...)
+
+	r := makeResolveReader(data)
+	r.xref = make([]xref, 6)
+	r.xref[5] = xref{ptr: objptr{5, 0}, offset: int64(len(header))}
+	xr := xref{ptr: objptr{5, 0}, inStream: true, stream: objptr{5, 0}}
+
+	var got any = "sentinel"
+	withWatchdog(t, "ObjStm huge /N", 5*time.Second, func() {
+		got = r.resolveInStream(objptr{}, objptr{7, 0}, xr)
+	})
+	if got != nil {
+		t.Errorf("huge /N: expected nil (degraded), got %T(%v)", got, got)
+	}
+}
+
+// TestRobustnessHugePageCount covers A10: a tiny file declaring a near-maxint
+// /Pages /Count must not drive Outline() (via buildPageMap -> Page) into an
+// effectively unbounded loop. NumPage must clamp the count and buildPageMap must
+// stop once the real (empty) page tree is exhausted.
+func TestRobustnessHugePageCount(t *testing.T) {
+	data := buildPDF([]string{
+		"<< /Type /Catalog /Pages 2 0 R /Outlines 3 0 R >>",
+		"<< /Type /Pages /Count 9000000000000000000 /Kids [] >>", // attacker-sized /Count
+		"<< /Type /Outlines >>",
+	})
+	r, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	if n := r.NumPage(); n > maxPageCount {
+		t.Errorf("NumPage: expected clamp to <= %d, got %d", maxPageCount, n)
+	}
+	withWatchdog(t, "huge /Count Outline", 5*time.Second, func() {
+		_ = r.Outline()
+	})
+	withWatchdog(t, "huge /Count GetPlainText", 5*time.Second, func() {
+		_, _ = r.GetPlainText(context.Background())
+	})
+}
+
+// TestRobustnessBrokenMiddlePageNodeNotTruncated guards the count-driven loops'
+// best-effort completeness: a malformed-but-openable page tree can yield a null
+// page at one index yet a valid page at the next. The loops must skip the broken
+// slot, not stop at it — a plain break-on-null would silently lose every page
+// after the gap. (The DoS bound is the NumPage clamp + the consecutive-null cap.)
+func TestRobustnessBrokenMiddlePageNodeNotTruncated(t *testing.T) {
+	// Root[Count 7] -> [A(3 leaves), Broken(Count 1, Kids [99 0 R] dangling), C(3 leaves)].
+	// Page(4) descends into Broken -> null; Page(5..7) land in C -> valid.
+	data := buildPDF([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",                       // 1
+		"<< /Type /Pages /Count 7 /Kids [3 0 R 4 0 R 5 0 R] >>",   // 2 Root
+		"<< /Type /Pages /Count 3 /Kids [6 0 R 7 0 R 8 0 R] >>",   // 3 A
+		"<< /Type /Pages /Count 1 /Kids [99 0 R] >>",              // 4 Broken (99 dangling)
+		"<< /Type /Pages /Count 3 /Kids [9 0 R 10 0 R 11 0 R] >>", // 5 C
+		"<< /Type /Page /Parent 3 0 R >>",                         // 6  A1
+		"<< /Type /Page /Parent 3 0 R >>",                         // 7  A2
+		"<< /Type /Page /Parent 3 0 R >>",                         // 8  A3
+		"<< /Type /Page /Parent 5 0 R >>",                         // 9  C1
+		"<< /Type /Page /Parent 5 0 R >>",                         // 10 C2
+		"<< /Type /Page /Parent 5 0 R >>",                         // 11 C3
+	})
+	r, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+
+	var got []int
+	for i, p := range r.Pages() {
+		if !p.V.IsNull() {
+			got = append(got, i)
+		}
+	}
+	// 6 real leaves at indices 1,2,3,5,6,7 — index 4 is the broken slot, skipped.
+	if len(got) != 6 {
+		t.Errorf("expected 6 real pages despite broken middle node, got %d at %v", len(got), got)
+	}
+	reached := false
+	for _, i := range got {
+		if i == 5 {
+			reached = true
+		}
+	}
+	if !reached {
+		t.Error("page index 5 (after the broken node) was not reached — loop truncated at the null slot")
 	}
 }
