@@ -282,3 +282,108 @@ func TestRobustnessDeepOutlineFirst(t *testing.T) {
 		_ = r.Outline()
 	})
 }
+
+// --- Tier 3: Class B — panic-escape getters + B-nil ---------------------------
+
+// overDeepArray returns a nested array literal whose depth exceeds
+// maxObjectDepth. Used as a malformed object body: resolving it drives
+// loadDirectObject -> readObject past the depth cap, which panics via b.errorf.
+// The PDF stays openable because OpenBytes never resolves the object — only a
+// post-open getter does, where the Tier 3 resolve() recover must degrade the
+// panic to a null Value instead of crashing the process.
+func overDeepArray() string {
+	return strings.Repeat("[", maxObjectDepth+50) + strings.Repeat("]", maxObjectDepth+50)
+}
+
+// TestRobustnessClassBMalformedCatalog covers the Class B getter surface reached
+// through the trailer: the /Root object has a malformed body, so resolving it
+// from Trailer().Key, Reader.Page, or Reader.NumPage must yield a null/zero
+// result rather than panicking out of the unrecovered getter.
+func TestRobustnessClassBMalformedCatalog(t *testing.T) {
+	data := buildPDF([]string{
+		overDeepArray(),                        // obj 1: /Root — malformed body
+		"<< /Type /Pages /Count 0 /Kids [] >>", // obj 2
+	})
+	r, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes must succeed (malformed body is post-open only): %v", err)
+	}
+
+	withWatchdog(t, "Class B Trailer().Key chain", 5*time.Second, func() {
+		got := r.Trailer().Key("Root").Key("Pages")
+		if !got.IsNull() {
+			t.Errorf("Trailer().Key(Root).Key(Pages): expected null, got Kind=%v", got.Kind())
+		}
+	})
+	withWatchdog(t, "Class B Reader.Page", 5*time.Second, func() {
+		if p := r.Page(1); !p.V.IsNull() {
+			t.Errorf("Page(1): expected null page, got %+v", p.V)
+		}
+	})
+	withWatchdog(t, "Class B Reader.NumPage", 5*time.Second, func() {
+		if n := r.NumPage(); n != 0 {
+			t.Errorf("NumPage(): expected 0, got %d", n)
+		}
+	})
+}
+
+// TestRobustnessClassBMalformedResources covers the page-level Class B getters:
+// a valid page whose /Resources object has a malformed body must not crash
+// Page.Fonts or Page.Font; both degrade to empty/null.
+func TestRobustnessClassBMalformedResources(t *testing.T) {
+	data := buildPDF([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",                // obj 1
+		"<< /Type /Pages /Count 1 /Kids [3 0 R] >>",        // obj 2
+		"<< /Type /Page /Parent 2 0 R /Resources 4 0 R >>", // obj 3
+		overDeepArray(), // obj 4: /Resources — malformed body
+	})
+	r, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes must succeed: %v", err)
+	}
+	p := r.Page(1)
+	if p.V.IsNull() {
+		t.Fatal("expected a non-null page before exercising Fonts/Font")
+	}
+
+	withWatchdog(t, "Class B Page.Fonts", 5*time.Second, func() {
+		if fonts := p.Fonts(); len(fonts) != 0 {
+			t.Errorf("Fonts(): expected empty (resources degraded), got %v", fonts)
+		}
+	})
+	withWatchdog(t, "Class B Page.Font", 5*time.Second, func() {
+		if f := p.Font("F1"); !f.V.IsNull() {
+			t.Errorf("Font(F1): expected null font, got %+v", f.V)
+		}
+	})
+}
+
+// TestRobustnessBNilCompositeKeyIndex covers B-nil: a composite Value carrying a
+// nil Reader (as Interpret pushes its operands) must not nil-deref when Key or
+// Index resolves an indirect element. The guard returns a null Value instead.
+// With an indirect (objptr) element, the pre-fix code dereferenced the nil
+// Reader inside resolve and panicked.
+func TestRobustnessBNilCompositeKeyIndex(t *testing.T) {
+	dictVal := Value{nil, objptr{}, dict{name("Foo"): objptr{id: 1, gen: 0}}}
+	if got := dictVal.Key("Foo"); !got.IsNull() {
+		t.Errorf("nil-Reader dict.Key: expected null, got Kind=%v", got.Kind())
+	}
+	arrVal := Value{nil, objptr{}, array{objptr{id: 1, gen: 0}}}
+	if got := arrVal.Index(0); !got.IsNull() {
+		t.Errorf("nil-Reader array.Index: expected null, got Kind=%v", got.Kind())
+	}
+
+	// A nil-Reader composite must still expose its DIRECT elements: this is the
+	// TJ-array / inline-operand path that a blanket r==nil guard in Key/Index
+	// would wrongly null out. The guard belongs in resolve (indirect-only), so
+	// direct values stay readable; this assertion pins that distinction and
+	// fails if the guard ever migrates back to Key/Index.
+	dictDirect := Value{nil, objptr{}, dict{name("N"): int64(42)}}
+	if got := dictDirect.Key("N"); got.Int64() != 42 {
+		t.Errorf("nil-Reader dict.Key(direct): got %v, want 42", got.Int64())
+	}
+	arrDirect := Value{nil, objptr{}, array{name("Hi")}}
+	if got := arrDirect.Index(0); got.Name() != "Hi" {
+		t.Errorf("nil-Reader array.Index(direct): got %q, want Hi", got.Name())
+	}
+}

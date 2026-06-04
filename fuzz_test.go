@@ -7,25 +7,31 @@ import (
 
 // FuzzOpenAndExtract is the broad net for the malformed-PDF DoS class.
 //
-// This target fuzzes the open path only.  OpenBytes runs behind a recover
-// boundary, so a malformed input surfaces as an error rather than a panic; the
-// watchdog turns any future open-time hang regression (a re-introduced /Prev or
-// other unbounded loop) into a test failure instead of a stalled run.  It stays
-// green under a long `go test -fuzz=FuzzOpenAndExtract` run, demonstrating the
-// open-time hardening holds.
-//
-// A later change will extend this target to the extraction pipeline
-// (NumPage -> Page(1).Words()/GetPlainText) once those getters gain their own
-// recover boundaries; today they can reach the still-unguarded resolve() panics
-// and post-open link-chain cycles, which are out of scope here.
+// It fuzzes the open path and the extraction pipeline together: OpenBytes, then
+// NumPage -> Page(1).GetPlainText/Words on a successful open.  OpenBytes runs
+// behind a recover boundary; the extraction getters reach resolve(), whose Tier
+// 3 recover boundary now degrades a malformed object body to a null Value rather
+// than panicking, so a malformed input surfaces as an empty result rather than a
+// crash.  The watchdog turns any future hang regression (a re-introduced /Prev
+// or post-open link-chain cycle) into a test failure instead of a stalled run.
+// It stays green under a long `go test -fuzz=FuzzOpenAndExtract` run,
+// demonstrating both the open-time and post-open hardening hold.
 func FuzzOpenAndExtract(f *testing.F) {
 	f.Add(buildTextPDF("BT /F1 12 Tf (Hello) Tj ET"))
 	f.Add(buildCyclicXrefTablePDF())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		withWatchdog(t, "Open", 5*time.Second, func() {
-			//nolint:errcheck // we only care that Open terminates without panic/hang
-			_, _ = OpenBytes(data)
+		withWatchdog(t, "OpenAndExtract", 5*time.Second, func() {
+			r, err := OpenBytes(data)
+			if err != nil {
+				return
+			}
+			_ = r.NumPage()
+			p := r.Page(1)
+			//nolint:errcheck // we only care that extraction terminates without panic/hang
+			_, _ = p.GetPlainText(nil)
+			//nolint:errcheck // same: Words must not panic or hang on malformed input
+			_, _ = p.Words()
 		})
 	})
 }
