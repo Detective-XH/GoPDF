@@ -32,6 +32,12 @@ type gstate struct {
 	Tm    matrix
 	Tlm   matrix
 	CTM   matrix
+	// enc is the text encoder selected by the most recent Tf operator. It is
+	// part of the graphics state — paired with Tf — so the q/Q operators save
+	// and restore it together. Keeping enc outside the graphics state would let
+	// Q restore Tf while leaving enc pointing at the inner block's font, so text
+	// shown after a Q would decode through the wrong encoder.
+	enc TextEncoding
 }
 
 // xobjMaxDepth caps Form XObject recursion to guard against malformed PDFs

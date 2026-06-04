@@ -25,8 +25,7 @@ import (
 // not panic (enc must be non-nil; Th must be 1 so text-matrix math works).
 func contentMakeState() *contentState {
 	return &contentState{
-		g:   gstate{Th: 1, CTM: ident},
-		enc: &nopEncoder{},
+		g: gstate{Th: 1, CTM: ident, enc: &nopEncoder{}},
 	}
 }
 
@@ -624,7 +623,7 @@ func TestContentHandleGraphicsRe(t *testing.T) {
 // TestContentHandleTfNilEncoder — handleTf with missing font uses byteEncoder fallback
 // ---------------------------------------------------------------------------
 
-// TestContentHandleTfNilEncoder verifies that handleTf sets s.enc to a non-nil
+// TestContentHandleTfNilEncoder verifies that handleTf sets s.g.enc to a non-nil
 // encoder even when the font resource is absent (empty resources Value).
 //
 // The call path is: Font.Encoder() → getEncoder() → Encoding kind==Null →
@@ -640,8 +639,8 @@ func TestContentHandleTfNilEncoder(t *testing.T) {
 	}
 	s.handleTf(args)
 
-	if s.enc == nil {
-		t.Error("handleTf with missing font resource: s.enc is nil, want non-nil encoder")
+	if s.g.enc == nil {
+		t.Error("handleTf with missing font resource: s.g.enc is nil, want non-nil encoder")
 	}
 	if s.g.Tfs != 12.0 {
 		t.Errorf("handleTf: g.Tfs = %v, want 12.0", s.g.Tfs)
