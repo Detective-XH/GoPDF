@@ -79,6 +79,11 @@ type Reader struct {
 	key        []byte
 	useAES     bool
 	aes256     bool
+	// opening is true only while NewReaderEncrypted builds the Reader. It keeps
+	// resolve strict on the open path (a malformed object body panics through to
+	// the open-path recover and fails the load). After open it is false, so the
+	// same panic degrades to a null Value instead of crashing a public getter.
+	opening bool
 }
 
 // Open opens a file for reading.
@@ -134,7 +139,7 @@ func NewReaderEncrypted(f io.ReaderAt, size int64, pw func() string) (r *Reader,
 	if err != nil {
 		return nil, err
 	}
-	r = &Reader{f: f, end: size}
+	r = &Reader{f: f, end: size, opening: true}
 	b := newBuffer(io.NewSectionReader(f, startxrefPos, size-startxrefPos), startxrefPos)
 	if b.readToken() != keyword("startxref") {
 		return nil, fmt.Errorf("malformed PDF file: missing startxref")
@@ -151,6 +156,9 @@ func NewReaderEncrypted(f io.ReaderAt, size int64, pw func() string) (r *Reader,
 	if err = tryDecrypt(r, pw); err != nil {
 		return nil, err
 	}
+	// Open succeeded; from here on resolve must not crash a public getter on a
+	// malformed object body, so leave the strict open-path mode.
+	r.opening = false
 	return r, nil
 }
 

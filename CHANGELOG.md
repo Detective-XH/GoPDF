@@ -15,6 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **Security:** opening a malformed PDF can no longer hang the process or exhaust memory at open time. A crafted cross-reference table or stream with a cyclic `/Prev` chain previously looped forever, and an xref stream with an oversized `/W` array (e.g. `[1e9, 1e9, 1e9]`) could trigger a multi-gigabyte allocation; both are now rejected and `OpenBytes` / `NewReader` returns a clean error.
 - **Security:** reading pages, inherited page attributes (e.g. `MediaBox`, `Resources`), the document outline, or compressed objects from a malformed PDF can no longer hang or crash the process. Cyclic or pathologically deep page-tree (`/Kids`), `/Parent`, object-stream (`/Extends`), and outline (`/First`, `/Next`) chains are now depth-bounded and degrade to a best-effort result instead of looping forever or overflowing the stack.
+- **Security:** reading a malformed PDF through a public getter — a page (`Reader.Page`), the page count (`Reader.NumPage`), the trailer, the outline, or a page's fonts (`Page.Fonts`/`Font`) — can no longer crash the process. Previously a single corrupt or unparseable indirect-object body let a parser panic escape these getters; such a body now degrades to a null/empty result, while a structurally broken file still fails `OpenBytes` / `NewReader` exactly as before. A composite `Value` taken from an `Interpret` callback also no longer crashes when `.Key` / `.Index` follows an indirect reference through it.
 
 ### Changed
 

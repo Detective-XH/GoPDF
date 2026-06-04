@@ -91,14 +91,34 @@ func (r *Reader) loadDirectObject(ptr objptr, xr xref) object {
 	return def.obj
 }
 
-func (r *Reader) resolve(parent objptr, x any) Value {
+func (r *Reader) resolve(parent objptr, x any) (v Value) {
 	if ptr, ok := x.(objptr); ok {
-		if ptr.id >= uint32(len(r.xref)) {
+		// B-nil: an indirect reference cannot be resolved without a Reader. A
+		// composite Value popped from an Interpret callback carries a nil Reader
+		// (ps.go pushes operands as Value{nil, ...}); resolving an indirect element
+		// through it would nil-deref. Direct (non-objptr) values fall through to
+		// the switch below and are returned even with a nil Reader, so a TJ array
+		// and other inline operands stay readable.
+		if r == nil || ptr.id >= uint32(len(r.xref)) {
 			return Value{}
 		}
 		xr := r.xref[ptr.id]
 		if xr.ptr != ptr || !xr.inStream && xr.offset == 0 {
 			return Value{}
+		}
+		// The reference is structurally valid, but the object body it points at
+		// may still be malformed. On the open path the parser stays strict: a
+		// body-parse panic propagates to NewReaderEncrypted's recover and fails
+		// the load exactly as before (r.opening is true, so no recover is armed
+		// here). After open, a public getter must not crash on a crafted file, so
+		// degrade any loadDirectObject / resolveInStream / default-case panic to a
+		// null Value. This single boundary hardens the whole getter surface.
+		if !r.opening {
+			defer func() {
+				if recover() != nil {
+					v = Value{}
+				}
+			}()
 		}
 		if xr.inStream {
 			x = r.resolveInStream(parent, ptr, xr)
