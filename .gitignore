@@ -9,5 +9,7 @@ scripts/
 cover.out
 coverage.out
 *.out
-.DS_Store
 AGENTS.md
+.docgraphignore
+.DS_Store
+gopdf.test

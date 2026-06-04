@@ -18,6 +18,7 @@ type contentState struct {
 	p         Page
 	resources Value
 	depth     int
+	fonts     map[string]*Font
 }
 
 // appendText decodes str through the current encoder and appends one Text
@@ -129,16 +130,30 @@ func (s *contentState) handleTf(args []Value) {
 	if len(args) != 2 {
 		panic("bad TL")
 	}
-	f := args[0].Name()
-	s.g.Tf = Font{s.resources.Key("Font").Key(f), nil}
-	s.enc = s.g.Tf.Encoder()
+	f := s.font(args[0].Name())
+	s.g.Tf = *f
+	s.enc = f.cachedEncoder()
 	if s.enc == nil {
 		if DebugOn {
-			println("no cmap for", f)
+			println("no cmap for", args[0].Name())
 		}
 		s.enc = &nopEncoder{}
 	}
 	s.g.Tfs = args[1].Float64()
+}
+
+// font returns the cached *Font for the named resource, building it once so the
+// font's encoder (and ToUnicode CMap) is parsed a single time per interpreter run.
+func (s *contentState) font(name string) *Font {
+	if cached, ok := s.fonts[name]; ok {
+		return cached
+	}
+	f := &Font{V: s.resources.Key("Font").Key(name)}
+	if s.fonts == nil {
+		s.fonts = map[string]*Font{}
+	}
+	s.fonts[name] = f
+	return f
 }
 
 func requireOneArg(args []Value, op string) {

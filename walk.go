@@ -33,7 +33,7 @@ func (s *walkState) handleWalkFont(op string, args []Value) {
 			panic("bad TL")
 		}
 		if font, ok := s.fonts[args[0].Name()]; ok {
-			s.enc = font.Encoder()
+			s.enc = font.cachedEncoder()
 		} else {
 			s.enc = &nopEncoder{}
 		}
