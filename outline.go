@@ -17,7 +17,7 @@ type Outline struct {
 // That is, the children of the returned root are the top-level entries in the outline.
 func (r *Reader) Outline() Outline {
 	pages := r.buildPageMap()
-	return buildOutline(r.Trailer().Key("Root").Key("Outlines"), pages)
+	return buildOutline(r.Trailer().Key("Root").Key("Outlines"), pages, 0)
 }
 
 func (r *Reader) buildPageMap() map[uint32]int {
@@ -32,12 +32,19 @@ func (r *Reader) buildPageMap() map[uint32]int {
 	return m
 }
 
-func buildOutline(entry Value, pages map[uint32]int) Outline {
+func buildOutline(entry Value, pages map[uint32]int, depth int) Outline {
 	var x Outline
 	x.Title = entry.Key("Title").Text()
 	x.Page = resolveOutlineDest(entry, pages)
+	if depth >= maxLinkDepth {
+		return x
+	}
+	siblings := 0
 	for child := entry.Key("First"); child.Kind() == Dict; child = child.Key("Next") {
-		x.Child = append(x.Child, buildOutline(child, pages))
+		if siblings++; siblings > maxLinkDepth {
+			break
+		}
+		x.Child = append(x.Child, buildOutline(child, pages, depth+1))
 	}
 	return x
 }

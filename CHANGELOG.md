@@ -11,6 +11,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **`Page.Words()`** — extract a page's text as individual words with tight bounding boxes, in reading order (left-to-right, top-to-bottom). Each `Word` carries its text plus an (X, Y, width, height) box in PDF coordinate space. Words split on spaces and inter-glyph gaps, so sub/superscripts and words that span kerning boundaries are handled correctly. Useful for search-result highlighting, RAG chunking, and layout-aware extraction.
 
+### Security
+
+- **Security:** opening a malformed PDF can no longer hang the process or exhaust memory at open time. A crafted cross-reference table or stream with a cyclic `/Prev` chain previously looped forever, and an xref stream with an oversized `/W` array (e.g. `[1e9, 1e9, 1e9]`) could trigger a multi-gigabyte allocation; both are now rejected and `OpenBytes` / `NewReader` returns a clean error.
+- **Security:** reading pages, inherited page attributes (e.g. `MediaBox`, `Resources`), the document outline, or compressed objects from a malformed PDF can no longer hang or crash the process. Cyclic or pathologically deep page-tree (`/Kids`), `/Parent`, object-stream (`/Extends`), and outline (`/First`, `/Next`) chains are now depth-bounded and degrade to a best-effort result instead of looping forever or overflowing the stack.
+
 ### Changed
 
 - Text extraction from CJK PDFs — and any document whose fonts use a `/ToUnicode` CMap — is now dramatically faster and far lighter on memory. A font's character map is parsed once per font instead of being re-parsed on every text-font (`Tf`) operator; on a 22-page Traditional Chinese document this cut extraction time by ~19×, memory use by ~51×, and allocations by ~29×.
