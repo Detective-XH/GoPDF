@@ -394,7 +394,8 @@ func TestRobustnessBNilCompositeKeyIndex(t *testing.T) {
 // TestRobustnessObjStmHugeN covers A9: an ObjStm whose /N claims a near-maxint
 // entry count must not make scanObjStmIndex loop the attacker's count. The
 // /Extends depth cap bounds the number of hops but NOT the per-hop scan, so the
-// EOF break in scanObjStmIndex is what keeps each scan bounded by the real index.
+// /First boundary in scanObjStmIndex (plus the /Extends visited-set) is what
+// keeps the work bounded by the real index region.
 func TestRobustnessObjStmHugeN(t *testing.T) {
 	const header = "%PDF-1.7\n"
 	// ObjStm obj 5: index holds one real pair (id 999) but /N claims 9e18, and
@@ -414,6 +415,58 @@ func TestRobustnessObjStmHugeN(t *testing.T) {
 	})
 	if got != nil {
 		t.Errorf("huge /N: expected nil (degraded), got %T(%v)", got, got)
+	}
+}
+
+// TestRobustnessObjStmFirstBoundNoFalseMatch covers the /First boundary: an
+// ObjStm whose /N over-claims must not let the index scan read object-body bytes
+// as (id, offset) pairs. Here id 7 appears only in the body (after /First); the
+// scan must stop at /First and report not-found rather than false-matching the
+// body's "7 0" pair and seeking to an attacker-chosen offset.
+func TestRobustnessObjStmFirstBoundNoFalseMatch(t *testing.T) {
+	const header = "%PDF-1.7\n"
+	// Index [0,6) = "999 0 " (one real entry, id 999); body = "7 0 5 5" holds a
+	// numeric "7 0" pair. /N over-claims (10); /Extends self-cycles so a miss
+	// degrades to nil.
+	block := buildStreamObjBytes(5, "/Type /ObjStm /N 10 /First 6 /Extends 5 0 R", []byte("999 0 7 0 5 5"))
+	data := append([]byte(header), block...)
+	r := makeResolveReader(data)
+	r.xref = make([]xref, 6)
+	r.xref[5] = xref{ptr: objptr{5, 0}, offset: int64(len(header))}
+	xr := xref{ptr: objptr{5, 0}, inStream: true, stream: objptr{5, 0}}
+
+	got := r.resolveInStream(objptr{}, objptr{7, 0}, xr)
+	if got != nil {
+		t.Errorf("id 7 is only in the object-body bytes, not the index: expected nil (no false match), got %T(%v)", got, got)
+	}
+}
+
+// TestRobustnessObjStmExtendsCycleBoundsRescan pins the /Extends visited-set: a
+// self-cycling /Extends ObjStm with a large index region must not be re-scanned
+// maxLinkDepth times. The /First bound caps a single scan, but without the
+// visited-set the cycle still re-scans the whole index ~1024 times — a
+// stream-size-amplified CPU sink. The index here is large enough that 1024
+// rescans blow the watchdog while a single scan (the visited-set path) does not;
+// this is the only test that distinguishes the visited-set from the depth cap.
+func TestRobustnessObjStmExtendsCycleBoundsRescan(t *testing.T) {
+	const header = "%PDF-1.7\n"
+	// ~1.2 MB index of "1 2 " pairs (target id 7 absent → full scan each hop);
+	// /First points just past it; /Extends self-cycles.
+	index := strings.Repeat("1 2 ", 300000)
+	hdr := fmt.Sprintf("/Type /ObjStm /N 300000 /First %d /Extends 5 0 R", len(index))
+	block := buildStreamObjBytes(5, hdr, []byte(index))
+	data := append([]byte(header), block...)
+	r := makeResolveReader(data)
+	r.xref = make([]xref, 6)
+	r.xref[5] = xref{ptr: objptr{5, 0}, offset: int64(len(header))}
+	xr := xref{ptr: objptr{5, 0}, inStream: true, stream: objptr{5, 0}}
+
+	var got any = "sentinel"
+	withWatchdog(t, "ObjStm /Extends self-cycle re-scan", 5*time.Second, func() {
+		got = r.resolveInStream(objptr{}, objptr{7, 0}, xr)
+	})
+	if got != nil {
+		t.Errorf("self-cycling /Extends: expected nil, got %T(%v)", got, got)
 	}
 }
 
