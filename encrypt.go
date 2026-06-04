@@ -169,6 +169,9 @@ func verifyEncryptKey(R int64, key []byte, c *rc4.Cipher, U string, ID []byte) b
 
 func (r *Reader) initEncrypt(password string) error {
 	encrypt, _ := r.resolve(objptr{}, r.trailer["Encrypt"]).data.(dict)
+	if V, _ := encrypt["V"].(int64); V == 5 {
+		return r.initEncryptAES256(encrypt, password)
+	}
 	n, O, U, P, ID, err := parseEncryptBody(encrypt, r.trailer)
 	if err != nil {
 		return err
@@ -224,7 +227,10 @@ func validateCFParam(cfparam dict) bool {
 }
 
 // Fix 1: truncate per-object key to min(len(key)+5, 16) per PDF spec §7.6.2 Algorithm 1 step (f).
-func cryptKey(key []byte, useAES bool, ptr objptr) []byte {
+func cryptKey(key []byte, useAES, aes256 bool, ptr objptr) []byte {
+	if aes256 {
+		return key // V=5: file key used directly — no per-object derivation
+	}
 	h := md5.New()
 	h.Write(key)
 	h.Write([]byte{byte(ptr.id), byte(ptr.id >> 8), byte(ptr.id >> 16), byte(ptr.gen), byte(ptr.gen >> 8)})
@@ -255,11 +261,20 @@ func decryptAES(key, data []byte) []byte {
 	if pad == 0 || pad > aes.BlockSize || pad > len(ct) {
 		return nil
 	}
+	// Verify every PKCS#7 padding byte equals pad (constant-time), rejecting
+	// in-range but inconsistent padding such as 0x99 0x02.
+	var diff byte
+	for _, b := range ct[len(ct)-pad:] {
+		diff |= b ^ byte(pad)
+	}
+	if diff != 0 {
+		return nil
+	}
 	return ct[:len(ct)-pad]
 }
 
-func decryptString(key []byte, useAES bool, ptr objptr, x string) string {
-	key = cryptKey(key, useAES, ptr)
+func decryptString(key []byte, useAES, aes256 bool, ptr objptr, x string) string {
+	key = cryptKey(key, useAES, aes256, ptr)
 	if useAES {
 		if plain := decryptAES(key, []byte(x)); plain != nil {
 			return string(plain)
@@ -274,12 +289,19 @@ func decryptString(key []byte, useAES bool, ptr objptr, x string) string {
 
 // Fix 4: read-all approach for AES decryption — handles padding and eliminates
 // silent error fallthrough. The cbcReader struct is removed entirely.
-func decryptStream(key []byte, useAES bool, ptr objptr, rd io.Reader) io.Reader {
-	key = cryptKey(key, useAES, ptr)
+func decryptStream(key []byte, useAES, aes256 bool, ptr objptr, rd io.Reader) io.Reader {
+	key = cryptKey(key, useAES, aes256, ptr)
 	if useAES {
-		data, err := io.ReadAll(rd)
+		// Bound the in-memory read so a malformed huge stream cannot exhaust
+		// memory. Read one byte past the cap to tell a fully-read stream from one
+		// that overflows it, and surface the overflow instead of silently
+		// truncating to corrupt/empty plaintext.
+		data, err := io.ReadAll(io.LimitReader(rd, maxDecompressedSize+1))
 		if err != nil {
 			return bytes.NewReader(nil)
+		}
+		if int64(len(data)) > maxDecompressedSize {
+			return &errorReadCloser{fmt.Errorf("encrypted stream exceeds %d-byte limit", maxDecompressedSize)}
 		}
 		if plain := decryptAES(key, data); plain != nil {
 			return bytes.NewReader(plain)

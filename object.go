@@ -178,7 +178,7 @@ func (b *buffer) tryReadObjRef(t1 int64) (object, bool) {
 // unchanged.
 func (b *buffer) maybeDecryptToken(tok object) object {
 	if str, ok := tok.(string); ok && b.key != nil && b.objptr.id != 0 {
-		return decryptString(b.key, b.useAES, b.objptr, str)
+		return decryptString(b.key, b.useAES, b.aes256, b.objptr, str)
 	}
 	return tok
 }

@@ -78,6 +78,7 @@ type Reader struct {
 	trailerptr objptr
 	key        []byte
 	useAES     bool
+	aes256     bool
 }
 
 // Open opens a file for reading.

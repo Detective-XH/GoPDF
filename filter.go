@@ -70,7 +70,7 @@ func applyFilter(rd io.Reader, name string, param Value) (io.Reader, error) {
 			return limited, nil
 		}
 		columns := param.Key("Columns").Int64()
-		if columns > maxPNGColumns {
+		if columns < 0 || columns > maxPNGColumns {
 			return nil, fmt.Errorf("FlateDecode: invalid Columns value: %d", columns)
 		}
 		switch pred.Int64() {
@@ -168,7 +168,7 @@ func (v Value) buildStreamReader(x stream, streamLen int64) io.Reader {
 	var rd io.Reader
 	rd = io.NewSectionReader(v.r.f, x.offset, streamLen)
 	if v.r.key != nil {
-		rd = decryptStream(v.r.key, v.r.useAES, x.ptr, rd)
+		rd = decryptStream(v.r.key, v.r.useAES, v.r.aes256, x.ptr, rd)
 	}
 	return rd
 }

@@ -25,6 +25,7 @@ type buffer struct {
 	eof         bool
 	key         []byte
 	useAES      bool
+	aes256      bool
 	objptr      objptr
 	depth       int
 }

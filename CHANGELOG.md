@@ -5,10 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## Fixed, pending release
+## v0.6.5 — 2026-06-04
+
+### Added
+
+- **AES-256 encryption** — GoPDF now opens PDFs encrypted with the modern AES-256 Standard security handler (encryption V=5, revisions R=5 and R=6, as produced by Acrobat 9+ and required by PDF 2.0 / ISO 32000-2). Such files are decrypted transparently through `OpenBytes` / `NewReaderEncrypted` using the empty, user, or owner password — no new API. Previously they failed with `unsupported PDF: encryption version V=5`.
 
 ### Security
 
+- **Security:** `applyFilter` no longer panics on a negative FlateDecode `/Columns` value — a crafted `/Columns -2` previously triggered an invalid slice allocation when the stream was read; negative values are now rejected.
+- **Security:** AES-CBC decryption now fully validates PKCS#7 padding (every padding byte, in constant time) instead of checking only the final byte, rejecting malformed padding that was previously accepted as valid.
+- **Security:** AES stream decryption now bounds its in-memory read and returns an explicit error on an oversized stream instead of silently truncating it, preventing unbounded memory use on crafted PDFs.
 - **Security:** CMap parser no longer panics on a codespace range entry with a key longer than 4 bytes — the malformed entry is now rejected and parsing stops gracefully instead of indexing past the end of an internal fixed-size array.
 - **Security:** CMap parser no longer panics when a bfrange destination is an empty string (`<>`) — affected character codes now map to a replacement rune instead of triggering an out-of-bounds slice index.
 - **Security:** `Content()` no longer panics on malformed PDF content streams — operator calls with wrong argument counts (e.g. a `Td` with one operand instead of two) are now caught and return whatever text and rectangles were extracted before the fault, preventing denial-of-service via crafted PDFs.
