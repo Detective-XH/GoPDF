@@ -41,20 +41,26 @@ func objStmHeader(strm Value) (n int, first int64) {
 // ok is false when the id is not found in this stream's index.
 func scanObjStmIndex(b *buffer, n int, first int64, ptr objptr) (obj object, ok bool) {
 	for range n {
+		// The index section is [0, first); the bytes at and after /First are
+		// object bodies, not (id, offset) pairs. Bound the scan by /First (and by
+		// EOF, in case /First runs past the stream): an attacker-controlled /N
+		// that over-claims the entry count must not make the scan tokenize body
+		// bytes — that would cost O(stream size) per hop and could false-match an
+		// id from body content, seeking to an attacker-chosen offset.
+		if b.eof || b.readOffset() >= first {
+			break
+		}
 		id, _ := b.readToken().(int64)
 		off, _ := b.readToken().(int64)
+		// A pair whose tokens ran past /First straddled the index/body boundary
+		// (the index lands just short of /First because of the trailing
+		// separator); it is body content, so discard it and stop before matching.
+		if b.readOffset() > first {
+			break
+		}
 		if uint32(id) == ptr.id {
 			b.seekForward(first + off)
 			return b.readObject(), true
-		}
-		// /N is attacker-controlled and unbounded; after EOF readToken yields
-		// io.EOF without advancing, so without this the loop runs the full
-		// claimed /N (an effectively-unbounded post-open CPU hang the /Extends
-		// depth cap does not bound). Stop once the real index is exhausted —
-		// a well-formed ObjStm holds all n pairs before the object bodies, so
-		// EOF here only means /N over-claimed.
-		if b.eof {
-			break
 		}
 	}
 	return nil, false
@@ -64,7 +70,16 @@ func scanObjStmIndex(b *buffer, n int, first int64, ptr objptr) (obj object, ok 
 // the index entries, following Extends chains as needed.
 func (r *Reader) resolveInStream(parent objptr, ptr objptr, xr xref) any {
 	strm := r.resolve(parent, xr.stream)
+	visited := make(map[objptr]bool)
 	for depth := 0; depth < maxLinkDepth; depth++ {
+		// A cyclic /Extends chain would otherwise re-scan the same ObjStm on every
+		// hop up to maxLinkDepth times (each scan is O(/First)); stop as soon as it
+		// revisits a stream. ObjStms are always indirect, so strm.ptr is a stable
+		// identity. The depth cap still backstops a long acyclic chain.
+		if visited[strm.ptr] {
+			return nil
+		}
+		visited[strm.ptr] = true
 		n, first := objStmHeader(strm)
 		b := newBuffer(strm.Reader(), 0)
 		b.allowEOF = true
@@ -77,8 +92,8 @@ func (r *Reader) resolveInStream(parent objptr, ptr objptr, xr xref) any {
 		}
 		strm = ext
 	}
-	// The /Extends chain exceeded maxLinkDepth (cyclic or pathologically deep):
-	// degrade to a null object rather than looping forever.
+	// The /Extends chain exceeded maxLinkDepth (pathologically deep): degrade to a
+	// null object rather than continuing.
 	return nil
 }
 
