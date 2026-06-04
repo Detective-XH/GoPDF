@@ -22,6 +22,7 @@ Original lineage: [rsc/pdf](https://github.com/rsc/pdf).
 - `Page.MediaBox()` and `Page.CropBox()` — page dimensions with inheritance-chain resolution
 - Document metadata API (`r.Info()`: title, author, dates, …)
 - Outline (table of contents) with resolved page numbers
+- **Encrypted PDF support** — transparent decryption of Standard-security-handler files: RC4 (40/128-bit, V=1/2), AES-128 (V=4, AESV2), and **AES-256** (V=5, R=5/R=6 — Acrobat 9+ and PDF 2.0 / ISO 32000-2). Open with the empty, user, or owner password via `NewReaderEncrypted`.
 - **CJK predefined CMap decoders**:
   - Japanese Shift-JIS (`90ms-RKSJ-H/V`, `90pv-RKSJ-H`)
   - CJK UCS-2 BE (`UniGB-UCS2-H/V`, `UniCNS-UCS2-H/V`, `UniJIS-UCS2-H/V`, `UniKS-UCS2-H/V`)

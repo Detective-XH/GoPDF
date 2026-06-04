@@ -85,6 +85,20 @@ func TestDecryptAESBadPadding(t *testing.T) {
 	}
 }
 
+// TestDecryptAESInconsistentPadding verifies that padding whose final byte is in
+// range [1,16] but whose other pad bytes disagree is rejected. Same layout as
+// TestDecryptAESBadPadding; flip CT0[14] (data[30]) so pt1[14] = 0x10^0xFF = 0xEF
+// while pt1[15] stays 0x10 (pad=16, in range but inconsistent) → must be nil.
+func TestDecryptAESInconsistentPadding(t *testing.T) {
+	key := make([]byte, 16)
+	_, _ = rand.Read(key)
+	data := aesCBCEncrypt(key, bytes.Repeat([]byte{0x41}, 16))
+	data[30] ^= 0xFF // pt1[14] = 0xEF, pt1[15] = 0x10 (pad=16 but pad byte [14] != 16)
+	if got := decryptAES(key, data); got != nil {
+		t.Errorf("inconsistent-padding: want nil, got %q", got)
+	}
+}
+
 // TestDecryptAESBadKey verifies that a key of unsupported length returns nil
 // (aes.NewCipher rejects it).
 func TestDecryptAESBadKey(t *testing.T) {
@@ -363,7 +377,7 @@ func TestEncryptDecryptStreamRC4(t *testing.T) {
 	content := []byte("hello world stream content")
 	rd := bytes.NewReader(content)
 
-	result := decryptStream(key, false, objptr{}, rd)
+	result := decryptStream(key, false, false, objptr{}, rd)
 	if result == nil {
 		t.Fatal("RC4 stream: want non-nil reader, got nil")
 	}
@@ -436,9 +450,9 @@ func TestEncryptDecryptStringBranches(t *testing.T) {
 
 	plaintext := "test string"
 	// Encrypt once using decryptString (RC4 is its own inverse).
-	encrypted := decryptString(r.key, r.useAES, objptr{}, plaintext)
+	encrypted := decryptString(r.key, r.useAES, false, objptr{}, plaintext)
 	// Decrypt by applying again — RC4 is symmetric.
-	recovered := decryptString(r.key, r.useAES, objptr{}, encrypted)
+	recovered := decryptString(r.key, r.useAES, false, objptr{}, encrypted)
 	if recovered != plaintext {
 		t.Errorf("RC4 roundtrip: got %q, want %q", recovered, plaintext)
 	}

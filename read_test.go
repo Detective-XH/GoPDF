@@ -366,10 +366,10 @@ func TestOpenBytesEOFBeyond1024(t *testing.T) {
 // or has a tail that is not a full block multiple after the IV.
 func TestDecryptStringMisalignedAES(t *testing.T) {
 	key := make([]byte, 16)
-	if got := decryptString(key, true, objptr{}, string(make([]byte, 10))); got != "" {
+	if got := decryptString(key, true, false, objptr{}, string(make([]byte, 10))); got != "" {
 		t.Errorf("short ciphertext: want \"\", got %q", got)
 	}
-	if got := decryptString(key, true, objptr{}, string(make([]byte, 20))); got != "" {
+	if got := decryptString(key, true, false, objptr{}, string(make([]byte, 20))); got != "" {
 		t.Errorf("misaligned ciphertext (20 bytes): want \"\", got %q", got)
 	}
 }
@@ -400,6 +400,24 @@ func TestFlateDecode_ColumnsLimit(t *testing.T) {
 	}}
 	if _, err := applyFilter(bytes.NewReader(buf.Bytes()), "FlateDecode", param); err == nil {
 		t.Error("expected error for Columns > maxPNGColumns, got nil")
+	}
+}
+
+// TestFlateDecode_NegativeColumns verifies that a negative /Columns is rejected
+// rather than panicking in make([]byte, 1+columns) (1+(-2) = -1 → makeslice).
+func TestFlateDecode_NegativeColumns(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zlib.NewWriter(&buf)
+	_, _ = zw.Write([]byte("x"))
+	_ = zw.Close()
+
+	r := &Reader{f: bytes.NewReader(nil), end: 0}
+	param := Value{r, objptr{}, dict{
+		name("Predictor"): int64(12),
+		name("Columns"):   int64(-2),
+	}}
+	if _, err := applyFilter(bytes.NewReader(buf.Bytes()), "FlateDecode", param); err == nil {
+		t.Error("expected error for negative Columns, got nil")
 	}
 }
 
