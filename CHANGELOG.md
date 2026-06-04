@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Added
+
+- **`Page.Words()`** — extract a page's text as individual words with tight bounding boxes, in reading order (left-to-right, top-to-bottom). Each `Word` carries its text plus an (X, Y, width, height) box in PDF coordinate space. Words split on spaces and inter-glyph gaps, so sub/superscripts and words that span kerning boundaries are handled correctly. Useful for search-result highlighting, RAG chunking, and layout-aware extraction.
+
+### Changed
+
+- Text extraction from CJK PDFs — and any document whose fonts use a `/ToUnicode` CMap — is now dramatically faster and far lighter on memory. A font's character map is parsed once per font instead of being re-parsed on every text-font (`Tf`) operator; on a 22-page Traditional Chinese document this cut extraction time by ~19×, memory use by ~51×, and allocations by ~29×.
+
+---
+
 ## v0.6.5 — 2026-06-04
 
 ### Added

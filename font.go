@@ -48,8 +48,23 @@ func (f Font) Width(code int) float64 {
 }
 
 // Encoder returns the encoding between font code point sequences and UTF-8.
+// NOTE: this method has a VALUE receiver; the assignment to f.enc does NOT
+// persist across calls. Internal hot paths (per-page font maps, the content
+// interpreter) must use cachedEncoder instead.
 func (f Font) Encoder() TextEncoding {
-	if f.enc == nil { // caching the Encoder so we don't have to continually parse charmap
+	if f.enc == nil {
+		f.enc = f.getEncoder()
+	}
+	return f.enc
+}
+
+// cachedEncoder returns f's TextEncoding, parsing it once and memoizing it on
+// f.enc. The pointer receiver is essential: it lets the cache persist across
+// calls, so a font's ToUnicode CMap is parsed once instead of on every Tf
+// operator. Callers that hold a *Font (the per-page font maps, the content
+// interpreter's font cache) must use this, not the value-receiver Encoder.
+func (f *Font) cachedEncoder() TextEncoding {
+	if f.enc == nil {
 		f.enc = f.getEncoder()
 	}
 	return f.enc

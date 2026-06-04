@@ -5,18 +5,32 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/Detective-XH/gopdf.svg)](https://pkg.go.dev/github.com/Detective-XH/gopdf)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Detective-XH/gopdf)](https://goreportcard.com/report/github.com/Detective-XH/gopdf)
 
-A Go library for reading PDF files, with active CJK text extraction support.
+A Go-native library for extracting text from real-world PDFs — robust across
+scripts (Latin, CJK, Cyrillic), encodings, multi-font and multi-page documents,
+and malformed input.
 
 **Requires Go 1.25+** (`go.mod` directive).
 
-Originally forked from [ledongthuc/pdf](https://github.com/ledongthuc/pdf); now an independent project.
-Original lineage: [rsc/pdf](https://github.com/rsc/pdf).
+## Background
+
+GoPDF began as a maintained repair fork of [ledongthuc/pdf](https://github.com/ledongthuc/pdf)
+(itself derived from [rsc/pdf](https://github.com/rsc/pdf)). Early releases focused on
+closing long-standing extraction and robustness gaps in the upstream reader lineage —
+including CJK/Cyrillic decoding, ToUnicode priority, Form XObject text omission, TJ
+word-boundary handling, malformed-parser panics, AES-encrypted PDFs, and missing
+regression coverage. It is now an independent project, aimed at being a dependable,
+pure-Go upstream for PDF text extraction.
 
 ## Features
 
 - Plain text extraction with context/cancellation support
 - Styled text extraction (font name, size, position)
 - Text grouped by row
+- Multi-font and multi-page extraction, verified against a multilingual regression corpus
+- Broad script coverage — Latin, **Cyrillic**, and CJK (see the CMap list below)
+- Nested **Form XObject** text — content drawn via the `Do` operator is not dropped
+- TJ word-boundary handling — kerning-based inter-glyph spacing is preserved as word gaps
+- Resilient to malformed content streams — recovers the text decoded before a fault instead of panicking
 - `Pages() iter.Seq2[int, Page]` and `Texts() iter.Seq[Text]` — lazy iterators for streaming access (Go 1.23+)
 - `OpenBytes([]byte)` — parse a PDF from an in-memory byte slice
 - `Page.MediaBox()` and `Page.CropBox()` — page dimensions with inheritance-chain resolution

@@ -33,7 +33,7 @@ func (s *plainTextState) handlePlainTf(args []Value) {
 		panic("bad TL")
 	}
 	if font, ok := s.fonts[args[0].Name()]; ok {
-		s.enc = font.Encoder()
+		s.enc = font.cachedEncoder()
 	} else {
 		s.enc = &nopEncoder{}
 	}
@@ -115,7 +115,9 @@ func (s *plainTextState) interpretPlain(stk *Stack, op string) {
 // The returned string is verbatim UTF-8 with no escaping applied; callers must
 // escape it at their output sink before embedding in HTML, shell commands, or
 // any other context-sensitive environment.
-// fonts can be passed in (to improve parsing performance) or left nil
+// fonts can be passed in (to improve parsing performance) or left nil. A
+// passed-in map is treated read-only: its Font values are copied internally
+// before encoders are cached, so the same map is safe to share across calls.
 func (p Page) GetPlainText(fonts map[string]*Font) (result string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -127,14 +129,22 @@ func (p Page) GetPlainText(fonts map[string]*Font) (result string, err error) {
 	if p.V.IsNull() || p.V.Key("Contents").Kind() == Null {
 		return "", nil
 	}
+	// Build a local map of fresh *Font so cachedEncoder memoizes on our own
+	// copies; never write to a caller-supplied map, which may be shared across
+	// goroutines. Missing fonts fall back to nopEncoder, exactly as before.
+	local := make(map[string]*Font, len(fonts))
 	if fonts == nil {
-		fonts = make(map[string]*Font)
-		for _, font := range p.Fonts() {
-			f := p.Font(font)
-			fonts[font] = &f
+		for _, name := range p.Fonts() {
+			f := p.Font(name)
+			local[name] = &f
+		}
+	} else {
+		for name, f := range fonts {
+			cp := *f
+			local[name] = &cp
 		}
 	}
-	s := &plainTextState{enc: &nopEncoder{}, fonts: fonts, resources: p.Resources()}
+	s := &plainTextState{enc: &nopEncoder{}, fonts: local, resources: p.Resources()}
 	Interpret(p.V.Key("Contents"), s.interpretPlain)
 	return s.buf.String(), nil
 }

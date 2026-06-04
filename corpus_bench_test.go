@@ -37,6 +37,29 @@ func BenchmarkGetPlainText(b *testing.B) {
 	}
 }
 
+// cjkBenchFixture is the real 22-page Traditional Chinese fixture; it exercises
+// the ToUnicode-CMap decode path that dominates CJK extraction cost.
+const cjkBenchFixture = "cjk/irs-p850-zh-hant.pdf"
+
+func BenchmarkCJKGetPlainText(b *testing.B) {
+	data, err := os.ReadFile(corpusPath(cjkBenchFixture))
+	if err != nil {
+		b.Fatalf("read cjk fixture: %v", err)
+	}
+	r, err := OpenBytes(data)
+	if err != nil {
+		b.Fatalf("open cjk fixture: %v", err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rd, err := r.GetPlainText(context.Background())
+		if err != nil {
+			b.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, rd)
+	}
+}
+
 func BenchmarkGetStyledTexts(b *testing.B) {
 	r := benchReader(b)
 	b.ResetTimer()
