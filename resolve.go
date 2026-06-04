@@ -11,6 +11,14 @@ import (
 	"io"
 )
 
+// maxLinkDepth caps the length of any PDF-controlled link chain or recursion the
+// parser walks after open time: the page-tree /Kids descent, /Parent inheritance
+// chains, ObjStm /Extends chains, and the outline /First+/Next tree. A malformed
+// PDF can make these cyclic or arbitrarily deep; the cap converts an otherwise
+// unbounded loop (or stack-overflowing recursion) into a bounded, best-effort
+// result. Mirrors xobjMaxDepth (gstate.go), which caps Form XObject recursion.
+const maxLinkDepth = 1024
+
 // objStmHeader validates that strm is a well-formed ObjStm and returns
 // the entry count n and the byte offset of the first object body (first).
 func objStmHeader(strm Value) (n int, first int64) {
@@ -47,7 +55,7 @@ func scanObjStmIndex(b *buffer, n int, first int64, ptr objptr) (obj object, ok 
 // the index entries, following Extends chains as needed.
 func (r *Reader) resolveInStream(parent objptr, ptr objptr, xr xref) any {
 	strm := r.resolve(parent, xr.stream)
-	for {
+	for depth := 0; depth < maxLinkDepth; depth++ {
 		n, first := objStmHeader(strm)
 		b := newBuffer(strm.Reader(), 0)
 		b.allowEOF = true
@@ -60,6 +68,9 @@ func (r *Reader) resolveInStream(parent objptr, ptr objptr, xr xref) any {
 		}
 		strm = ext
 	}
+	// The /Extends chain exceeded maxLinkDepth (cyclic or pathologically deep):
+	// degrade to a null object rather than looping forever.
+	return nil
 }
 
 // loadDirectObject reads the object at xr.offset from the cross-reference
