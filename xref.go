@@ -26,11 +26,16 @@ func readXref(r *Reader, b *buffer) ([]xref, objptr, dict, error) {
 }
 
 func followXrefTablePrevChain(r *Reader, table []xref, trailer dict) ([]xref, error) {
+	seen := map[int64]bool{}
 	for prevoff := trailer["Prev"]; prevoff != nil; {
 		off, ok := prevoff.(int64)
 		if !ok {
 			return nil, fmt.Errorf("malformed PDF: xref Prev is not integer: %v", prevoff)
 		}
+		if seen[off] {
+			return nil, fmt.Errorf("malformed PDF: cyclic xref /Prev chain at offset %d", off)
+		}
+		seen[off] = true
 		nextTable, nextPrev, err := applyPrevXrefTable(r, off, table)
 		if err != nil {
 			return nil, fmt.Errorf("malformed PDF: %v", err)
