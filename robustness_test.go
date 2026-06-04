@@ -470,6 +470,30 @@ func TestRobustnessObjStmExtendsCycleBoundsRescan(t *testing.T) {
 	}
 }
 
+// TestRobustnessObjStmNegativeIdNoWraparound covers the narrowing false-match: an
+// index entry whose signed id narrows via uint32() to the requested object id
+// must not match. uint32(-4294967289) == 7, so a naive uint32(id) == ptr.id would
+// resolve object 7 to body bytes the index never named.
+func TestRobustnessObjStmNegativeIdNoWraparound(t *testing.T) {
+	const header = "%PDF-1.7\n"
+	// Index entry "-4294967289 0" (narrows to id 7) then body "42"; /N 1; /Extends
+	// self-cycles so a non-match degrades to nil.
+	body := []byte("-4294967289 0 42")
+	first := len("-4294967289 0 ") // 14: index region holds the single entry
+	hdr := fmt.Sprintf("/Type /ObjStm /N 1 /First %d /Extends 5 0 R", first)
+	block := buildStreamObjBytes(5, hdr, body)
+	data := append([]byte(header), block...)
+	r := makeResolveReader(data)
+	r.xref = make([]xref, 6)
+	r.xref[5] = xref{ptr: objptr{5, 0}, offset: int64(len(header))}
+	xr := xref{ptr: objptr{5, 0}, inStream: true, stream: objptr{5, 0}}
+
+	got := r.resolveInStream(objptr{}, objptr{7, 0}, xr)
+	if got != nil {
+		t.Errorf("negative id narrowing to 7 must not false-match: expected nil, got %T(%v)", got, got)
+	}
+}
+
 // TestRobustnessHugePageCount covers A10: a tiny file declaring a near-maxint
 // /Pages /Count must not drive Outline() (via buildPageMap -> Page) into an
 // effectively unbounded loop. NumPage must clamp the count and buildPageMap must

@@ -9,6 +9,7 @@ package pdf
 import (
 	"fmt"
 	"io"
+	"math"
 )
 
 // maxLinkDepth caps the length of any PDF-controlled link chain or recursion the
@@ -58,7 +59,17 @@ func scanObjStmIndex(b *buffer, n int, first int64, ptr objptr) (obj object, ok 
 		if b.readOffset() > first {
 			break
 		}
-		if uint32(id) == ptr.id {
+		// Match only an in-range, non-narrowing id: the lexer parses signed
+		// integers, so a negative id (or one above MaxUint32) would narrow via
+		// uint32() to ptr.id and false-match an object the index never named.
+		if id >= 0 && id <= math.MaxUint32 && uint32(id) == ptr.id {
+			// A matched entry with a negative or overflowing offset is corrupt;
+			// treat the object as unlocatable rather than seeking to an
+			// attacker-derived position (first+off < first iff off < 0 or it
+			// overflowed int64).
+			if off < 0 || first+off < first {
+				return nil, false
+			}
 			b.seekForward(first + off)
 			return b.readObject(), true
 		}
