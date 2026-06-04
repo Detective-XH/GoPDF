@@ -31,7 +31,6 @@ type gstate struct {
 	Trise float64
 	Tm    matrix
 	Tlm   matrix
-	Trm   matrix
 	CTM   matrix
 }
 
