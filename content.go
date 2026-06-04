@@ -9,9 +9,10 @@ import (
 )
 
 // contentState holds the mutable interpreter state for the Content() operator loop.
+// The text encoder lives in g.enc (part of the graphics state) so q/Q save and
+// restore it together with the current font; see gstate.
 type contentState struct {
 	g         gstate
-	enc       TextEncoding
 	text      []Text
 	rect      []Rect
 	gstack    []gstate
@@ -25,7 +26,7 @@ type contentState struct {
 // entry per glyph to s.text, advancing the text matrix after each glyph.
 func (s *contentState) appendText(str string) {
 	n := 0
-	decoded := s.enc.Decode(str)
+	decoded := s.g.enc.Decode(str)
 	for _, ch := range decoded {
 		var w0 float64
 		if n < len(str) {
@@ -132,12 +133,12 @@ func (s *contentState) handleTf(args []Value) {
 	}
 	f := s.font(args[0].Name())
 	s.g.Tf = *f
-	s.enc = f.cachedEncoder()
-	if s.enc == nil {
+	s.g.enc = f.cachedEncoder()
+	if s.g.enc == nil {
 		if DebugOn {
 			println("no cmap for", args[0].Name())
 		}
-		s.enc = &nopEncoder{}
+		s.g.enc = &nopEncoder{}
 	}
 	s.g.Tfs = args[1].Float64()
 }
@@ -242,9 +243,14 @@ func (s *contentState) interpretXObject(name string) {
 	if xobj.Key("Subtype").Name() != "Form" {
 		return
 	}
+	// Interpret the form in its own space: concatenate the form's /Matrix (form
+	// space → the user space at the Do site) with the CTM in effect at the Do
+	// operator, so the form's text comes out in page space rather than
+	// form-local. Note: GetTextByRow/GetTextByColumn use a separate interpreter
+	// (walk.go) that tracks no CTM, so their XObject coordinates stay form-local;
+	// only Content()/Words() get page-space coordinates from here.
 	sub := &contentState{
-		g:         gstate{Th: 1, CTM: ident},
-		enc:       &nopEncoder{},
+		g:         gstate{Th: 1, CTM: formMatrix(xobj).mul(s.g.CTM), enc: &nopEncoder{}},
 		p:         s.p,
 		resources: xobj.Key("Resources"),
 		depth:     s.depth + 1,
@@ -252,6 +258,28 @@ func (s *contentState) interpretXObject(name string) {
 	Interpret(xobj, sub.interpret)
 	s.text = append(s.text, sub.text...)
 	s.rect = append(s.rect, sub.rect...)
+}
+
+// formMatrix returns a Form XObject's /Matrix entry as a matrix, or the identity
+// matrix when /Matrix is absent or malformed. /Matrix maps form space into the
+// user space in effect where the form is invoked (PDF 32000-1:2008 §8.10.1).
+// Every element must be a number: a non-numeric entry would otherwise resolve to
+// 0 via Float64() and silently collapse the form's text coordinates, so a
+// length-6 array containing any non-number is treated as malformed → identity.
+func formMatrix(xobj Value) matrix {
+	m := xobj.Key("Matrix")
+	if m.Kind() != Array || m.Len() != 6 {
+		return ident
+	}
+	args := make([]Value, 6)
+	for i := range args {
+		e := m.Index(i)
+		if k := e.Kind(); k != Integer && k != Real {
+			return ident
+		}
+		args[i] = e
+	}
+	return matrixFrom6Args(args)
 }
 
 // popArgs drains the stack into a slice, preserving argument order.
@@ -309,8 +337,7 @@ func (p Page) Content() (out Content) {
 		return
 	}
 	s = &contentState{
-		g:         gstate{Th: 1, CTM: ident},
-		enc:       &nopEncoder{},
+		g:         gstate{Th: 1, CTM: ident, enc: &nopEncoder{}},
 		p:         p,
 		resources: p.Resources(),
 	}

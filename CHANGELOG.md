@@ -22,6 +22,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - Text extraction from CJK PDFs — and any document whose fonts use a `/ToUnicode` CMap — is now dramatically faster and far lighter on memory. A font's character map is parsed once per font instead of being re-parsed on every text-font (`Tf`) operator; on a 22-page Traditional Chinese document this cut extraction time by ~19×, memory use by ~51×, and allocations by ~29×.
+- **Text inside Form XObjects now reports page-space coordinates.** `Content()` and `Words()` previously interpreted a Form XObject with the identity transform, so its text came back at form-local coordinates — ignoring both the form's `/Matrix` and the transform in effect where the form was invoked (`Do`). Those are now concatenated, so the `X`, `Y`, and `FontSize` of XObject text reflect its real position on the page. This is a correctness fix, but code that depended on the previous form-local values will see different coordinates for text drawn inside forms. (`GetTextByRow` / `GetTextByColumn` use a separate code path that does not track coordinate transforms, so their XObject coordinates are unchanged.)
+
+### Fixed
+
+- Text drawn after a `Q` (restore-graphics-state) operator is now decoded with the correct font's encoding. The interpreter restored the current font on `Q` but not its text encoder, so when a `q … Tf … Q` block changed the font and the following text relied on the restored outer font, `Content()` / `Texts` / `GetStyledTexts` / `Words` decoded those characters through the inner block's encoder and returned garbled `Text.S` (while `Text.Font` still named the correct outer font). The encoder is now saved and restored together with the font.
 
 ---
 
