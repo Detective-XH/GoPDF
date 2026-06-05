@@ -48,9 +48,6 @@ package pdf
 // BUG(rsc): The package is incomplete, although it has been used successfully on some
 // large real-world PDF files.
 
-// BUG(rsc): The library makes no attempt at efficiency. A value cache maintained in the Reader
-// would probably help significantly.
-
 // BUG(detective-xh): Encryption covers the Standard security handler only:
 // RC4 (V=1/2, R=2-3), AES-128 (V=4/R=4), and AES-256 (V=5, R=5-6), each with
 // user- and owner-password authentication. Crypt filters resolve per class:
@@ -75,6 +72,12 @@ import (
 var DebugOn = false
 
 // A Reader is a single PDF file open for reading.
+// After Open/NewReader returns, the methods of Reader (and of the Value,
+// Page, and Outline trees it produces) are safe for concurrent use by
+// multiple goroutines: post-open state is read-only except for an internal
+// bounded cache, which synchronizes itself. The one caller-visible mutable
+// helper remains (*Font).cachedEncoder, which memoizes on the Font value —
+// keep per-goroutine Font copies, as plaintext.go already does.
 type Reader struct {
 	f          io.ReaderAt
 	end        int64
@@ -92,6 +95,12 @@ type Reader struct {
 	// the open-path recover and fails the load). After open it is false, so the
 	// same panic degrades to a null Value instead of crashing a public getter.
 	opening bool
+	// cache memoizes resolved objects and decoded object streams. PDFs are
+	// immutable post-open; the cache is bounded (cache.go) and fully
+	// bypassed while opening — decryption state (key, strMode) is not
+	// established until tryDecrypt runs, and an object cached before that
+	// would serve undecrypted strings forever after.
+	cache objCache
 }
 
 // Open opens a file for reading.
