@@ -26,6 +26,7 @@ pure-Go upstream for PDF text extraction.
 - Plain text extraction with context/cancellation support
 - Styled text extraction (font name, size, position)
 - Text grouped by row
+- Word-level extraction with bounding boxes (`Page.Words()`) — words in reading order, each with an (X, Y, width, height) box in PDF coordinate space
 - Multi-font and multi-page extraction, verified against a multilingual regression corpus
 - Broad script coverage — Latin, **Cyrillic**, and CJK (see the CMap list below)
 - Nested **Form XObject** text — content drawn via the `Do` operator is not dropped
@@ -36,6 +37,8 @@ pure-Go upstream for PDF text extraction.
 - `Page.MediaBox()` and `Page.CropBox()` — page dimensions with inheritance-chain resolution
 - Document metadata API (`r.Info()`: title, author, dates, …)
 - Outline (table of contents) with resolved page numbers
+- Annotations (`Page.Annotations()`) — `/Link` hyperlinks (URI targets and internal GoTo destination page) and `/Text` notes, each with its rectangle
+- Named-destination lookup (`Reader.Dest()`) — resolve a named destination to a 1-based page number
 - **Encrypted PDF support** — transparent decryption of Standard-security-handler files: RC4 (40/128-bit, V=1/2), AES-128 (V=4, AESV2), and **AES-256** (V=5, R=5/R=6 — Acrobat 9+ and PDF 2.0 / ISO 32000-2). Open with the empty, user, or owner password via `NewReaderEncrypted`.
 - **CJK predefined CMap decoders**:
   - Japanese Shift-JIS (`90ms-RKSJ-H/V`, `90pv-RKSJ-H`)
