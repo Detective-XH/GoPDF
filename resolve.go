@@ -113,8 +113,7 @@ func (r *Reader) resolveInStream(parent objptr, ptr objptr, xr xref) any {
 func (r *Reader) loadDirectObject(ptr objptr, xr xref) object {
 	b := newBuffer(io.NewSectionReader(r.f, xr.offset, r.end-xr.offset), xr.offset)
 	b.key = r.key
-	b.useAES = r.useAES
-	b.aes256 = r.aes256
+	b.strMode = r.strMode
 	obj := b.readObject()
 	def, ok := obj.(objdef)
 	if !ok {

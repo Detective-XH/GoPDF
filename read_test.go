@@ -366,10 +366,10 @@ func TestOpenBytesEOFBeyond1024(t *testing.T) {
 // or has a tail that is not a full block multiple after the IV.
 func TestDecryptStringMisalignedAES(t *testing.T) {
 	key := make([]byte, 16)
-	if got := decryptString(key, true, false, objptr{}, string(make([]byte, 10))); got != "" {
+	if got := decryptString(key, modeAESV2, objptr{}, string(make([]byte, 10))); got != "" {
 		t.Errorf("short ciphertext: want \"\", got %q", got)
 	}
-	if got := decryptString(key, true, false, objptr{}, string(make([]byte, 20))); got != "" {
+	if got := decryptString(key, modeAESV2, objptr{}, string(make([]byte, 20))); got != "" {
 		t.Errorf("misaligned ciphertext (20 bytes): want \"\", got %q", got)
 	}
 }

@@ -18,7 +18,7 @@ import (
 )
 
 // initEncryptAES256 handles V=5 (R=5 / R=6). On success it sets r.key (the
-// 32-byte file encryption key), r.useAES, and r.aes256.
+// 32-byte file encryption key), r.stmMode/r.strMode, and r.encryptMetadata.
 func (r *Reader) initEncryptAES256(encrypt dict, password string) error {
 	if encrypt["Filter"] != name("Standard") {
 		return fmt.Errorf("unsupported PDF: encryption filter %v", objfmt(encrypt["Filter"]))
@@ -27,8 +27,9 @@ func (r *Reader) initEncryptAES256(encrypt dict, password string) error {
 	if rev != 5 && rev != 6 {
 		return fmt.Errorf("unsupported PDF: AES-256 revision R=%d", rev)
 	}
-	if !okayV5(encrypt) {
-		return fmt.Errorf("unsupported PDF: V=5 crypt filter %v", objfmt(encrypt))
+	stm, str, err := resolveCryptFilters(encrypt, 5)
+	if err != nil {
+		return err
 	}
 	O, _ := encrypt["O"].(string)
 	U, _ := encrypt["U"].(string)
@@ -45,38 +46,11 @@ func (r *Reader) initEncryptAES256(encrypt dict, password string) error {
 		return ErrInvalidPassword
 	}
 	r.key = key
-	r.useAES = true
-	r.aes256 = true
+	r.stmMode, r.strMode = stm, str
+	// /EncryptMetadata has no key-derivation impact at V=5 (ISO 32000-2); it
+	// only controls the metadata-stream decryption skip.
+	r.encryptMetadata = encryptMetadataFlag(encrypt)
 	return nil
-}
-
-// okayV5 accepts only the AESV3/DocOpen/256-bit crypt-filter configuration.
-func okayV5(encrypt dict) bool {
-	cf, ok := encrypt["CF"].(dict)
-	if !ok {
-		return false
-	}
-	stmf, ok := encrypt["StmF"].(name)
-	if !ok {
-		return false
-	}
-	strf, ok := encrypt["StrF"].(name)
-	if !ok || stmf != strf {
-		return false
-	}
-	cfparam, _ := cf[stmf].(dict)
-	return validateCFParamV5(cfparam)
-}
-
-// validateCFParamV5 checks the StdCF dict is AESV3 over DocOpen.
-func validateCFParamV5(cfparam dict) bool {
-	if cfparam["AuthEvent"] != nil && cfparam["AuthEvent"] != name("DocOpen") {
-		return false
-	}
-	if cfparam["Length"] != nil && cfparam["Length"] != int64(32) && cfparam["Length"] != int64(256) {
-		return false
-	}
-	return cfparam["CFM"] == name("AESV3")
 }
 
 // validateAES256Password tries the user password path, then the owner path

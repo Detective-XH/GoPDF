@@ -361,6 +361,7 @@ func TestObjectMaybeDecryptToken(t *testing.T) {
 	t.Run("non-string token passes through unchanged regardless of key", func(t *testing.T) {
 		b := objectMakeBuffer([]byte(""))
 		b.key = []byte{0x01, 0x02}
+		b.strMode = modeRC4
 		b.objptr = objptr{id: 1, gen: 0}
 		tok := object(name("MyName"))
 		got := b.maybeDecryptToken(tok)
@@ -385,11 +386,12 @@ func TestObjectMaybeDecryptToken(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestObjectMaybeDecryptTokenZeroObjptr verifies that a string token with a
-// non-nil key but objptr.id == 0 is returned unchanged (the compound guard
-// in maybeDecryptToken requires all three conditions).
+// non-nil key and active string mode but objptr.id == 0 is returned unchanged
+// (the compound guard in maybeDecryptToken requires all conditions).
 func TestObjectMaybeDecryptTokenZeroObjptr(t *testing.T) {
 	b := objectMakeBuffer([]byte(""))
 	b.key = []byte{0x01, 0x02, 0x03, 0x04, 0x05}
+	b.strMode = modeRC4
 	b.objptr = objptr{id: 0, gen: 0} // zero id — decryption is skipped
 	tok := object("plaintext")
 	got := b.maybeDecryptToken(tok)
@@ -409,7 +411,7 @@ func TestObjectMaybeDecryptTokenZeroObjptr(t *testing.T) {
 func TestObjectMaybeDecryptTokenRC4(t *testing.T) {
 	b := objectMakeBuffer([]byte(""))
 	b.key = []byte{0x01, 0x02, 0x03, 0x04, 0x05}
-	b.useAES = false
+	b.strMode = modeRC4
 	b.objptr = objptr{id: 1, gen: 0} // non-zero id — decryption executes
 
 	original := "hello"
