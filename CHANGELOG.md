@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## Fixed, pending release
+## v0.6.7 — 2026-06-06
 
 ### Added
 
