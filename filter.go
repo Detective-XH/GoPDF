@@ -1,8 +1,10 @@
-// Stream filter decoders: ASCII85, FlateDecode (zlib + PNG Up predictor).
+// Stream filter decoders: ASCII85, ASCIIHex, RunLength,
+// FlateDecode (zlib + PNG Up predictor).
 
 package pdf
 
 import (
+	"bufio"
 	"bytes"
 	"compress/zlib"
 	"encoding/ascii85"
@@ -60,28 +62,7 @@ func applyFilter(rd io.Reader, name string, param Value) (io.Reader, error) {
 	default:
 		return nil, fmt.Errorf("unsupported PDF filter: %s", name)
 	case "FlateDecode":
-		zr, err := zlib.NewReader(rd)
-		if err != nil {
-			return nil, fmt.Errorf("FlateDecode: %v", err)
-		}
-		limited := io.LimitReader(zr, maxDecompressedSize)
-		pred := param.Key("Predictor")
-		if pred.Kind() == Null {
-			return limited, nil
-		}
-		columns := param.Key("Columns").Int64()
-		if columns < 0 || columns > maxPNGColumns {
-			return nil, fmt.Errorf("FlateDecode: invalid Columns value: %d", columns)
-		}
-		switch pred.Int64() {
-		default:
-			if DebugOn {
-				fmt.Println("unknown predictor", pred)
-			}
-			return nil, fmt.Errorf("unsupported FlateDecode predictor: %v", pred.Int64())
-		case 12:
-			return &pngUpReader{r: limited, hist: make([]byte, 1+columns), tmp: make([]byte, 1+columns)}, nil
-		}
+		return applyFlateFilter(rd, param)
 	case "ASCII85Decode":
 		cleanASCII85 := newAlphaReader(rd)
 		decoder := ascii85.NewDecoder(cleanASCII85)
@@ -95,7 +76,158 @@ func applyFilter(rd io.Reader, name string, param Value) (io.Reader, error) {
 		case nil:
 			return decoder, nil
 		}
+	case "ASCIIHexDecode":
+		if param.Keys() != nil {
+			return nil, fmt.Errorf("unexpected DecodeParms for ASCIIHexDecode")
+		}
+		return &asciiHexReader{src: bufio.NewReader(rd)}, nil
+	case "RunLengthDecode":
+		if param.Keys() != nil {
+			return nil, fmt.Errorf("unexpected DecodeParms for RunLengthDecode")
+		}
+		return io.LimitReader(&runLengthReader{src: bufio.NewReader(rd)}, maxDecompressedSize), nil
 	}
+}
+
+// applyFlateFilter opens a zlib stream and applies the optional PNG Up
+// predictor declared in DecodeParms.
+func applyFlateFilter(rd io.Reader, param Value) (io.Reader, error) {
+	zr, err := zlib.NewReader(rd)
+	if err != nil {
+		return nil, fmt.Errorf("FlateDecode: %v", err)
+	}
+	limited := io.LimitReader(zr, maxDecompressedSize)
+	pred := param.Key("Predictor")
+	if pred.Kind() == Null {
+		return limited, nil
+	}
+	columns := param.Key("Columns").Int64()
+	if columns < 0 || columns > maxPNGColumns {
+		return nil, fmt.Errorf("FlateDecode: invalid Columns value: %d", columns)
+	}
+	switch pred.Int64() {
+	default:
+		if DebugOn {
+			fmt.Println("unknown predictor", pred)
+		}
+		return nil, fmt.Errorf("unsupported FlateDecode predictor: %v", pred.Int64())
+	case 12:
+		return &pngUpReader{r: limited, hist: make([]byte, 1+columns), tmp: make([]byte, 1+columns)}, nil
+	}
+}
+
+// asciiHexReader decodes ASCIIHexDecode data (ISO 32000-1 §7.4.2): pairs of
+// hex digits with whitespace ignored and '>' as end-of-data; a final odd
+// digit is padded with zero.
+type asciiHexReader struct {
+	src *bufio.Reader
+	eod bool
+}
+
+// nextHexDigit returns the value of the next hex digit, skipping whitespace.
+// It returns -1 at end-of-data ('>' or EOF) and an error on any other byte.
+func (r *asciiHexReader) nextHexDigit() (int, error) {
+	for {
+		c, err := r.src.ReadByte()
+		if err == io.EOF || err == nil && c == '>' {
+			r.eod = true
+			return -1, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+		if isSpace(c) {
+			continue
+		}
+		if v := unhex(c); v >= 0 {
+			return v, nil
+		}
+		return 0, fmt.Errorf("ASCIIHexDecode: invalid byte %#x", c)
+	}
+}
+
+func (r *asciiHexReader) Read(p []byte) (int, error) {
+	n := 0
+	for n < len(p) && !r.eod {
+		hi, err := r.nextHexDigit()
+		if err != nil {
+			return n, err
+		}
+		if hi < 0 {
+			break
+		}
+		lo, err := r.nextHexDigit()
+		if err != nil {
+			return n, err
+		}
+		if lo < 0 {
+			lo = 0 // odd digit count: final digit is followed by an implied 0
+		}
+		p[n] = byte(hi<<4 | lo)
+		n++
+	}
+	if n == 0 && r.eod {
+		return 0, io.EOF
+	}
+	return n, nil
+}
+
+// runLengthReader decodes RunLengthDecode data (ISO 32000-1 §7.4.5): a length
+// byte L followed by L+1 literal bytes (L <= 127), or one byte repeated
+// 257-L times (L >= 129); L == 128 is end-of-data.
+type runLengthReader struct {
+	src  *bufio.Reader
+	pend []byte
+	eod  bool
+}
+
+// fill decodes the next run into r.pend. EOF at a run boundary is treated as
+// end-of-data (a missing EOD marker); EOF inside a run is an error.
+func (r *runLengthReader) fill() error {
+	l, err := r.src.ReadByte()
+	if err == io.EOF || err == nil && l == 128 {
+		r.eod = true
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if l <= 127 {
+		buf := make([]byte, int(l)+1)
+		if _, err := io.ReadFull(r.src, buf); err != nil {
+			return fmt.Errorf("RunLengthDecode: truncated literal run")
+		}
+		r.pend = buf
+		return nil
+	}
+	c, err := r.src.ReadByte()
+	if err != nil {
+		return fmt.Errorf("RunLengthDecode: truncated repeat run")
+	}
+	r.pend = bytes.Repeat([]byte{c}, 257-int(l))
+	return nil
+}
+
+func (r *runLengthReader) Read(p []byte) (int, error) {
+	n := 0
+	for n < len(p) {
+		if len(r.pend) == 0 {
+			if r.eod {
+				break
+			}
+			if err := r.fill(); err != nil {
+				return n, err
+			}
+			continue
+		}
+		m := copy(p[n:], r.pend)
+		n += m
+		r.pend = r.pend[m:]
+	}
+	if n == 0 && r.eod {
+		return 0, io.EOF
+	}
+	return n, nil
 }
 
 type pngUpReader struct {

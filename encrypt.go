@@ -107,17 +107,21 @@ func parseEncryptHeader(encrypt dict) (V, R int64, err error) {
 	return V, R, nil
 }
 
+// padPassword returns the password padded or truncated to exactly 32 bytes
+// (PDF 32000-1:2008 §7.6.3.3 Algorithm 2 step a).
+func padPassword(password string) []byte {
+	pw := []byte(password)
+	if len(pw) >= 32 {
+		return pw[:32]
+	}
+	return append(pw, passwordPad[:32-len(pw)]...)
+}
+
 // buildEncryptKey computes the RC4 encryption key and cipher from the given
 // PDF Standard encryption parameters (PDF 32000-1:2008 §7.6.3.3).
 func buildEncryptKey(password, O string, P uint32, n, R int64, ID []byte) ([]byte, *rc4.Cipher, error) {
-	pw := []byte(password)
 	h := md5.New()
-	if len(pw) >= 32 {
-		h.Write(pw[:32])
-	} else {
-		h.Write(pw)
-		h.Write(passwordPad[:32-len(pw)])
-	}
+	h.Write(padPassword(password))
 	h.Write([]byte(O))
 	h.Write([]byte{byte(P), byte(P >> 8), byte(P >> 16), byte(P >> 24)})
 	h.Write(ID)
@@ -185,11 +189,74 @@ func (r *Reader) initEncrypt(password string) error {
 		return err
 	}
 	if !verifyEncryptKey(R, key, c, U, ID) {
-		return ErrInvalidPassword
+		// The password failed as the user password — try it as the owner
+		// password (PDF 32000-1:2008 §7.6.3.4 Algorithm 7).
+		if key, err = ownerAuthKey(password, O, U, P, n, R, ID); err != nil {
+			return err
+		}
 	}
 	r.key = key
 	r.useAES = V == 4
 	return nil
+}
+
+// ownerEncryptKey derives the RC4 key that encrypts the /O entry from the
+// owner password (PDF 32000-1:2008 §7.6.3.4 Algorithm 3 steps a–d). The 50
+// MD5 iterations hash only the first n/8 digest bytes, matching the
+// Algorithm 2 loop in buildEncryptKey: Adobe's wording for step (c) omits
+// the truncation, but producers (Ghostscript, qpdf) apply it, and the
+// difference is observable only when n < 128 — verified against the
+// Ghostscript-generated R3/40 fixture in testdata/encrypted.
+func ownerEncryptKey(owner string, n, R int64) []byte {
+	h := md5.New()
+	h.Write(padPassword(owner))
+	key := h.Sum(nil)
+	if R < 3 {
+		return key[:40/8]
+	}
+	for range 50 {
+		h.Reset()
+		h.Write(key[:n/8])
+		key = h.Sum(key[:0])
+	}
+	return key[:n/8]
+}
+
+// userPassFromOwner recovers the padded user password from the /O entry
+// given the owner password (PDF 32000-1:2008 §7.6.3.4 Algorithm 7 steps a–b).
+func userPassFromOwner(owner, O string, n, R int64) string {
+	key := ownerEncryptKey(owner, n, R)
+	buf := []byte(O)
+	if R == 2 {
+		c, _ := rc4.NewCipher(key)
+		c.XORKeyStream(buf, buf)
+		return string(buf)
+	}
+	for i := 19; i >= 0; i-- {
+		key1 := make([]byte, len(key))
+		for j := range key {
+			key1[j] = key[j] ^ byte(i)
+		}
+		c, _ := rc4.NewCipher(key1)
+		c.XORKeyStream(buf, buf)
+	}
+	return string(buf)
+}
+
+// ownerAuthKey authenticates password as the owner password (PDF 32000-1:2008
+// §7.6.3.4 Algorithm 7): it recovers the user password from /O, then runs
+// user authentication with it. It returns the file encryption key, or
+// ErrInvalidPassword when the recovered user password fails against /U.
+func ownerAuthKey(password, O, U string, P uint32, n, R int64, ID []byte) ([]byte, error) {
+	userPw := userPassFromOwner(password, O, n, R)
+	key, c, err := buildEncryptKey(userPw, O, P, n, R, ID)
+	if err != nil {
+		return nil, err
+	}
+	if !verifyEncryptKey(R, key, c, U, ID) {
+		return nil, ErrInvalidPassword
+	}
+	return key, nil
 }
 
 var ErrInvalidPassword = fmt.Errorf("encrypted PDF: invalid password")

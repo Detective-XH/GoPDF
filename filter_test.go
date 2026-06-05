@@ -612,3 +612,165 @@ func TestFilterErrorReadCloserClose(t *testing.T) {
 		t.Error("expected non-nil error from errorReadCloser.Close(), got nil")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ASCIIHexDecode
+// ---------------------------------------------------------------------------
+
+// asciiHexDecodeAll runs input through applyFilter("ASCIIHexDecode") and
+// returns the decoded bytes.
+func asciiHexDecodeAll(t *testing.T, input string) ([]byte, error) {
+	t.Helper()
+	rd, err := applyFilter(bytes.NewReader([]byte(input)), "ASCIIHexDecode", Value{})
+	if err != nil {
+		t.Fatalf("applyFilter ASCIIHexDecode: %v", err)
+	}
+	return io.ReadAll(rd)
+}
+
+// TestASCIIHexDecodeBasic decodes a hex payload terminated by '>' with mixed
+// case and interleaved whitespace.
+func TestASCIIHexDecodeBasic(t *testing.T) {
+	got, err := asciiHexDecodeAll(t, "48 65\n6c\t6C 6F>")
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !bytes.Equal(got, []byte("Hello")) {
+		t.Errorf("got %q, want %q", got, "Hello")
+	}
+}
+
+// TestASCIIHexDecodeOddDigit verifies that a final odd hex digit is padded
+// with an implied zero (ISO 32000-1 §7.4.2).
+func TestASCIIHexDecodeOddDigit(t *testing.T) {
+	got, err := asciiHexDecodeAll(t, "486>")
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !bytes.Equal(got, []byte{0x48, 0x60}) {
+		t.Errorf("got %x, want 4860", got)
+	}
+}
+
+// TestASCIIHexDecodeNoEOD verifies that EOF without the '>' marker decodes
+// the available digits.
+func TestASCIIHexDecodeNoEOD(t *testing.T) {
+	got, err := asciiHexDecodeAll(t, "4865")
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !bytes.Equal(got, []byte("He")) {
+		t.Errorf("got %q, want %q", got, "He")
+	}
+}
+
+// TestASCIIHexDecodeEmpty verifies that an immediate EOD yields empty output.
+func TestASCIIHexDecodeEmpty(t *testing.T) {
+	got, err := asciiHexDecodeAll(t, ">")
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %x, want empty", got)
+	}
+}
+
+// TestASCIIHexDecodeInvalidByte verifies that a non-hex, non-whitespace byte
+// surfaces as a read error.
+func TestASCIIHexDecodeInvalidByte(t *testing.T) {
+	if _, err := asciiHexDecodeAll(t, "48zz>"); err == nil {
+		t.Error("invalid byte: want error, got nil")
+	}
+}
+
+// TestASCIIHexDecodeRejectsParms verifies that DecodeParms is rejected, as
+// the filter defines none.
+func TestASCIIHexDecodeRejectsParms(t *testing.T) {
+	param := filterMakeDict(map[string]any{"K": int64(1)})
+	if _, err := applyFilter(bytes.NewReader(nil), "ASCIIHexDecode", param); err == nil {
+		t.Error("DecodeParms: want error, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RunLengthDecode
+// ---------------------------------------------------------------------------
+
+// runLengthDecodeAll runs input through applyFilter("RunLengthDecode") and
+// returns the decoded bytes.
+func runLengthDecodeAll(t *testing.T, input []byte) ([]byte, error) {
+	t.Helper()
+	rd, err := applyFilter(bytes.NewReader(input), "RunLengthDecode", Value{})
+	if err != nil {
+		t.Fatalf("applyFilter RunLengthDecode: %v", err)
+	}
+	return io.ReadAll(rd)
+}
+
+// TestRunLengthDecodeRuns decodes a literal run followed by a repeat run
+// (ISO 32000-1 §7.4.5): {0,'a'} → "a"; {255,'b'} → 257-255 = 2 × 'b'.
+func TestRunLengthDecodeRuns(t *testing.T) {
+	got, err := runLengthDecodeAll(t, []byte{0, 'a', 255, 'b', 128})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !bytes.Equal(got, []byte("abb")) {
+		t.Errorf("got %q, want %q", got, "abb")
+	}
+}
+
+// TestRunLengthDecodeLiteral decodes a multi-byte literal run: length byte 2
+// copies the next 3 bytes verbatim.
+func TestRunLengthDecodeLiteral(t *testing.T) {
+	got, err := runLengthDecodeAll(t, []byte{2, 'a', 'b', 'c', 128})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !bytes.Equal(got, []byte("abc")) {
+		t.Errorf("got %q, want %q", got, "abc")
+	}
+}
+
+// TestRunLengthDecodeEODStops verifies that data after the 128 end-of-data
+// marker is not decoded.
+func TestRunLengthDecodeEODStops(t *testing.T) {
+	got, err := runLengthDecodeAll(t, []byte{0, 'a', 128, 0, 'b'})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !bytes.Equal(got, []byte("a")) {
+		t.Errorf("got %q, want %q", got, "a")
+	}
+}
+
+// TestRunLengthDecodeMissingEOD verifies that EOF at a run boundary without
+// the 128 marker is treated as end-of-data.
+func TestRunLengthDecodeMissingEOD(t *testing.T) {
+	got, err := runLengthDecodeAll(t, []byte{1, 'h', 'i'})
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !bytes.Equal(got, []byte("hi")) {
+		t.Errorf("got %q, want %q", got, "hi")
+	}
+}
+
+// TestRunLengthDecodeTruncated verifies that EOF inside a literal or repeat
+// run surfaces as a read error.
+func TestRunLengthDecodeTruncated(t *testing.T) {
+	if _, err := runLengthDecodeAll(t, []byte{5, 'a'}); err == nil {
+		t.Error("truncated literal run: want error, got nil")
+	}
+	if _, err := runLengthDecodeAll(t, []byte{200}); err == nil {
+		t.Error("truncated repeat run: want error, got nil")
+	}
+}
+
+// TestRunLengthDecodeRejectsParms verifies that DecodeParms is rejected, as
+// the filter defines none.
+func TestRunLengthDecodeRejectsParms(t *testing.T) {
+	param := filterMakeDict(map[string]any{"K": int64(1)})
+	if _, err := applyFilter(bytes.NewReader(nil), "RunLengthDecode", param); err == nil {
+		t.Error("DecodeParms: want error, got nil")
+	}
+}

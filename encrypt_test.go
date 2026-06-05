@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/md5" //nolint:gosec // MD5 is mandated by the PDF Standard security handler key derivation
 	"crypto/rand"
 	"crypto/rc4" //nolint:gosec // RC4 is mandated by PDF 1.4–1.6 encryption spec; testing existing behavior, not choosing new crypto
 	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -556,5 +558,195 @@ func TestEncryptInitEncryptBadFilter(t *testing.T) {
 	}
 	if err := r.initEncrypt(""); err == nil {
 		t.Error("expected error for bad filter, got nil")
+	}
+}
+
+// --- owner password (Algorithm 7) ---------------------------------------------
+
+// encryptComputeO implements PDF 32000-1:2008 §7.6.3.4 Algorithm 3 (computing
+// the /O value) for test fixtures: derive the RC4 key from the owner password,
+// then encrypt the padded user password (19 extra XOR rounds for R >= 3).
+func encryptComputeO(owner, user string, n, R int64) string {
+	key := ownerEncryptKey(owner, n, R)
+	buf := padPassword(user)
+	if R == 2 {
+		c, _ := rc4.NewCipher(key) //nolint:gosec // PDF spec RC4 primitive
+		c.XORKeyStream(buf, buf)
+		return string(buf)
+	}
+	for i := 0; i <= 19; i++ {
+		key1 := make([]byte, len(key))
+		for j := range key {
+			key1[j] = key[j] ^ byte(i)
+		}
+		c, _ := rc4.NewCipher(key1) //nolint:gosec // PDF spec RC4 primitive
+		c.XORKeyStream(buf, buf)
+	}
+	return string(buf)
+}
+
+// encryptComputeU derives the /U value for the given user password, mirroring
+// verifyEncryptKey (R=2: Algorithm 4; R>=3: Algorithm 5, padded to 32 bytes).
+func encryptComputeU(user, O string, P uint32, n, R int64, ID []byte) string {
+	key, c, _ := buildEncryptKey(user, O, P, n, R, ID)
+	if R == 2 {
+		u := make([]byte, 32)
+		copy(u, passwordPad)
+		c.XORKeyStream(u, u)
+		return string(u)
+	}
+	h := md5.New() //nolint:gosec // MD5 is mandated by the PDF Standard security handler
+	h.Write(passwordPad)
+	h.Write(ID)
+	u := h.Sum(nil)
+	c.XORKeyStream(u, u)
+	for i := 1; i <= 19; i++ {
+		key1 := make([]byte, len(key))
+		copy(key1, key)
+		for j := range key1 {
+			key1[j] ^= byte(i)
+		}
+		c2, _ := rc4.NewCipher(key1) //nolint:gosec // PDF spec RC4 primitive
+		c2.XORKeyStream(u, u)
+	}
+	return string(u) + strings.Repeat("\x00", 16)
+}
+
+// encryptOwnerReader builds a Reader whose trailer carries a V<=4 Standard
+// encryption dict derived from the given owner and user passwords.
+func encryptOwnerReader(owner, user string, V, R, n int64) *Reader {
+	ID := []byte(strings.Repeat("\x01", 16))
+	P := uint32(0xFFFFFFFC)
+	O := encryptComputeO(owner, user, n, R)
+	U := encryptComputeU(user, O, P, n, R, ID)
+	return &Reader{
+		f:   bytes.NewReader(nil),
+		end: 0,
+		trailer: dict{
+			name("Encrypt"): dict{
+				name("Filter"): name("Standard"),
+				name("V"):      V,
+				name("R"):      R,
+				name("O"):      O,
+				name("U"):      U,
+				name("P"):      int64(int32(P)),
+				name("Length"): n,
+			},
+			name("ID"): array{string(ID), string(ID)},
+		},
+	}
+}
+
+// TestEncryptOwnerPasswordR2 verifies Algorithm 7 unlocking for R=2: the
+// owner password recovers the user password from /O and authenticates.
+func TestEncryptOwnerPasswordR2(t *testing.T) {
+	r := encryptOwnerReader("owner-secret", "user-secret", 1, 2, 40)
+	if err := r.initEncrypt("owner-secret"); err != nil {
+		t.Fatalf("owner password: %v", err)
+	}
+	if len(r.key) == 0 {
+		t.Error("r.key not set after owner-password initEncrypt")
+	}
+}
+
+// TestEncryptOwnerPasswordR3 verifies Algorithm 7 unlocking for R=3 with a
+// 128-bit key (the 19-round XOR variant of the /O decryption loop).
+func TestEncryptOwnerPasswordR3(t *testing.T) {
+	r := encryptOwnerReader("owner-secret", "user-secret", 2, 3, 128)
+	if err := r.initEncrypt("owner-secret"); err != nil {
+		t.Fatalf("owner password: %v", err)
+	}
+	if len(r.key) == 0 {
+		t.Error("r.key not set after owner-password initEncrypt")
+	}
+}
+
+// TestEncryptOwnerPasswordUserStillWorks confirms the user-password path is
+// untouched by the owner fallback.
+func TestEncryptOwnerPasswordUserStillWorks(t *testing.T) {
+	r := encryptOwnerReader("owner-secret", "user-secret", 2, 3, 128)
+	if err := r.initEncrypt("user-secret"); err != nil {
+		t.Fatalf("user password: %v", err)
+	}
+}
+
+// TestEncryptOwnerPasswordWrong confirms a password that is neither the user
+// nor the owner password still yields ErrInvalidPassword.
+func TestEncryptOwnerPasswordWrong(t *testing.T) {
+	r := encryptOwnerReader("owner-secret", "user-secret", 2, 3, 128)
+	if err := r.initEncrypt("not-a-password"); err != ErrInvalidPassword {
+		t.Fatalf("wrong password: got %v, want ErrInvalidPassword", err)
+	}
+}
+
+// TestEncryptUserPassFromOwnerRoundtrip checks Algorithm 7 steps a–b directly:
+// decrypting the /O produced by Algorithm 3 recovers the padded user password.
+func TestEncryptUserPassFromOwnerRoundtrip(t *testing.T) {
+	for _, R := range []int64{2, 3} {
+		n := int64(40)
+		if R == 3 {
+			n = 128
+		}
+		O := encryptComputeO("owner", "user", n, R)
+		got := userPassFromOwner("owner", O, n, R)
+		want := string(padPassword("user"))
+		if got != want {
+			t.Errorf("R=%d: recovered %x, want %x", R, got, want)
+		}
+	}
+}
+
+// --- encrypted fixtures (external known answers) -------------------------------
+
+// openEncryptedFixture opens testdata/encrypted/<fixture> with the given
+// password via the public NewReaderEncrypted path.
+func openEncryptedFixture(t *testing.T, fixture, password string) (*Reader, error) {
+	t.Helper()
+	//nolint:gosec // G304: fixture is a fixed testdata path, not user input
+	f, err := os.Open("testdata/encrypted/" + fixture)
+	if err != nil {
+		t.Fatalf("open fixture: %v", err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	fi, err := f.Stat()
+	if err != nil {
+		t.Fatalf("stat fixture: %v", err)
+	}
+	done := false
+	pw := func() string {
+		if done {
+			return ""
+		}
+		done = true
+		return password
+	}
+	return NewReaderEncrypted(f, fi.Size(), pw)
+}
+
+// TestEncryptFixturePasswords verifies user- and owner-password unlocking
+// against external known answers: Ghostscript-encrypted fixtures covering
+// RC4 R2/40, R3/128, and R3/40. The R3/40 case discriminates Algorithm 3's
+// full-digest 50-round MD5 loop from Algorithm 2's truncated variant, which
+// the self-consistent unit tests above cannot detect. Successful opening
+// means verifyEncryptKey matched the externally produced /U, and the
+// Producer check confirms string decryption end-to-end.
+func TestEncryptFixturePasswords(t *testing.T) {
+	for _, fixture := range []string{"rc4-r2-40.pdf", "rc4-r3-128.pdf", "rc4-r3-40.pdf"} {
+		for _, pw := range []string{"user-secret", "owner-secret"} {
+			r, err := openEncryptedFixture(t, fixture, pw)
+			if err != nil {
+				t.Errorf("%s with %q: %v", fixture, pw, err)
+				continue
+			}
+			if got := r.NumPage(); got != 1 {
+				t.Errorf("%s with %q: NumPage = %d, want 1", fixture, pw, got)
+			}
+			if p := r.Info().Producer(); !strings.Contains(p, "Ghostscript") {
+				t.Errorf("%s with %q: Producer = %q, want Ghostscript", fixture, pw, p)
+			}
+		}
+		if _, err := openEncryptedFixture(t, fixture, "wrong-password"); err != ErrInvalidPassword {
+			t.Errorf("%s with wrong password: got %v, want ErrInvalidPassword", fixture, err)
+		}
 	}
 }

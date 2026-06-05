@@ -61,7 +61,29 @@ func applyPrevXrefTable(r *Reader, absOffset int64, table []xref) ([]xref, any, 
 	if !ok {
 		return nil, nil, fmt.Errorf("xref Prev table not followed by trailer dictionary")
 	}
+	if table, err = applyXrefStm(r, table, trailer); err != nil {
+		return nil, nil, err
+	}
 	return table, trailer["Prev"], nil
+}
+
+// applyXrefStm merges the supplemental cross-reference stream named by a
+// hybrid-reference table trailer's /XRefStm entry (ISO 32000-1 §7.5.8.4).
+// Objects held in object streams are marked free in the hybrid table itself
+// and carried only by this stream, so its entries fill slots the table left
+// empty; entries already set by the table win, matching the spec's update
+// precedence. The stream's own /Prev (if any) is ignored: the table
+// trailer's /Prev governs the chain.
+func applyXrefStm(r *Reader, table []xref, trailer dict) ([]xref, error) {
+	off, ok := trailer["XRefStm"].(int64)
+	if !ok {
+		return table, nil
+	}
+	table, _, err := applyPrevXrefStream(r, off, table, maxXrefObjects)
+	if err != nil {
+		return nil, fmt.Errorf("malformed PDF: XRefStm: %v", err)
+	}
+	return table, nil
 }
 
 const maxXrefObjects = 8_388_607 // PDF spec max indirect object number
@@ -100,6 +122,9 @@ func readXrefTable(r *Reader, b *buffer) ([]xref, objptr, dict, error) {
 	trailer, ok := b.readObject().(dict)
 	if !ok {
 		return nil, objptr{}, nil, fmt.Errorf("malformed PDF: xref table not followed by trailer dictionary")
+	}
+	if table, err = applyXrefStm(r, table, trailer); err != nil {
+		return nil, objptr{}, nil, err
 	}
 	if table, err = followXrefTablePrevChain(r, table, trailer); err != nil {
 		return nil, objptr{}, nil, err
@@ -216,13 +241,16 @@ func isValidPDFTerminator(b byte) bool {
 }
 
 // validatePDFHeader reads the first 10 bytes of f and returns an error when
-// the %PDF-n.m header is missing or malformed.
+// the %PDF-n.m header is missing or malformed. Accepted versions are 1.0
+// through 1.7 and 2.0 (ISO 32000-2).
 func validatePDFHeader(f io.ReaderAt) error {
 	buf := make([]byte, 10)
 	if _, err := f.ReadAt(buf, 0); err != nil && err != io.EOF {
 		return err
 	}
-	if !bytes.HasPrefix(buf, []byte("%PDF-1.")) || buf[7] < '0' || buf[7] > '7' || !isValidPDFTerminator(buf[8]) {
+	v1 := bytes.HasPrefix(buf, []byte("%PDF-1.")) && buf[7] >= '0' && buf[7] <= '7'
+	v2 := bytes.HasPrefix(buf, []byte("%PDF-2.0"))
+	if (!v1 && !v2) || !isValidPDFTerminator(buf[8]) {
 		return fmt.Errorf("not a PDF file: invalid header")
 	}
 	return nil
