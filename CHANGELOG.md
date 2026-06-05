@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Concurrent use of a Reader is documented and safe** — after `Open`/`NewReader` returns, the methods of `Reader` (and of the `Value`, `Page`, and `Outline` trees it produces) are safe for concurrent use by multiple goroutines, so pages of one document can be extracted in parallel from a single Reader. Post-open state is read-only except for an internal bounded cache, which synchronizes itself.
 - **Per-class crypt filters for encrypted PDFs** — encrypted files whose stream and string classes use different crypt filters (`StmF ≠ StrF`), the pass-through `/Identity` filter, and the RC4 crypt filter inside V=4 encryption (`/CFM /V2`, common in Acrobat 6-era files) now open and decrypt; all three configurations were previously rejected as unsupported. Malformed crypt-filter entries fail closed rather than silently passing encrypted data through undecrypted.
 - **Cleartext-metadata encrypted PDFs (`/EncryptMetadata false`)** — files encrypted with "don't encrypt metadata" (qpdf `--cleartext-metadata`, Acrobat's equivalent option) previously failed to open with AES-128 (wrong key derivation) and returned corrupted XMP metadata in every other mode. The key derivation now accounts for the flag and the metadata stream is returned verbatim. Verified against qpdf-generated AES-128 and AES-256 files with user, owner, and wrong passwords.
 - **LZWDecode stream filter** — PDFs compressed with LZW (common in pre-Flate-era documents) previously failed with `unsupported PDF filter`; both `/EarlyChange` conventions now decode, verified against the Go standard library and qpdf as independent references.
@@ -18,6 +19,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **PDF 2.0 files open** — the `%PDF-2.0` header (ISO 32000-2) is now accepted; such files previously failed with `not a PDF file: invalid header`. Versions 1.0–1.7 behave exactly as before.
 - **Hybrid-reference files** — PDFs written for backward compatibility with pre-1.5 readers carry a supplemental cross-reference stream (`/XRefStm`) alongside the classic xref table. It is now read, so objects stored in object streams — previously hidden and silently resolved to null in such files — extract correctly.
 - **Owner password unlocks legacy encrypted files** — RC4- and AES-128-encrypted PDFs (encryption V≤4) now open with the owner password as well as the user password, matching the existing AES-256 behavior. Verified against Ghostscript-generated encrypted files covering 40- and 128-bit RC4, and a qpdf-generated AES-128 file covering the V=4 path end-to-end.
+
+### Changed
+
+- **Object resolution is cached** — the Reader now memoizes resolved objects and decoded object streams in a bounded internal cache (entry and byte caps; entries are evicted, never invalidated, since a PDF is immutable while open). Repeated extraction from the same Reader runs up to 16× faster with ~95% less allocation, and workloads that dereference every object in the file (forms, attachments, whole-document dumps) decode each object stream once instead of once per resident object — 3–4× faster with up to 86% less allocation on object-stream-heavy files. Single-pass text extraction is unchanged (within ±2%). Truncated or corrupt object streams are never cached, so malformed-file behavior is byte-identical to before.
 
 ---
 

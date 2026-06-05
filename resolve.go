@@ -7,6 +7,7 @@
 package pdf
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"math"
@@ -92,7 +93,17 @@ func (r *Reader) resolveInStream(parent objptr, ptr objptr, xr xref) any {
 		}
 		visited[strm.ptr] = true
 		n, first := objStmHeader(strm)
-		b := newBuffer(strm.Reader(), 0)
+		var b *buffer
+		if data, ok := r.objStmPayload(strm); ok {
+			b = newBuffer(bytes.NewReader(data), 0)
+		} else {
+			// Not cacheable (over-budget, truncated/corrupt, or still
+			// opening): stream lazily exactly as before. An over-budget
+			// payload must not be eagerly materialized on every lookup, and
+			// a corrupt stream must keep its original error point so parsing
+			// degrades exactly as the pre-cache path did.
+			b = newBuffer(strm.Reader(), 0)
+		}
 		b.allowEOF = true
 		if obj, ok := scanObjStmIndex(b, n, first, ptr); ok {
 			return obj
@@ -106,6 +117,59 @@ func (r *Reader) resolveInStream(parent objptr, ptr objptr, xr xref) any {
 	// The /Extends chain exceeded maxLinkDepth (pathologically deep): degrade to a
 	// null object rather than continuing.
 	return nil
+}
+
+// objStmPayload returns the decoded (decompressed and, for encrypted files,
+// decrypted) payload of the ObjStm strm, serving repeated lookups from the
+// cache. ok=false means the payload is not cacheable — the stream decodes
+// past the cache budget, the decode errored partway (a truncated or corrupt
+// stream), or the Reader is still opening — and the caller must fall back to
+// the lazy streaming buffer. The fallback keeps malformed-stream semantics
+// byte-identical to the pre-cache path: objects in the readable prefix still
+// parse, and an object at or past the corruption point panics at the original
+// error point and degrades to a null Value through resolve's recover (caching
+// the prefix instead would turn the decode error into a clean EOF and could
+// parse a body straddling the truncation as a partial value; see
+// TestObjStmTruncatedPrefix). While opening, the bypass also keeps decryption
+// state out of the cache — key and strMode are not established until
+// tryDecrypt runs.
+func (r *Reader) objStmPayload(strm Value) ([]byte, bool) {
+	if r.opening {
+		return nil, false
+	}
+	if data, ok := r.cache.getStm(strm.ptr); ok {
+		return data, true
+	}
+	data, err := io.ReadAll(io.LimitReader(strm.Reader(), maxObjStmCacheBytes+1))
+	if err != nil || int64(len(data)) > maxObjStmCacheBytes {
+		return nil, false
+	}
+	r.cache.putStm(strm.ptr, data)
+	return data, true
+}
+
+// loadObject loads ptr through the value cache: a hit skips disk entirely, a
+// miss parses and memoizes the result. The cache is fully bypassed while
+// opening (see the Reader.cache field comment).
+func (r *Reader) loadObject(parent objptr, ptr objptr, xr xref) object {
+	if !r.opening {
+		if x, ok := r.cache.getObj(ptr); ok {
+			return x
+		}
+	}
+	var x object
+	if xr.inStream {
+		x = r.resolveInStream(parent, ptr, xr)
+	} else {
+		x = r.loadDirectObject(ptr, xr)
+	}
+	if !r.opening {
+		// A panic above never reaches this insert, so the cache can only
+		// hold successfully parsed objects (including legal nulls);
+		// strict-open semantics are untouched by the bypass.
+		r.cache.putObj(ptr, x)
+	}
+	return x
 }
 
 // loadDirectObject reads the object at xr.offset from the cross-reference
@@ -154,11 +218,7 @@ func (r *Reader) resolve(parent objptr, x any) (v Value) {
 				}
 			}()
 		}
-		if xr.inStream {
-			x = r.resolveInStream(parent, ptr, xr)
-		} else {
-			x = r.loadDirectObject(ptr, xr)
-		}
+		x = r.loadObject(parent, ptr, xr)
 		parent = ptr
 	}
 

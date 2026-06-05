@@ -60,6 +60,33 @@ func BenchmarkCJKGetPlainText(b *testing.B) {
 	}
 }
 
+// BenchmarkCJKColdOpenExtract opens a FRESH Reader every iteration and
+// extracts once: the one-shot usage profile. The cache still helps within the
+// single extraction (page tree, fonts, and ObjStm payloads are re-dereferenced
+// thousands of times per document), but unlike BenchmarkCJKGetPlainText it
+// cannot amortize across iterations. Both numbers ship in the archive.
+func BenchmarkCJKColdOpenExtract(b *testing.B) {
+	data, err := os.ReadFile(corpusPath(cjkBenchFixture))
+	if err != nil {
+		b.Fatalf("read cjk fixture: %v", err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		r, err := OpenBytes(data)
+		if err != nil {
+			b.Fatal(err)
+		}
+		rd, err := r.GetPlainText(context.Background())
+		if err != nil {
+			b.Fatal(err)
+		}
+		if _, err := io.Copy(io.Discard, rd); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkGetStyledTexts(b *testing.B) {
 	r := benchReader(b)
 	b.ResetTimer()
