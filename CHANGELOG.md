@@ -5,11 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## Fixed, pending release
+## v0.6.6 — 2026-06-05
 
 ### Added
 
 - **`Page.Words()`** — extract a page's text as individual words with tight bounding boxes, in reading order (left-to-right, top-to-bottom). Each `Word` carries its text plus an (X, Y, width, height) box in PDF coordinate space. Words split on spaces and inter-glyph gaps, so sub/superscripts and words that span kerning boundaries are handled correctly. Useful for search-result highlighting, RAG chunking, and layout-aware extraction.
+- **`Page.Annotations()` and `Reader.Dest()`** — read a page's annotations and resolve named destinations. `Page.Annotations()` returns every annotation on a page as a structured `Annotation` value carrying its type, rectangle, link URI, GoTo target page, and `/Contents` text: `/Link` annotations expose their URI-action target or resolve an internal GoTo jump (an explicit destination array, a `/Names/Dests` name-tree entry, or a direct `/Dest`) to a 1-based page number, while `/Text` notes expose their comment body. `Reader.Dest(name)` resolves a named destination to a 1-based page number, returning the new `ErrDestNotFound` sentinel when the name is absent. Useful for crawling hyperlinks, extracting citation URLs, and following table-of-contents jumps. (Name-object destinations and the legacy catalog `/Dests` dictionary are not yet resolved.)
 
 ### Security
 
