@@ -48,13 +48,17 @@ package pdf
 // BUG(rsc): The package is incomplete, although it has been used successfully on some
 // large real-world PDF files.
 
-// BUG(rsc): There is no support for closing open PDF files. If you drop all references to a Reader,
-// the underlying reader will eventually be garbage collected.
-
 // BUG(rsc): The library makes no attempt at efficiency. A value cache maintained in the Reader
 // would probably help significantly.
 
-// BUG(rsc): The support for reading encrypted files is weak.
+// BUG(detective-xh): Encryption covers the Standard security handler only:
+// RC4 (V=1/2, R=2-3), AES-128 (V=4/R=4 with a single AESV2 crypt filter), and
+// AES-256 (V=5, R=5-6), each with user- and owner-password authentication.
+// Not supported: public-key (PKCS#7) handlers, the /Identity crypt filter,
+// distinct stream/string crypt filters (StmF != StrF), /EncryptMetadata false,
+// and full SASLprep password normalization (passwords are UTF-8 truncated to
+// 127 bytes). The AES-128 owner-password path is algorithmically identical to
+// the fixture-verified RC4 path but has no test fixture of its own.
 
 // BUG(rsc): The Value API does not support error reporting. The intent is to allow users to
 // set an error reporting callback in Reader, but that code has not been implemented.

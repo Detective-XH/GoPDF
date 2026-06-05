@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Added
+
+- **RunLengthDecode and ASCIIHexDecode stream filters** — PDFs whose content streams use either filter previously failed with `unsupported PDF filter`; both now decode per the spec's end-of-data and padding rules, so text extraction works on these files.
+- **PDF 2.0 files open** — the `%PDF-2.0` header (ISO 32000-2) is now accepted; such files previously failed with `not a PDF file: invalid header`. Versions 1.0–1.7 behave exactly as before.
+- **Hybrid-reference files** — PDFs written for backward compatibility with pre-1.5 readers carry a supplemental cross-reference stream (`/XRefStm`) alongside the classic xref table. It is now read, so objects stored in object streams — previously hidden and silently resolved to null in such files — extract correctly.
+- **Owner password unlocks legacy encrypted files** — RC4- and AES-128-encrypted PDFs (encryption V≤4) now open with the owner password as well as the user password, matching the existing AES-256 behavior. Verified against Ghostscript-generated encrypted files covering 40- and 128-bit RC4.
+
+---
+
 ## v0.6.6 — 2026-06-05
 
 ### Added
