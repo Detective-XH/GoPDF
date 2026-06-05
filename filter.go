@@ -76,6 +76,8 @@ func applyFilter(rd io.Reader, name string, param Value) (io.Reader, error) {
 		case nil:
 			return decoder, nil
 		}
+	case "LZWDecode":
+		return applyLZWFilter(rd, param)
 	case "ASCIIHexDecode":
 		if param.Keys() != nil {
 			return nil, fmt.Errorf("unexpected DecodeParms for ASCIIHexDecode")
@@ -89,31 +91,29 @@ func applyFilter(rd io.Reader, name string, param Value) (io.Reader, error) {
 	}
 }
 
-// applyFlateFilter opens a zlib stream and applies the optional PNG Up
-// predictor declared in DecodeParms.
+// applyFlateFilter opens a zlib stream and applies the optional predictor
+// declared in DecodeParms.
 func applyFlateFilter(rd io.Reader, param Value) (io.Reader, error) {
 	zr, err := zlib.NewReader(rd)
 	if err != nil {
 		return nil, fmt.Errorf("FlateDecode: %v", err)
 	}
-	limited := io.LimitReader(zr, maxDecompressedSize)
-	pred := param.Key("Predictor")
-	if pred.Kind() == Null {
-		return limited, nil
-	}
-	columns := param.Key("Columns").Int64()
-	if columns < 0 || columns > maxPNGColumns {
-		return nil, fmt.Errorf("FlateDecode: invalid Columns value: %d", columns)
-	}
-	switch pred.Int64() {
-	default:
-		if DebugOn {
-			fmt.Println("unknown predictor", pred)
+	return applyPredictor(io.LimitReader(zr, maxDecompressedSize), param)
+}
+
+// applyLZWFilter wraps rd in an LZW decoder (ISO 32000-1 §7.4.4) honoring
+// the /EarlyChange convention (default 1), then applies the optional
+// predictor declared in DecodeParms.
+func applyLZWFilter(rd io.Reader, param Value) (io.Reader, error) {
+	early := int64(1)
+	if ec := param.Key("EarlyChange"); ec.Kind() != Null {
+		early = ec.Int64()
+		if early != 0 && early != 1 {
+			return nil, fmt.Errorf("LZWDecode: invalid EarlyChange value: %d", early)
 		}
-		return nil, fmt.Errorf("unsupported FlateDecode predictor: %v", pred.Int64())
-	case 12:
-		return &pngUpReader{r: limited, hist: make([]byte, 1+columns), tmp: make([]byte, 1+columns)}, nil
 	}
+	limited := io.LimitReader(newLZWReader(rd, early == 1), maxDecompressedSize)
+	return applyPredictor(limited, param)
 }
 
 // asciiHexReader decodes ASCIIHexDecode data (ISO 32000-1 §7.4.2): pairs of
@@ -226,38 +226,6 @@ func (r *runLengthReader) Read(p []byte) (int, error) {
 	}
 	if n == 0 && r.eod {
 		return 0, io.EOF
-	}
-	return n, nil
-}
-
-type pngUpReader struct {
-	r    io.Reader
-	hist []byte
-	tmp  []byte
-	pend []byte
-}
-
-func (r *pngUpReader) Read(b []byte) (int, error) {
-	n := 0
-	for len(b) > 0 {
-		if len(r.pend) > 0 {
-			m := copy(b, r.pend)
-			n += m
-			b = b[m:]
-			r.pend = r.pend[m:]
-			continue
-		}
-		_, err := io.ReadFull(r.r, r.tmp)
-		if err != nil {
-			return n, err
-		}
-		if r.tmp[0] != 2 {
-			return n, fmt.Errorf("malformed PNG-Up encoding")
-		}
-		for i, b := range r.tmp {
-			r.hist[i] += b
-		}
-		r.pend = r.hist[1:]
 	}
 	return n, nil
 }

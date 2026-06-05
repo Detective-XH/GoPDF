@@ -12,6 +12,9 @@ import (
 	"crypto/sha512"
 	"crypto/subtle"
 	"fmt"
+	"strings"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // initEncryptAES256 handles V=5 (R=5 / R=6). On success it sets r.key (the
@@ -145,11 +148,58 @@ func aesCBCNoPad(key, data []byte) []byte {
 	return out
 }
 
-// saslPrep truncates the UTF-8 password to 127 bytes per §7.6.4.3.3. Full
-// SASLprep (RFC 4013) normalisation is a documented limitation; ASCII and empty
-// passwords — the overwhelming majority — are unaffected.
+// saslPrepMap maps a single rune per the RFC 3454 tables required by RFC 4013
+// (SASLprep). Returns -1 to delete (B.1), the rune unchanged for most input,
+// or U+0020 for non-ASCII spaces (C.1.2). U+200B appears in both tables; B.1
+// wins (delete), matching libidn behaviour.
+func saslPrepMap(r rune) rune {
+	// RFC 3454 table B.1 — map to nothing (delete).
+	switch r {
+	case 0x00AD, // SOFT HYPHEN
+		0x034F, // COMBINING GRAPHEME JOINER
+		0x1806, // MONGOLIAN TODO SOFT HYPHEN
+		0x180B, // MONGOLIAN FREE VARIATION SELECTOR ONE
+		0x180C, // MONGOLIAN FREE VARIATION SELECTOR TWO
+		0x180D, // MONGOLIAN FREE VARIATION SELECTOR THREE
+		0x200B, // ZERO WIDTH SPACE (B.1 takes precedence over C.1.2)
+		0x200C, // ZERO WIDTH NON-JOINER
+		0x200D, // ZERO WIDTH JOINER
+		0x2060, // WORD JOINER
+		0xFEFF: // ZERO WIDTH NO-BREAK SPACE / BOM
+		return -1
+	}
+	// FE00–FE0F: VARIATION SELECTORs (RFC 3454 table B.1).
+	if r >= 0xFE00 && r <= 0xFE0F {
+		return -1
+	}
+	// RFC 3454 table C.1.2 — non-ASCII space → U+0020.
+	switch r {
+	case 0x00A0, // NO-BREAK SPACE
+		0x1680, // OGHAM SPACE MARK
+		0x202F, // NARROW NO-BREAK SPACE
+		0x205F, // MEDIUM MATHEMATICAL SPACE
+		0x3000: // IDEOGRAPHIC SPACE
+		return 0x0020
+	}
+	// U+2000–U+200A: EN QUAD … HAIR SPACE (C.1.2).
+	if r >= 0x2000 && r <= 0x200A {
+		return 0x0020
+	}
+	return r
+}
+
+// saslPrep normalizes the password per ISO 32000-2 §7.6.4.3.3 (SASLprep,
+// RFC 4013) and truncates the UTF-8 result to 127 bytes. Implemented subset:
+// RFC 3454 table B.1 code points are removed, table C.1.2 non-ASCII spaces
+// map to U+0020 (B.1 wins on the U+200B overlap, matching libidn), and the
+// result is NFKC-normalized. The prohibited-output and bidi checks are
+// intentionally omitted: a password Acrobat would have rejected at
+// encryption time cannot exist in a real file, and leniency here can only
+// make authentication fail, which is the status quo for such input.
 func saslPrep(password string) []byte {
-	b := []byte(password)
+	mapped := strings.Map(saslPrepMap, password)
+	normalized := norm.NFKC.String(mapped)
+	b := []byte(normalized)
 	if len(b) > 127 {
 		b = b[:127]
 	}
