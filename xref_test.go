@@ -486,3 +486,116 @@ func FuzzXrefTable(f *testing.F) {
 		readXrefTableData(b, nil) //nolint:errcheck,gosec
 	})
 }
+
+// --- validatePDFHeader ----------------------------------------------------------
+
+// TestValidatePDFHeaderVersions covers the accepted version range: 1.0–1.7
+// and 2.0 pass; 1.8, 2.1, a bad terminator, and a non-PDF prefix fail.
+func TestValidatePDFHeaderVersions(t *testing.T) {
+	cases := []struct {
+		hdr string
+		ok  bool
+	}{
+		{"%PDF-1.0\n", true},
+		{"%PDF-1.7\n", true},
+		{"%PDF-2.0\n", true},
+		{"%PDF-2.0 \n", true}, // space terminator
+		{"%PDF-1.8\n", false},
+		{"%PDF-2.1\n", false},
+		{"%PDF-2.0x", false}, // bad terminator
+		{"%XDF-1.4\n", false},
+	}
+	for _, c := range cases {
+		err := validatePDFHeader(bytes.NewReader([]byte(c.hdr)))
+		if c.ok && err != nil {
+			t.Errorf("%q: unexpected error: %v", c.hdr, err)
+		}
+		if !c.ok && err == nil {
+			t.Errorf("%q: want error, got nil", c.hdr)
+		}
+	}
+}
+
+// --- applyXrefStm (hybrid-reference files) ---------------------------------------
+
+// TestXrefTableXRefStmMerge verifies that a hybrid-reference table merges
+// entries from the supplemental cross-reference stream named by /XRefStm
+// (ISO 32000-1 §7.5.8.4): slots the table leaves free are filled from the
+// stream, and entries set by the table win.
+func TestXrefTableXRefStmMerge(t *testing.T) {
+	// Supplemental xref stream at offset 0, W=[1,2,1], 4 slots:
+	//   slot 0: free; slot 1: type-1 offset=200 (must lose to the table);
+	//   slot 2: type-1 offset=77 (fills the slot the table marks free);
+	//   slot 3: type-2 in object stream 9 at index 1 — the objstm-resident
+	//   "hidden object" case hybrid-reference files exist for.
+	entries := [][]byte{
+		{0x00, 0x00, 0x00, 0x00},
+		{0x01, 0x00, 0xC8, 0x00}, // 0xC8 = 200
+		{0x01, 0x00, 0x4D, 0x00}, // 0x4D = 77
+		{0x02, 0x00, 0x09, 0x01}, // type-2: stream obj 9, index 1
+	}
+	stmBlock := xrefStreamBuildPrevBlock(99, 4, entries, "")
+
+	// Hybrid classic table after the stream block: slot 1 in-use at 100,
+	// slots 0, 2, and 3 free; trailer names the stream via /XRefStm.
+	var fileBuf bytes.Buffer
+	fileBuf.Write(stmBlock)
+	tableOff := int64(fileBuf.Len())
+	fileBuf.WriteString("xref\n")
+	fileBuf.Write(buildXrefTableSection(0, [][3]int64{
+		{0, 65535, 'f'},
+		{100, 0, 'n'},
+		{0, 0, 'f'},
+		{0, 0, 'f'},
+	}))
+	fileBuf.WriteString("trailer\n<< /Size 4 /XRefStm 0 >>\nstartxref\n0\n%%EOF\n")
+
+	data := fileBuf.Bytes()
+	r := makeReaderFromBytes(data)
+	b := newBuffer(bytes.NewReader(data[tableOff:]), tableOff)
+	b.allowEOF = true
+
+	table, _, trailer, err := readXref(r, b)
+	if err != nil {
+		t.Fatalf("readXref: %v", err)
+	}
+	if trailer["XRefStm"] != int64(0) {
+		t.Fatalf("trailer lost XRefStm: %v", trailer)
+	}
+	if table[1].offset != 100 {
+		t.Errorf("slot 1: got offset %d, want 100 (table entry must win)", table[1].offset)
+	}
+	if table[2].offset != 77 {
+		t.Errorf("slot 2: got offset %d, want 77 (filled from XRefStm)", table[2].offset)
+	}
+	want3 := xref{ptr: objptr{3, 0}, inStream: true, stream: objptr{9, 0}, offset: 1}
+	if table[3] != want3 {
+		t.Errorf("slot 3: got %+v, want %+v (type-2 objstm entry from XRefStm)", table[3], want3)
+	}
+}
+
+// TestXrefTableXRefStmInvalid verifies that a /XRefStm offset that does not
+// point at a valid XRef stream is reported as an error. The target is a
+// well-formed object that is not a stream, so the failure surfaces as an
+// error rather than a lexer panic (which only NewReader recovers).
+func TestXrefTableXRefStmInvalid(t *testing.T) {
+	var fileBuf bytes.Buffer
+	fileBuf.WriteString("1 0 obj\n<< /Type /Catalog >>\nendobj\n")
+	tableOff := int64(fileBuf.Len())
+	fileBuf.WriteString("xref\n")
+	fileBuf.Write(buildXrefTableSection(0, [][3]int64{{0, 65535, 'f'}}))
+	fileBuf.WriteString("trailer\n<< /Size 1 /XRefStm 0 >>\nstartxref\n0\n%%EOF\n")
+
+	data := fileBuf.Bytes()
+	r := makeReaderFromBytes(data)
+	b := newBuffer(bytes.NewReader(data[tableOff:]), tableOff)
+	b.allowEOF = true
+
+	_, _, _, err := readXref(r, b)
+	if err == nil {
+		t.Fatal("invalid XRefStm: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "XRefStm") {
+		t.Errorf("error should mention XRefStm, got: %v", err)
+	}
+}
