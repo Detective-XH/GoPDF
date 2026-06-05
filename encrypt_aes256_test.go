@@ -76,8 +76,8 @@ func testDecryptAES256(t *testing.T, rev int64) {
 	if err := r.initEncrypt(""); err != nil {
 		t.Fatalf("R=%d user initEncrypt: %v", rev, err)
 	}
-	if !r.aes256 || !r.useAES {
-		t.Fatalf("R=%d: want aes256+useAES, got aes256=%v useAES=%v", rev, r.aes256, r.useAES)
+	if r.stmMode != modeAESV3 || r.strMode != modeAESV3 {
+		t.Fatalf("R=%d: want both classes modeAESV3, got stm=%v str=%v", rev, r.stmMode, r.strMode)
 	}
 	if !bytes.Equal(r.key, fileKey) {
 		t.Fatalf("R=%d: recovered key %x, want %x", rev, r.key, fileKey)
@@ -95,7 +95,7 @@ func testDecryptAES256(t *testing.T, rev int64) {
 	// Per-object string decryption uses the file key DIRECTLY (objptr ignored).
 	plaintext := "AES-256 secret string"
 	enc := aesCBCEncrypt(r.key, []byte(plaintext)) // 32-byte key → AES-256
-	got := decryptString(r.key, r.useAES, r.aes256, objptr{id: 7, gen: 0}, string(enc))
+	got := decryptString(r.key, r.strMode, objptr{id: 7, gen: 0}, string(enc))
 	if got != plaintext {
 		t.Errorf("R=%d: decryptString = %q, want %q", rev, got, plaintext)
 	}

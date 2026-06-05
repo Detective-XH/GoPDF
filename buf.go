@@ -24,8 +24,7 @@ type buffer struct {
 	allowStream bool
 	eof         bool
 	key         []byte
-	useAES      bool
-	aes256      bool
+	strMode     cipherMode // strings are the only thing a buffer decrypts
 	objptr      objptr
 	depth       int
 }

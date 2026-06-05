@@ -267,10 +267,23 @@ func (v Value) Reader() io.ReadCloser {
 func (v Value) buildStreamReader(x stream, streamLen int64) io.Reader {
 	var rd io.Reader
 	rd = io.NewSectionReader(v.r.f, x.offset, streamLen)
-	if v.r.key != nil {
-		rd = decryptStream(v.r.key, v.r.useAES, v.r.aes256, x.ptr, rd)
+	if v.r.key != nil && v.r.stmMode != modeNone && !v.isCleartextMetadata() {
+		rd = decryptStream(v.r.key, v.r.stmMode, x.ptr, rd)
 	}
 	return rd
+}
+
+// isCleartextMetadata reports whether v is the XMP metadata stream of a
+// document whose /EncryptMetadata is false (ISO 32000-1 §7.6.5.4): such a
+// stream is stored in cleartext and must not be run through the cipher.
+// The dict keys match what producers write (qpdf 12 emits
+// << /Type /Metadata /Subtype /XML >> — verified against the
+// cleartext-metadata fixtures in testdata/encrypted). Key resolves indirect
+// objects, matching how Length/Filter/DecodeParms are read elsewhere in this
+// file.
+func (v Value) isCleartextMetadata() bool {
+	return !v.r.encryptMetadata &&
+		v.Key("Type").Name() == "Metadata" && v.Key("Subtype").Name() == "XML"
 }
 
 func applyStreamFilters(rd io.Reader, filter, param Value) (io.Reader, error) {

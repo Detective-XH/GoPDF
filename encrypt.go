@@ -16,6 +16,18 @@ var passwordPad = []byte{
 	0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
 }
 
+// cipherMode selects the decryption algorithm for one crypt-filter class
+// (streams or strings). The zero value means "document not encrypted".
+type cipherMode int
+
+const (
+	modeNone     cipherMode = iota // unencrypted document (zero value)
+	modeRC4                        // V=1/2, or V=4 CFM /V2
+	modeAESV2                      // V=4 CFM /AESV2 (AES-128-CBC)
+	modeAESV3                      // V=5 CFM /AESV3 (AES-256-CBC, no per-object key)
+	modeIdentity                   // CFM /Identity or filter name /Identity: pass-through
+)
+
 // tryDecrypt handles the optional encryption step.  It tries the empty
 // password first, then each password returned by pw in turn.  It returns nil
 // when the file is unencrypted or decryption succeeds.
@@ -92,9 +104,10 @@ func extractTrailerID(trailer dict) ([]byte, error) {
 }
 
 // parseEncryptHeader validates the V version and R revision of the encrypt dict.
+// Crypt-filter validation for V=4 lives in resolveCryptFilters.
 func parseEncryptHeader(encrypt dict) (V, R int64, err error) {
 	V, _ = encrypt["V"].(int64)
-	if V != 1 && V != 2 && (V != 4 || !okayV4(encrypt)) {
+	if V != 1 && V != 2 && V != 4 {
 		return 0, 0, fmt.Errorf("unsupported PDF: encryption version V=%d; %v", V, objfmt(encrypt))
 	}
 	R, _ = encrypt["R"].(int64)
@@ -119,12 +132,17 @@ func padPassword(password string) []byte {
 
 // buildEncryptKey computes the RC4 encryption key and cipher from the given
 // PDF Standard encryption parameters (PDF 32000-1:2008 §7.6.3.3).
-func buildEncryptKey(password, O string, P uint32, n, R int64, ID []byte) ([]byte, *rc4.Cipher, error) {
+func buildEncryptKey(password, O string, P uint32, n, R int64, ID []byte, encryptMetadata bool) ([]byte, *rc4.Cipher, error) {
 	h := md5.New()
 	h.Write(padPassword(password))
 	h.Write([]byte(O))
 	h.Write([]byte{byte(P), byte(P >> 8), byte(P >> 16), byte(P >> 24)})
 	h.Write(ID)
+	if R >= 4 && !encryptMetadata {
+		// ISO 32000-1 §7.6.3.3 Algorithm 2 step (f): revision 4 or greater.
+		// R=2/R=3 predate /EncryptMetadata and must not get this step.
+		h.Write([]byte{0xFF, 0xFF, 0xFF, 0xFF})
+	}
 	key := h.Sum(nil)
 	if R >= 3 {
 		for range 50 {
@@ -184,19 +202,25 @@ func (r *Reader) initEncrypt(password string) error {
 	if err != nil {
 		return err
 	}
-	key, c, err := buildEncryptKey(password, O, P, n, R, ID)
+	stm, str, err := resolveCryptFilters(encrypt, V)
+	if err != nil {
+		return err
+	}
+	em := encryptMetadataFlag(encrypt)
+	key, c, err := buildEncryptKey(password, O, P, n, R, ID, em)
 	if err != nil {
 		return err
 	}
 	if !verifyEncryptKey(R, key, c, U, ID) {
 		// The password failed as the user password — try it as the owner
 		// password (PDF 32000-1:2008 §7.6.3.4 Algorithm 7).
-		if key, err = ownerAuthKey(password, O, U, P, n, R, ID); err != nil {
+		if key, err = ownerAuthKey(password, O, U, P, n, R, ID, em); err != nil {
 			return err
 		}
 	}
 	r.key = key
-	r.useAES = V == 4
+	r.stmMode, r.strMode = stm, str
+	r.encryptMetadata = em
 	return nil
 }
 
@@ -247,9 +271,9 @@ func userPassFromOwner(owner, O string, n, R int64) string {
 // §7.6.3.4 Algorithm 7): it recovers the user password from /O, then runs
 // user authentication with it. It returns the file encryption key, or
 // ErrInvalidPassword when the recovered user password fails against /U.
-func ownerAuthKey(password, O, U string, P uint32, n, R int64, ID []byte) ([]byte, error) {
+func ownerAuthKey(password, O, U string, P uint32, n, R int64, ID []byte, encryptMetadata bool) ([]byte, error) {
 	userPw := userPassFromOwner(password, O, n, R)
-	key, c, err := buildEncryptKey(userPw, O, P, n, R, ID)
+	key, c, err := buildEncryptKey(userPw, O, P, n, R, ID, encryptMetadata)
 	if err != nil {
 		return nil, err
 	}
@@ -261,47 +285,93 @@ func ownerAuthKey(password, O, U string, P uint32, n, R int64, ID []byte) ([]byt
 
 var ErrInvalidPassword = fmt.Errorf("encrypted PDF: invalid password")
 
-func okayV4(encrypt dict) bool {
-	cf, ok := encrypt["CF"].(dict)
-	if !ok {
-		return false
+// resolveCryptFilters maps the encrypt dict's StmF/StrF entries to cipher
+// modes (ISO 32000-1 §7.6.5). V=1/2 use no crypt filters: both classes are
+// RC4. For V=4/V=5 each class resolves independently: the built-in /Identity
+// filter is a pass-through; named filters must appear in /CF with a CFM this
+// library supports (V2, AESV2 for V=4; AESV3 for V=5) over AuthEvent DocOpen.
+func resolveCryptFilters(encrypt dict, V int64) (stm, str cipherMode, err error) {
+	if V == 1 || V == 2 {
+		return modeRC4, modeRC4, nil
 	}
-	stmf, ok := encrypt["StmF"].(name)
-	if !ok {
-		return false
+	cf, _ := encrypt["CF"].(dict)
+	stm, err = resolveOneCryptFilter(cf, encrypt["StmF"], V)
+	if err != nil {
+		return 0, 0, fmt.Errorf("unsupported PDF: StmF: %v", err)
 	}
-	strf, ok := encrypt["StrF"].(name)
-	if !ok {
-		return false
+	str, err = resolveOneCryptFilter(cf, encrypt["StrF"], V)
+	if err != nil {
+		return 0, 0, fmt.Errorf("unsupported PDF: StrF: %v", err)
 	}
-	if stmf != strf {
-		return false
-	}
-	cfparam, _ := cf[stmf].(dict)
-	return validateCFParam(cfparam)
+	return stm, str, nil
 }
 
-// validateCFParam checks that the crypt filter parameter dict is compatible
-// with the subset of V4 encryption this library supports (AESV2, DocOpen).
-func validateCFParam(cfparam dict) bool {
+// resolveOneCryptFilter resolves a single StmF/StrF entry. Per §7.6.5, an
+// absent entry defaults to /Identity; a present entry of the wrong type is
+// malformed and must fail closed — treating it as /Identity would let
+// encrypted data pass through undecrypted.
+func resolveOneCryptFilter(cf dict, entry any, V int64) (cipherMode, error) {
+	if entry == nil {
+		return modeIdentity, nil
+	}
+	fname, ok := entry.(name)
+	if !ok {
+		return 0, fmt.Errorf("malformed crypt filter name %v", objfmt(entry))
+	}
+	if fname == "Identity" {
+		return modeIdentity, nil
+	}
+	cfparam, _ := cf[fname].(dict)
+	if cfparam == nil {
+		return 0, fmt.Errorf("crypt filter %v not in /CF", fname)
+	}
 	if cfparam["AuthEvent"] != nil && cfparam["AuthEvent"] != name("DocOpen") {
-		return false
+		return 0, fmt.Errorf("crypt filter %v: unsupported AuthEvent", fname)
 	}
-	if cfparam["Length"] != nil && cfparam["Length"] != int64(16) {
-		return false
-	}
-	return cfparam["CFM"] == name("AESV2")
+	return cfmMode(cfparam, V)
 }
 
-// Fix 1: truncate per-object key to min(len(key)+5, 16) per PDF spec §7.6.2 Algorithm 1 step (f).
-func cryptKey(key []byte, useAES, aes256 bool, ptr objptr) []byte {
-	if aes256 {
-		return key // V=5: file key used directly — no per-object derivation
+// cfmMode maps a /CFM name to a cipherMode, validating /Length per method.
+func cfmMode(cfparam dict, V int64) (cipherMode, error) {
+	cfm, _ := cfparam["CFM"].(name)
+	length := cfparam["Length"]
+	switch {
+	case V == 4 && cfm == "AESV2":
+		if length != nil && length != int64(16) && length != int64(128) {
+			return 0, fmt.Errorf("AESV2 length %v", objfmt(length))
+		}
+		return modeAESV2, nil
+	case V == 4 && cfm == "V2":
+		return modeRC4, nil
+	case V == 5 && cfm == "AESV3":
+		if length != nil && length != int64(32) && length != int64(256) {
+			return 0, fmt.Errorf("AESV3 length %v", objfmt(length))
+		}
+		return modeAESV3, nil
+	case cfm == "Identity":
+		return modeIdentity, nil
+	}
+	return 0, fmt.Errorf("unsupported CFM %v", objfmt(cfparam["CFM"]))
+}
+
+// encryptMetadataFlag reads /EncryptMetadata (default true, §7.6.3.2).
+func encryptMetadataFlag(encrypt dict) bool {
+	em, ok := encrypt["EncryptMetadata"].(bool)
+	return !ok || em
+}
+
+// cryptKey derives the per-object key (PDF 32000-1:2008 §7.6.2 Algorithm 1).
+// AESV3 uses the file key directly — no per-object derivation; Identity never
+// reaches here (decryptString/decryptStream switch on mode first).
+// Fix 1: truncate per-object key to min(len(key)+5, 16) per Algorithm 1 step (f).
+func cryptKey(key []byte, mode cipherMode, ptr objptr) []byte {
+	if mode == modeAESV3 {
+		return key
 	}
 	h := md5.New()
 	h.Write(key)
 	h.Write([]byte{byte(ptr.id), byte(ptr.id >> 8), byte(ptr.id >> 16), byte(ptr.gen), byte(ptr.gen >> 8)})
-	if useAES {
+	if mode == modeAESV2 {
 		h.Write([]byte("sAlT"))
 	}
 	sum := h.Sum(nil)
@@ -340,15 +410,17 @@ func decryptAES(key, data []byte) []byte {
 	return ct[:len(ct)-pad]
 }
 
-func decryptString(key []byte, useAES, aes256 bool, ptr objptr, x string) string {
-	key = cryptKey(key, useAES, aes256, ptr)
-	if useAES {
-		if plain := decryptAES(key, []byte(x)); plain != nil {
+func decryptString(key []byte, mode cipherMode, ptr objptr, x string) string {
+	switch mode {
+	case modeNone, modeIdentity:
+		return x
+	case modeAESV2, modeAESV3:
+		if plain := decryptAES(cryptKey(key, mode, ptr), []byte(x)); plain != nil {
 			return string(plain)
 		}
 		return ""
 	}
-	c, _ := rc4.NewCipher(key)
+	c, _ := rc4.NewCipher(cryptKey(key, mode, ptr))
 	data := []byte(x)
 	c.XORKeyStream(data, data)
 	return string(data)
@@ -356,9 +428,11 @@ func decryptString(key []byte, useAES, aes256 bool, ptr objptr, x string) string
 
 // Fix 4: read-all approach for AES decryption — handles padding and eliminates
 // silent error fallthrough. The cbcReader struct is removed entirely.
-func decryptStream(key []byte, useAES, aes256 bool, ptr objptr, rd io.Reader) io.Reader {
-	key = cryptKey(key, useAES, aes256, ptr)
-	if useAES {
+func decryptStream(key []byte, mode cipherMode, ptr objptr, rd io.Reader) io.Reader {
+	switch mode {
+	case modeNone, modeIdentity:
+		return rd
+	case modeAESV2, modeAESV3:
 		// Bound the in-memory read so a malformed huge stream cannot exhaust
 		// memory. Read one byte past the cap to tell a fully-read stream from one
 		// that overflows it, and surface the overflow instead of silently
@@ -370,11 +444,11 @@ func decryptStream(key []byte, useAES, aes256 bool, ptr objptr, rd io.Reader) io
 		if int64(len(data)) > maxDecompressedSize {
 			return &errorReadCloser{fmt.Errorf("encrypted stream exceeds %d-byte limit", maxDecompressedSize)}
 		}
-		if plain := decryptAES(key, data); plain != nil {
+		if plain := decryptAES(cryptKey(key, mode, ptr), data); plain != nil {
 			return bytes.NewReader(plain)
 		}
 		return bytes.NewReader(nil)
 	}
-	c, _ := rc4.NewCipher(key)
+	c, _ := rc4.NewCipher(cryptKey(key, mode, ptr))
 	return &cipher.StreamReader{S: c, R: rd}
 }

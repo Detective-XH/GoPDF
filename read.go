@@ -52,12 +52,14 @@ package pdf
 // would probably help significantly.
 
 // BUG(detective-xh): Encryption covers the Standard security handler only:
-// RC4 (V=1/2, R=2-3), AES-128 (V=4/R=4 with a single AESV2 crypt filter), and
-// AES-256 (V=5, R=5-6), each with user- and owner-password authentication.
-// Not supported: public-key (PKCS#7) handlers, the /Identity crypt filter,
-// distinct stream/string crypt filters (StmF != StrF), /EncryptMetadata false,
-// and the SASLprep prohibited-output/bidi checks (the mapping and NFKC
-// normalization steps are applied).
+// RC4 (V=1/2, R=2-3), AES-128 (V=4/R=4), and AES-256 (V=5, R=5-6), each with
+// user- and owner-password authentication. Crypt filters resolve per class:
+// /Identity, distinct stream/string filters (StmF != StrF), and
+// /EncryptMetadata false are handled. The V=4 CFM /V2 (RC4 crypt filter)
+// path is supported but not fixture-verified — no common tool emits it
+// (qpdf's 128-bit RC4 output is V=2/R=3). Not supported: public-key (PKCS#7)
+// handlers and the SASLprep prohibited-output/bidi checks (the mapping and
+// NFKC normalization steps are applied).
 
 // BUG(rsc): The Value API does not support error reporting. The intent is to allow users to
 // set an error reporting callback in Reader, but that code has not been implemented.
@@ -80,8 +82,11 @@ type Reader struct {
 	trailer    dict
 	trailerptr objptr
 	key        []byte
-	useAES     bool
-	aes256     bool
+	stmMode    cipherMode // stream crypt-filter class
+	strMode    cipherMode // string crypt-filter class
+	// encryptMetadata mirrors /EncryptMetadata (default true, §7.6.3.2): false
+	// adds the R=4 key-derivation step and skips decrypting the metadata stream.
+	encryptMetadata bool
 	// opening is true only while NewReaderEncrypted builds the Reader. It keeps
 	// resolve strict on the open path (a malformed object body panics through to
 	// the open-path recover and fails the load). After open it is false, so the

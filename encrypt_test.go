@@ -7,6 +7,7 @@ import (
 	"crypto/md5" //nolint:gosec // MD5 is mandated by the PDF Standard security handler key derivation
 	"crypto/rand"
 	"crypto/rc4" //nolint:gosec // RC4 is mandated by PDF 1.4–1.6 encryption spec; testing existing behavior, not choosing new crypto
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -193,31 +194,9 @@ func TestEncryptExtractTrailerID(t *testing.T) {
 
 // --- parseEncryptHeader ------------------------------------------------------
 
-// encryptMakeDictV4 builds a minimal V4 encrypt dict with a valid CF/StmF/StrF
-// structure so that okayV4 accepts it.
-func encryptMakeDictV4() dict {
-	return dict{
-		name("Filter"): name("Standard"),
-		name("V"):      int64(4),
-		name("R"):      int64(4),
-		name("O"):      strings.Repeat("\x00", 32),
-		name("U"):      strings.Repeat("\x00", 32),
-		name("P"):      int64(-4),
-		name("Length"): int64(128),
-		name("CF"): dict{
-			name("StdCF"): dict{
-				name("CFM"):       name("AESV2"),
-				name("AuthEvent"): name("DocOpen"),
-				name("Length"):    int64(16),
-			},
-		},
-		name("StmF"): name("StdCF"),
-		name("StrF"): name("StdCF"),
-	}
-}
-
-// TestEncryptParseEncryptHeader covers: valid V=1/R=2, valid V=4 (calls
-// okayV4 internally), unsupported V=3, and R<2 (rejected revision).
+// TestEncryptParseEncryptHeader covers: valid V=1/R=2, valid V=4 (V/R
+// pass-through only — crypt-filter validation lives in resolveCryptFilters),
+// unsupported V=3, and R<2 (rejected revision).
 func TestEncryptParseEncryptHeader(t *testing.T) {
 	// V=1, R=2 → success
 	V, R, err := parseEncryptHeader(dict{
@@ -228,8 +207,11 @@ func TestEncryptParseEncryptHeader(t *testing.T) {
 		t.Errorf("V=1 R=2: got (%d,%d,%v), want (1,2,nil)", V, R, err)
 	}
 
-	// V=4 with valid CF → success
-	V, R, err = parseEncryptHeader(encryptMakeDictV4())
+	// V=4 without any CF entries → success: the header validates V/R only.
+	V, R, err = parseEncryptHeader(dict{
+		name("V"): int64(4),
+		name("R"): int64(4),
+	})
 	if err != nil || V != 4 || R != 4 {
 		t.Errorf("V=4: got (%d,%d,%v), want (4,4,nil)", V, R, err)
 	}
@@ -262,7 +244,7 @@ func TestEncryptBuildEncryptKey(t *testing.T) {
 	ID := []byte(strings.Repeat("\x01", 16))
 
 	// R=2, n=128 — spec forces key[:40/8] = 5 bytes even though n=128
-	key, c, err := buildEncryptKey("", O, 0xFFFFFFFC, 128, 2, ID)
+	key, c, err := buildEncryptKey("", O, 0xFFFFFFFC, 128, 2, ID, true)
 	if err != nil {
 		t.Fatalf("R=2: unexpected error: %v", err)
 	}
@@ -274,7 +256,7 @@ func TestEncryptBuildEncryptKey(t *testing.T) {
 	}
 
 	// R=3, n=128 — key length must be n/8 = 16
-	key, c, err = buildEncryptKey("", O, 0xFFFFFFFC, 128, 3, ID)
+	key, c, err = buildEncryptKey("", O, 0xFFFFFFFC, 128, 3, ID, true)
 	if err != nil {
 		t.Fatalf("R=3: unexpected error: %v", err)
 	}
@@ -297,7 +279,7 @@ func TestEncryptVerifyEncryptKey(t *testing.T) {
 	O := strings.Repeat("\x00", 32)
 	ID := []byte(strings.Repeat("\x01", 16))
 
-	key, _, err := buildEncryptKey("", O, 0xFFFFFFFC, 40, 2, ID)
+	key, _, err := buildEncryptKey("", O, 0xFFFFFFFC, 40, 2, ID, true)
 	if err != nil {
 		t.Fatalf("buildEncryptKey: %v", err)
 	}
@@ -324,62 +306,159 @@ func TestEncryptVerifyEncryptKey(t *testing.T) {
 	}
 }
 
-// --- okayV4 ------------------------------------------------------------------
+// --- resolveCryptFilters -------------------------------------------------------
 
-// TestEncryptOkayV4 covers: a fully valid V4 dict, a dict missing CF, and a
-// dict where StmF != StrF.
-func TestEncryptOkayV4(t *testing.T) {
-	// valid dict → true
-	if !okayV4(encryptMakeDictV4()) {
-		t.Error("valid V4 dict: want true, got false")
+// encryptDictV4Filters builds a V=4 encrypt dict with the given StmF/StrF
+// names and CF entries. An empty stmf/strf omits the key entirely (an absent
+// entry defaults to /Identity per §7.6.5).
+func encryptDictV4Filters(stmf, strf string, cf dict) dict {
+	d := dict{name("V"): int64(4), name("CF"): cf}
+	if stmf != "" {
+		d[name("StmF")] = name(stmf)
 	}
-
-	// missing CF → false
-	d := encryptMakeDictV4()
-	delete(d, name("CF"))
-	if okayV4(d) {
-		t.Error("missing CF: want false, got true")
+	if strf != "" {
+		d[name("StrF")] = name(strf)
 	}
+	return d
+}
 
-	// StmF != StrF → false
-	d = encryptMakeDictV4()
-	d[name("StrF")] = name("OtherCF")
-	if okayV4(d) {
-		t.Error("StmF != StrF: want false, got true")
+// TestResolveCryptFilters covers per-class crypt-filter resolution: V=1/2
+// shortcuts, /Identity (named and absent), StmF != StrF splits, CFM /V2, the
+// V=5 AESV3 path, and the rejection branches (missing /CF entry, bad
+// AuthEvent, unknown CFM). It absorbs the coverage of the deleted
+// okayV4/validateCFParam tests — what used to assert "StmF != StrF fails"
+// now asserts the resolved per-class modes.
+func TestResolveCryptFilters(t *testing.T) {
+	cfAES := dict{name("StdCF"): dict{name("CFM"): name("AESV2"), name("AuthEvent"): name("DocOpen"), name("Length"): int64(16)}}
+	cfRC4 := dict{name("RC4CF"): dict{name("CFM"): name("V2")}}
+	cfMixed := dict{
+		name("StdCF"): dict{name("CFM"): name("AESV2"), name("AuthEvent"): name("DocOpen"), name("Length"): int64(16)},
+		name("RC4CF"): dict{name("CFM"): name("V2")},
+	}
+	cfBadEvent := dict{name("StdCF"): dict{name("CFM"): name("AESV2"), name("AuthEvent"): name("EFOpen")}}
+	cfUnknown := dict{name("StdCF"): dict{name("CFM"): name("AESV1")}}
+	cfV5 := dict{name("StdCF"): dict{name("CFM"): name("AESV3"), name("AuthEvent"): name("DocOpen"), name("Length"): int64(32)}}
+
+	cases := []struct {
+		label    string
+		d        dict
+		V        int64
+		stm, str cipherMode
+		wantErr  bool
+	}{
+		{"V1 both RC4", dict{name("V"): int64(1)}, 1, modeRC4, modeRC4, false},
+		{"V2 both RC4", dict{name("V"): int64(2)}, 2, modeRC4, modeRC4, false},
+		{"V4 AESV2 both", encryptDictV4Filters("StdCF", "StdCF", cfAES), 4, modeAESV2, modeAESV2, false},
+		{"V4 Identity strings", encryptDictV4Filters("StdCF", "Identity", cfAES), 4, modeAESV2, modeIdentity, false},
+		{"V4 Identity streams", encryptDictV4Filters("Identity", "StdCF", cfAES), 4, modeIdentity, modeAESV2, false},
+		{"V4 StmF!=StrF mixed CFMs", encryptDictV4Filters("StdCF", "RC4CF", cfMixed), 4, modeAESV2, modeRC4, false},
+		{"V4 absent StmF defaults Identity", encryptDictV4Filters("", "StdCF", cfAES), 4, modeIdentity, modeAESV2, false},
+		{"V4 CFM V2 (RC4 filter)", encryptDictV4Filters("RC4CF", "RC4CF", cfRC4), 4, modeRC4, modeRC4, false},
+		{"V4 named filter missing from CF", encryptDictV4Filters("NoSuchCF", "NoSuchCF", cfAES), 4, 0, 0, true},
+		{"V4 bad AuthEvent", encryptDictV4Filters("StdCF", "StdCF", cfBadEvent), 4, 0, 0, true},
+		{"V4 unknown CFM", encryptDictV4Filters("StdCF", "StdCF", cfUnknown), 4, 0, 0, true},
+		// A present non-name StmF/StrF must fail closed, not pass through as
+		// /Identity (silent data-corruption mode).
+		{"V4 non-name StmF fails closed", dict{name("V"): int64(4), name("CF"): cfAES,
+			name("StmF"): int64(1), name("StrF"): name("StdCF")}, 4, 0, 0, true},
+		{"V4 non-name StrF fails closed", dict{name("V"): int64(4), name("CF"): cfAES,
+			name("StmF"): name("StdCF"), name("StrF"): array{}}, 4, 0, 0, true},
+		{"V4 AESV2 bad Length", encryptDictV4Filters("StdCF", "StdCF",
+			dict{name("StdCF"): dict{name("CFM"): name("AESV2"), name("Length"): int64(24)}}), 4, 0, 0, true},
+		{"V5 AESV3 both", dict{name("V"): int64(5), name("CF"): cfV5, name("StmF"): name("StdCF"), name("StrF"): name("StdCF")}, 5, modeAESV3, modeAESV3, false},
+		{"V5 Identity strings", dict{name("V"): int64(5), name("CF"): cfV5, name("StmF"): name("StdCF"), name("StrF"): name("Identity")}, 5, modeAESV3, modeIdentity, false},
+		{"V5 AESV2 rejected", dict{name("V"): int64(5), name("CF"): cfAES, name("StmF"): name("StdCF"), name("StrF"): name("StdCF")}, 5, 0, 0, true},
+	}
+	for _, tc := range cases {
+		stm, str, err := resolveCryptFilters(tc.d, tc.V)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("%s: want error, got (stm=%v, str=%v)", tc.label, stm, str)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", tc.label, err)
+			continue
+		}
+		if stm != tc.stm || str != tc.str {
+			t.Errorf("%s: got (stm=%v, str=%v), want (stm=%v, str=%v)", tc.label, stm, str, tc.stm, tc.str)
+		}
 	}
 }
 
-// --- validateCFParam ---------------------------------------------------------
+// --- /EncryptMetadata key derivation (Algorithm 2 step f) ---------------------
 
-// TestEncryptValidateCFParam exercises the three documented outcomes: AESV2
-// returns true, unknown CFM returns false, and an empty dict returns false.
-func TestEncryptValidateCFParam(t *testing.T) {
-	// /CFM /AESV2 → true
-	if !validateCFParam(dict{name("CFM"): name("AESV2")}) {
-		t.Error("AESV2: want true, got false")
+// TestEncryptMetadataKeyDerivation pins Algorithm 2 step (f) to revision 4:
+// at R=4, EncryptMetadata=false must change the derived key; at R=2/R=3 the
+// parameter must be a byte-identical no-op — protecting the fixture-verified
+// R2/R3 paths from accidental step-f application.
+func TestEncryptMetadataKeyDerivation(t *testing.T) {
+	O := strings.Repeat("\x00", 32)
+	ID := []byte(strings.Repeat("\x01", 16))
+	P := uint32(0xFFFFFFFC)
+
+	kTrue, _, err := buildEncryptKey("", O, P, 128, 4, ID, true)
+	if err != nil {
+		t.Fatalf("R=4 encryptMetadata=true: %v", err)
+	}
+	kFalse, _, err := buildEncryptKey("", O, P, 128, 4, ID, false)
+	if err != nil {
+		t.Fatalf("R=4 encryptMetadata=false: %v", err)
+	}
+	if bytes.Equal(kTrue, kFalse) {
+		t.Error("R=4: EncryptMetadata=false must alter the key (Algorithm 2 step f)")
 	}
 
-	// /CFM /V2 (unknown) → false
-	if validateCFParam(dict{name("CFM"): name("V2")}) {
-		t.Error("V2: want false, got true")
+	for _, tc := range []struct{ R, n int64 }{{2, 40}, {3, 128}} {
+		a, _, err := buildEncryptKey("", O, P, tc.n, tc.R, ID, true)
+		if err != nil {
+			t.Fatalf("R=%d encryptMetadata=true: %v", tc.R, err)
+		}
+		b, _, err := buildEncryptKey("", O, P, tc.n, tc.R, ID, false)
+		if err != nil {
+			t.Fatalf("R=%d encryptMetadata=false: %v", tc.R, err)
+		}
+		if !bytes.Equal(a, b) {
+			t.Errorf("R=%d: encryptMetadata must not affect key derivation", tc.R)
+		}
 	}
+}
 
-	// empty dict (no CFM) → false
-	if validateCFParam(dict{}) {
-		t.Error("empty dict: want false, got true")
+// --- /Identity pass-through ----------------------------------------------------
+
+// TestDecryptStringIdentity verifies mode=modeIdentity returns input verbatim.
+func TestDecryptStringIdentity(t *testing.T) {
+	key := make([]byte, 16)
+	in := "verbatim \x00\x01\x02 bytes"
+	if got := decryptString(key, modeIdentity, objptr{id: 3, gen: 0}, in); got != in {
+		t.Errorf("Identity string: got %q, want %q", got, in)
+	}
+}
+
+// TestDecryptStreamIdentity verifies mode=modeIdentity streams pass through.
+func TestDecryptStreamIdentity(t *testing.T) {
+	key := make([]byte, 16)
+	content := []byte("identity stream content")
+	out, err := io.ReadAll(decryptStream(key, modeIdentity, objptr{id: 3, gen: 0}, bytes.NewReader(content)))
+	if err != nil {
+		t.Fatalf("Identity stream: read error: %v", err)
+	}
+	if !bytes.Equal(out, content) {
+		t.Errorf("Identity stream: got %q, want %q", out, content)
 	}
 }
 
 // --- decryptStream (RC4) -----------------------------------------------------
 
-// TestEncryptDecryptStreamRC4 confirms that decryptStream with useAES=false
+// TestEncryptDecryptStreamRC4 confirms that decryptStream with mode=modeRC4
 // returns a non-nil reader and that reading from it does not panic.
 func TestEncryptDecryptStreamRC4(t *testing.T) {
 	key := make([]byte, 5) // minimum valid RC4 key length
 	content := []byte("hello world stream content")
 	rd := bytes.NewReader(content)
 
-	result := decryptStream(key, false, false, objptr{}, rd)
+	result := decryptStream(key, modeRC4, objptr{}, rd)
 	if result == nil {
 		t.Fatal("RC4 stream: want non-nil reader, got nil")
 	}
@@ -443,18 +522,18 @@ func TestEncryptParseEncryptBodyValid(t *testing.T) {
 
 // --- decryptString (RC4 path) ------------------------------------------------
 
-// TestEncryptDecryptStringBranches exercises the RC4 path of decryptString via
-// a Reader with useAES=false. It confirms that decryption and re-encryption
-// with the same key roundtrip to the original plaintext (RC4 is symmetric).
+// TestEncryptDecryptStringBranches exercises the RC4 path of decryptString.
+// It confirms that decryption and re-encryption with the same key roundtrip
+// to the original plaintext (RC4 is symmetric).
 func TestEncryptDecryptStringBranches(t *testing.T) {
-	r := &Reader{useAES: false}
+	r := &Reader{}
 	r.key = make([]byte, 5) // zero key — deterministic for test purposes
 
 	plaintext := "test string"
 	// Encrypt once using decryptString (RC4 is its own inverse).
-	encrypted := decryptString(r.key, r.useAES, false, objptr{}, plaintext)
+	encrypted := decryptString(r.key, modeRC4, objptr{}, plaintext)
 	// Decrypt by applying again — RC4 is symmetric.
-	recovered := decryptString(r.key, r.useAES, false, objptr{}, encrypted)
+	recovered := decryptString(r.key, modeRC4, objptr{}, encrypted)
 	if recovered != plaintext {
 		t.Errorf("RC4 roundtrip: got %q, want %q", recovered, plaintext)
 	}
@@ -465,9 +544,9 @@ func TestEncryptDecryptStringBranches(t *testing.T) {
 // TestEncryptInitEncryptWrongPassword covers initEncrypt's full code path
 // (parseEncryptBody → parseEncryptHeader → buildEncryptKey → verifyEncryptKey)
 // with a zero-filled /U that will never match the derived key, so the function
-// returns ErrInvalidPassword. Lines 187-188 (r.key = key; r.useAES = ...) are
-// the only statements not reached here; they are covered by TestReadOpen via
-// the full NewReader path.
+// returns ErrInvalidPassword. The success-path field assignments (r.key,
+// r.stmMode/r.strMode, r.encryptMetadata) are the only statements not reached
+// here; they are covered by TestReadOpen via the full NewReader path.
 func TestEncryptInitEncryptWrongPassword(t *testing.T) {
 	r := &Reader{
 		f:   bytes.NewReader(nil),
@@ -491,8 +570,8 @@ func TestEncryptInitEncryptWrongPassword(t *testing.T) {
 }
 
 // TestEncryptInitEncryptSuccess derives the correct /U value from buildEncryptKey
-// and RC4 so that verifyEncryptKey returns true, covering lines 187–188
-// (r.key = key; r.useAES = ...) of initEncrypt.
+// and RC4 so that verifyEncryptKey returns true, covering the success-path
+// field assignments (r.key, r.stmMode/r.strMode) of initEncrypt.
 func TestEncryptInitEncryptSuccess(t *testing.T) {
 	O := strings.Repeat("\x00", 32)
 	P := uint32(0xFFFFFFFC)
@@ -500,7 +579,7 @@ func TestEncryptInitEncryptSuccess(t *testing.T) {
 	R := int64(2)
 	ID := []byte(strings.Repeat("\x01", 16))
 
-	key, _, err := buildEncryptKey("", O, P, n, R, ID)
+	key, _, err := buildEncryptKey("", O, P, n, R, ID, true)
 	if err != nil {
 		t.Fatalf("buildEncryptKey: %v", err)
 	}
@@ -533,8 +612,8 @@ func TestEncryptInitEncryptSuccess(t *testing.T) {
 	if len(r.key) == 0 {
 		t.Error("r.key not set after successful initEncrypt")
 	}
-	if r.useAES {
-		t.Error("V=1 should not set useAES=true")
+	if r.stmMode != modeRC4 || r.strMode != modeRC4 {
+		t.Errorf("V=1: got (stm=%v, str=%v), want both modeRC4", r.stmMode, r.strMode)
 	}
 }
 
@@ -588,7 +667,7 @@ func encryptComputeO(owner, user string, n, R int64) string {
 // encryptComputeU derives the /U value for the given user password, mirroring
 // verifyEncryptKey (R=2: Algorithm 4; R>=3: Algorithm 5, padded to 32 bytes).
 func encryptComputeU(user, O string, P uint32, n, R int64, ID []byte) string {
-	key, c, _ := buildEncryptKey(user, O, P, n, R, ID)
+	key, c, _ := buildEncryptKey(user, O, P, n, R, ID, true)
 	if R == 2 {
 		u := make([]byte, 32)
 		copy(u, passwordPad)
@@ -696,6 +775,166 @@ func TestEncryptUserPassFromOwnerRoundtrip(t *testing.T) {
 	}
 }
 
+// --- per-class crypt filters (StmF != StrF) -------------------------------------
+
+// TestInitEncryptSplitFilters runs the full initEncrypt path over a synthetic
+// V=4 dict with StmF=StdCF (AESV2) and StrF=Identity, asserting the two
+// classes resolve independently. qpdf cannot produce such a file (it always
+// writes StmF == StrF), so this synthetic dict is the only coverage for the
+// split — recorded as a residual in the plan.
+func TestInitEncryptSplitFilters(t *testing.T) {
+	r := encryptOwnerReader("owner-secret", "user-secret", 4, 4, 128)
+	enc := r.trailer[name("Encrypt")].(dict)
+	enc[name("CF")] = dict{name("StdCF"): dict{
+		name("CFM"):       name("AESV2"),
+		name("AuthEvent"): name("DocOpen"),
+		name("Length"):    int64(16),
+	}}
+	enc[name("StmF")] = name("StdCF")
+	enc[name("StrF")] = name("Identity")
+	if err := r.initEncrypt("user-secret"); err != nil {
+		t.Fatalf("initEncrypt: %v", err)
+	}
+	if r.stmMode != modeAESV2 || r.strMode != modeIdentity {
+		t.Errorf("modes: got (stm=%v, str=%v), want (stm=%v, str=%v)",
+			r.stmMode, r.strMode, modeAESV2, modeIdentity)
+	}
+	if !r.encryptMetadata {
+		t.Error("absent /EncryptMetadata must default to true")
+	}
+}
+
+// --- cleartext metadata stream skip (§7.6.5.4) -----------------------------------
+
+// TestBuildStreamReaderCleartextMetadata covers the isCleartextMetadata branch
+// of buildStreamReader — the one new code path no fixture is guaranteed to
+// reach. With /EncryptMetadata false, the XMP metadata stream is stored in
+// cleartext and must bypass the cipher while sibling streams still decrypt;
+// with /EncryptMetadata true the same stream must be run through the cipher
+// (predicate not inverted). The metadata dict carries the key set qpdf 12
+// actually writes (/Type /Metadata /Subtype /XML — verified by dumping the
+// aes128-r4-cleartext-meta.pdf fixture).
+func TestBuildStreamReaderCleartextMetadata(t *testing.T) {
+	key := make([]byte, 16)
+	_, _ = rand.Read(key)
+
+	meta := []byte("<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?><x:xmpmeta/>")
+	sibling := []byte("BT (sibling stream content) Tj ET")
+	sibPtr := objptr{id: 4, gen: 0}
+	encSibling := aesCBCEncrypt(cryptKey(key, modeAESV2, sibPtr), sibling)
+
+	raw := append(append([]byte{}, meta...), encSibling...)
+	metaOff, sibOff := int64(0), int64(len(meta))
+
+	newReader := func(encryptMetadata bool) *Reader {
+		return &Reader{
+			f:               bytes.NewReader(raw),
+			end:             int64(len(raw)),
+			key:             key,
+			stmMode:         modeAESV2,
+			strMode:         modeAESV2,
+			encryptMetadata: encryptMetadata,
+		}
+	}
+	metaDict := dict{
+		name("Type"):    name("Metadata"),
+		name("Subtype"): name("XML"),
+		name("Length"):  int64(len(meta)),
+	}
+
+	// (a) encryptMetadata=false: the metadata stream is returned verbatim.
+	r := newReader(false)
+	v := Value{r: r, data: stream{hdr: metaDict, ptr: objptr{id: 6, gen: 0}, offset: metaOff}}
+	got, err := io.ReadAll(v.Reader())
+	if err != nil {
+		t.Fatalf("cleartext metadata read: %v", err)
+	}
+	if !bytes.Equal(got, meta) {
+		t.Errorf("cleartext metadata: got %q, want verbatim %q", got, meta)
+	}
+
+	// (b) a sibling non-metadata stream still decrypts.
+	sv := Value{r: r, data: stream{hdr: dict{name("Length"): int64(len(encSibling))}, ptr: sibPtr, offset: sibOff}}
+	got, err = io.ReadAll(sv.Reader())
+	if err != nil {
+		t.Fatalf("sibling stream read: %v", err)
+	}
+	if !bytes.Equal(got, sibling) {
+		t.Errorf("sibling stream: got %q, want decrypted %q", got, sibling)
+	}
+
+	// (c) encryptMetadata=true: the same metadata stream IS run through the
+	// cipher — the stored cleartext must not come back verbatim.
+	rt := newReader(true)
+	vt := Value{r: rt, data: stream{hdr: metaDict, ptr: objptr{id: 6, gen: 0}, offset: metaOff}}
+	got, err = io.ReadAll(vt.Reader())
+	if err != nil {
+		t.Fatalf("encrypted-metadata read: %v", err)
+	}
+	if bytes.Equal(got, meta) {
+		t.Error("encryptMetadata=true: metadata stream returned verbatim; cipher was skipped")
+	}
+}
+
+// buildIndirectMetadataPDF assembles a minimal unencrypted PDF whose catalog
+// /Metadata stream stores /Type and /Subtype as INDIRECT name objects
+// (5 0 R → /Metadata, 6 0 R → /XML), exercising isCleartextMetadata's
+// indirect-object resolution.
+func buildIndirectMetadataPDF(meta []byte) []byte {
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	offsets := make([]int, 7)
+	writeObj := func(num int, body string) {
+		offsets[num] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", num, body)
+	}
+	writeObj(1, "<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R >>")
+	writeObj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	writeObj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>")
+	offsets[4] = buf.Len()
+	fmt.Fprintf(&buf, "4 0 obj\n<< /Type 5 0 R /Subtype 6 0 R /Length %d >>\nstream\n%s\nendstream\nendobj\n", len(meta), meta)
+	writeObj(5, "/Metadata")
+	writeObj(6, "/XML")
+	xrefOff := buf.Len()
+	buf.WriteString("xref\n0 7\n0000000000 65535 f \n")
+	for i := 1; i <= 6; i++ {
+		fmt.Fprintf(&buf, "%010d 00000 n \n", offsets[i])
+	}
+	fmt.Fprintf(&buf, "trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xrefOff)
+	return buf.Bytes()
+}
+
+// TestBuildStreamReaderCleartextMetadataIndirectType is the regression test
+// for indirect /Type//Subtype entries in the metadata stream dict: the
+// predicate must resolve them like every other header read (Length, Filter)
+// rather than matching the raw token, or a valid cleartext metadata stream
+// would be pushed through the cipher and corrupted.
+func TestBuildStreamReaderCleartextMetadataIndirectType(t *testing.T) {
+	meta := []byte("<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?><x:xmpmeta/>")
+	r, err := OpenBytes(buildIndirectMetadataPDF(meta))
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	// Simulate an /EncryptMetadata false document: arm the stream cipher and
+	// clear the flag — only the predicate's indirect resolution is under test.
+	r.key = make([]byte, 16)
+	r.stmMode = modeAESV2
+	r.strMode = modeAESV2
+	r.encryptMetadata = false
+
+	v := r.Trailer().Key("Root").Key("Metadata")
+	if v.Kind() != Stream {
+		t.Fatalf("metadata: got kind %v, want Stream", v.Kind())
+	}
+	got, err := io.ReadAll(v.Reader())
+	if err != nil {
+		t.Fatalf("metadata read: %v", err)
+	}
+	if !bytes.Equal(got, meta) {
+		t.Errorf("indirect /Type metadata: got %q, want verbatim %q", got, meta)
+	}
+}
+
 // --- encrypted fixtures (external known answers) -------------------------------
 
 // openEncryptedFixture opens testdata/encrypted/<fixture> with the given
@@ -724,29 +963,71 @@ func openEncryptedFixture(t *testing.T, fixture, password string) (*Reader, erro
 }
 
 // TestEncryptFixturePasswords verifies user- and owner-password unlocking
-// against external known answers: Ghostscript-encrypted fixtures covering
-// RC4 R2/40, R3/128, and R3/40. The R3/40 case discriminates Algorithm 3's
+// against external known answers: Ghostscript- and qpdf-encrypted fixtures
+// covering RC4 R2/40, R3/128, R3/40, AES-128 R4, and the two
+// /EncryptMetadata-false variants. The R3/40 case discriminates Algorithm 3's
 // full-digest 50-round MD5 loop from Algorithm 2's truncated variant, which
 // the self-consistent unit tests above cannot detect. Successful opening
 // means verifyEncryptKey matched the externally produced /U, and the
-// Producer check confirms string decryption end-to-end.
+// Producer check confirms string decryption end-to-end. The
+// aes128-r4-cleartext-meta fixture is the external known answer for
+// Algorithm 2 step (f): it opens only if the 0xFFFFFFFF step is applied
+// exactly at R=4 with EncryptMetadata=false.
 func TestEncryptFixturePasswords(t *testing.T) {
-	for _, fixture := range []string{"rc4-r2-40.pdf", "rc4-r3-128.pdf", "rc4-r3-40.pdf", "aes128-r4.pdf"} {
+	for _, fixture := range []struct {
+		file          string
+		cleartextMeta bool
+	}{
+		{"rc4-r2-40.pdf", false},
+		{"rc4-r3-128.pdf", false},
+		{"rc4-r3-40.pdf", false},
+		{"aes128-r4.pdf", false},
+		{"aes128-r4-cleartext-meta.pdf", true},
+		{"aes256-r6-cleartext-meta.pdf", true},
+	} {
 		for _, pw := range []string{"user-secret", "owner-secret"} {
-			r, err := openEncryptedFixture(t, fixture, pw)
+			r, err := openEncryptedFixture(t, fixture.file, pw)
 			if err != nil {
-				t.Errorf("%s with %q: %v", fixture, pw, err)
+				t.Errorf("%s with %q: %v", fixture.file, pw, err)
 				continue
 			}
 			if got := r.NumPage(); got != 1 {
-				t.Errorf("%s with %q: NumPage = %d, want 1", fixture, pw, got)
+				t.Errorf("%s with %q: NumPage = %d, want 1", fixture.file, pw, got)
 			}
 			if p := r.Info().Producer(); !strings.Contains(p, "Ghostscript") {
-				t.Errorf("%s with %q: Producer = %q, want Ghostscript", fixture, pw, p)
+				t.Errorf("%s with %q: Producer = %q, want Ghostscript", fixture.file, pw, p)
+			}
+			if r.encryptMetadata == fixture.cleartextMeta {
+				t.Errorf("%s with %q: encryptMetadata = %v, want %v",
+					fixture.file, pw, r.encryptMetadata, !fixture.cleartextMeta)
+			}
+			if fixture.cleartextMeta {
+				assertCleartextXMP(t, r, fixture.file, pw)
 			}
 		}
-		if _, err := openEncryptedFixture(t, fixture, "wrong-password"); err != ErrInvalidPassword {
-			t.Errorf("%s with wrong password: got %v, want ErrInvalidPassword", fixture, err)
+		if _, err := openEncryptedFixture(t, fixture.file, "wrong-password"); err != ErrInvalidPassword {
+			t.Errorf("%s with wrong password: got %v, want ErrInvalidPassword", fixture.file, err)
 		}
+	}
+}
+
+// assertCleartextXMP reads the catalog's /Metadata stream and verifies it
+// yields a parseable cleartext XMP packet prefix — proving the
+// /EncryptMetadata-false skip left the stored cleartext untouched.
+func assertCleartextXMP(t *testing.T, r *Reader, fixture, pw string) {
+	t.Helper()
+	meta := r.Trailer().Key("Root").Key("Metadata")
+	if meta.Kind() != Stream {
+		t.Errorf("%s with %q: catalog has no /Metadata stream", fixture, pw)
+		return
+	}
+	data, err := io.ReadAll(meta.Reader())
+	if err != nil {
+		t.Errorf("%s with %q: metadata read: %v", fixture, pw, err)
+		return
+	}
+	s := string(data)
+	if !strings.HasPrefix(s, "<?xpacket") && !strings.Contains(s, "<x:xmpmeta") {
+		t.Errorf("%s with %q: metadata is not cleartext XMP (got %.40q)", fixture, pw, s)
 	}
 }
