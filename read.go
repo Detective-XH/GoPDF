@@ -56,9 +56,8 @@ package pdf
 // AES-256 (V=5, R=5-6), each with user- and owner-password authentication.
 // Not supported: public-key (PKCS#7) handlers, the /Identity crypt filter,
 // distinct stream/string crypt filters (StmF != StrF), /EncryptMetadata false,
-// and full SASLprep password normalization (passwords are UTF-8 truncated to
-// 127 bytes). The AES-128 owner-password path is algorithmically identical to
-// the fixture-verified RC4 path but has no test fixture of its own.
+// and the SASLprep prohibited-output/bidi checks (the mapping and NFKC
+// normalization steps are applied).
 
 // BUG(rsc): The Value API does not support error reporting. The intent is to allow users to
 // set an error reporting callback in Reader, but that code has not been implemented.

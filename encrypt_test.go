@@ -731,7 +731,7 @@ func openEncryptedFixture(t *testing.T, fixture, password string) (*Reader, erro
 // means verifyEncryptKey matched the externally produced /U, and the
 // Producer check confirms string decryption end-to-end.
 func TestEncryptFixturePasswords(t *testing.T) {
-	for _, fixture := range []string{"rc4-r2-40.pdf", "rc4-r3-128.pdf", "rc4-r3-40.pdf"} {
+	for _, fixture := range []string{"rc4-r2-40.pdf", "rc4-r3-128.pdf", "rc4-r3-40.pdf", "aes128-r4.pdf"} {
 		for _, pw := range []string{"user-secret", "owner-secret"} {
 			r, err := openEncryptedFixture(t, fixture, pw)
 			if err != nil {

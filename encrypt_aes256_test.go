@@ -187,3 +187,85 @@ func TestHash2BKAT(t *testing.T) {
 		t.Error("R=5 SHA-256 KAT failed")
 	}
 }
+
+// TestSaslPrepKAT is a table-driven known-answer test for the RFC 4013 / ISO
+// 32000-2 §7.6.4.3.3 saslPrep implementation.
+func TestSaslPrepKAT(t *testing.T) {
+	// Build a >127-byte ASCII string and its expected 127-byte truncation.
+	long128 := strings.Repeat("x", 128)
+	want128 := strings.Repeat("x", 127)
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		// RFC 3454 B.1: soft hyphen (U+00AD) deleted.
+		{"soft hyphen removed", "a\u00adb", "ab"},
+		// NFKC: ﬁ ligature (U+FB01) decomposed to "fi".
+		{"fi ligature NFKC", "ﬁn", "fin"},
+		// RFC 3454 C.1.2: NO-BREAK SPACE (U+00A0) → U+0020.
+		{"NBSP to space", "a b", "a b"},
+		// U+200B is B.1 (delete), NOT C.1.2 (space) — B.1 wins.
+		{"ZWSP deleted not spaced", "a\u200bb", "ab"},
+		// NFKC: café in NFD (e + combining acute U+0301) → NFC (U+00E9).
+		{"NFD cafe to NFC", "café", "café"},
+		// Plain ASCII unchanged.
+		{"ASCII unchanged", "secret", "secret"},
+		// Empty string → empty.
+		{"empty", "", ""},
+		// Byte-truncation at 127 (after normalization).
+		{"truncate to 127", long128, want128},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := string(saslPrep(tc.input))
+			if got != tc.want {
+				t.Errorf("saslPrep(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSaslPrepEndToEnd verifies that NFD and NFC forms of the same password
+// produce identical key material after saslPrep, exercising the full AES-256
+// R=6 authentication path (aes256Fixture → initEncryptAES256).
+//
+// The fixture is built with the NFC form ("café"); authentication is
+// attempted with the NFD form ("café"). Both must succeed and
+// recover the same file key.
+func TestSaslPrepEndToEnd(t *testing.T) {
+	const pwNFC = "café"  // U+00E9 LATIN SMALL LETTER E WITH ACUTE
+	const pwNFD = "café" // e + U+0301 COMBINING ACUTE ACCENT
+
+	// saslPrep must normalize both forms to the same byte sequence.
+	prepNFC := saslPrep(pwNFC)
+	prepNFD := saslPrep(pwNFD)
+	if !bytes.Equal(prepNFC, prepNFD) {
+		t.Fatalf("saslPrep NFC=%x != saslPrep NFD=%x", prepNFC, prepNFD)
+	}
+
+	// Build a fixture whose encryption keys were derived from the NFC password.
+	fileKey := make([]byte, 32)
+	for i := range fileKey {
+		fileKey[i] = byte(i + 1)
+	}
+	enc := aes256Fixture(6, pwNFC, fileKey)
+	r := &Reader{
+		f:   bytes.NewReader(nil),
+		end: 0,
+		trailer: dict{
+			name("Encrypt"): enc,
+			name("ID"):      array{strings.Repeat("\x01", 16), strings.Repeat("\x01", 16)},
+		},
+	}
+
+	// Authenticate with the NFD form — must succeed via saslPrep normalization.
+	if err := r.initEncrypt(pwNFD); err != nil {
+		t.Fatalf("NFD password failed against NFC-derived fixture: %v", err)
+	}
+	if !bytes.Equal(r.key, fileKey) {
+		t.Fatalf("recovered key %x, want %x", r.key, fileKey)
+	}
+}
