@@ -3,12 +3,18 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/Detective-XH/gopdf"
 )
 
 func main() {
-	f, r, err := pdf.Open("./pdf_test.pdf")
+	path := "examples/read_text_with_styles/pdf_test.pdf"
+	if len(os.Args) > 1 {
+		path = os.Args[1]
+	}
+
+	f, r, err := pdf.Open(path)
 	if err != nil {
 		panic(err)
 	}
