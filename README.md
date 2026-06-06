@@ -36,10 +36,14 @@ pure-Go upstream for PDF text extraction.
 - `OpenBytes([]byte)` — parse a PDF from an in-memory byte slice
 - `Page.MediaBox()` and `Page.CropBox()` — page dimensions with inheritance-chain resolution
 - Document metadata API (`r.Info()`: title, author, dates, …)
+- Raw XMP metadata (`Reader.XMP()`) — the catalog's `/Metadata` packet as stored, for Dublin Core / custom-namespace fields beyond `/Info`
+- Document font inventory (`Reader.Fonts()`) — every distinct font with subtype, embedded-program presence, and the pages where it appears
 - Outline (table of contents) with resolved page numbers
 - Annotations (`Page.Annotations()`) — `/Link` hyperlinks (URI targets and internal GoTo destination page) and `/Text` notes, each with its rectangle
 - Named-destination lookup (`Reader.Dest()`) — resolve a named destination to a 1-based page number
-- **Encrypted PDF support** — transparent decryption of Standard-security-handler files: RC4 (40/128-bit, V=1/2), AES-128 (V=4, AESV2), and **AES-256** (V=5, R=5/R=6 — Acrobat 9+ and PDF 2.0 / ISO 32000-2). Open with the empty, user, or owner password via `NewReaderEncrypted`.
+- **Safe for concurrent use** — after open, one `Reader`'s pages can be extracted in parallel by multiple goroutines; repeated dereferencing is served from a bounded internal cache
+- **Encrypted PDF support** — transparent decryption of Standard-security-handler files: RC4 (40/128-bit, V=1/2), AES-128 (V=4, AESV2), and **AES-256** (V=5, R=5/R=6 — Acrobat 9+ and PDF 2.0 / ISO 32000-2). Per-class crypt filters (`/Identity`, `StmF ≠ StrF`) and cleartext metadata (`/EncryptMetadata false`) are handled; passwords are SASLprep-normalized. Open with the empty, user, or owner password via `NewReaderEncrypted`.
+- **Broad file compatibility** — PDF 2.0 headers, hybrid-reference files (`/XRefStm`), and the common stream filters: Flate and LZW (full PNG/TIFF predictor set), ASCII85, ASCIIHex, RunLength
 - **CJK predefined CMap decoders**:
   - Japanese Shift-JIS (`90ms-RKSJ-H/V`, `90pv-RKSJ-H`)
   - CJK UCS-2 BE (`UniGB-UCS2-H/V`, `UniCNS-UCS2-H/V`, `UniJIS-UCS2-H/V`, `UniKS-UCS2-H/V`)
@@ -158,7 +162,6 @@ func main() {
 - Text extraction only — no PDF creation, modification, or rendering.
 - Image content is not decoded (location metadata via `Page.Images()` is planned).
 - No AcroForms extraction yet (planned).
-- Requires Go 1.23+ for `Pages()` / `Texts()` iterators; all other APIs work on Go 1.21+.
 
 ## Changelog
 
