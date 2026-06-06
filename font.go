@@ -4,6 +4,8 @@
 
 package pdf
 
+import "strconv"
+
 // A Font represent a font in a PDF file.
 // The methods interpret a Font dictionary stored in V.
 type Font struct {
@@ -79,19 +81,48 @@ func (f Font) getEncoder() TextEncoding {
 		if DebugOn {
 			println("ToUnicode stream failed to parse, falling back to Encoding")
 		}
+		f.V.warn(WarningMissingToUnicode, fontRef(f)+": ToUnicode CMap failed to parse")
 	}
 	enc := f.V.Key("Encoding")
 	switch enc.Kind() {
 	case Name:
-		return encoderForCMapName(enc.Name())
+		return f.namedEncoder(enc.Name())
 	case Dict:
-		return newDictEncoder(enc)
+		d, unknown := newDictEncoder(enc)
+		if unknown > 0 {
+			f.V.warn(WarningMissingGlyphMapping,
+				fontRef(f)+": "+strconv.Itoa(unknown)+" unmappable glyph entries in /Differences")
+		}
+		return d
 	case Null:
 		return &byteEncoder{&pdfDocEncoding}
 	default:
 		if DebugOn {
 			println("unexpected encoding", enc.String())
 		}
+		f.V.warn(WarningUnsupportedEncoding, fontRef(f)+": unexpected /Encoding kind")
 		return &byteEncoder{&pdfDocEncoding}
 	}
+}
+
+// namedEncoder resolves a named /Encoding via encoderForCMapName and emits
+// the matching diagnostic. Reached only when the font has no usable
+// ToUnicode (getEncoder returns early on a parsed ToUnicode CMap), which is
+// why an Identity CMap here means the missing-ToUnicode case. Split from
+// getEncoder to keep both under the gocyclo threshold.
+func (f Font) namedEncoder(n string) TextEncoding {
+	e := encoderForCMapName(n)
+	if n == "Identity-H" || n == "Identity-V" {
+		f.V.warn(WarningMissingToUnicode, fontRef(f)+": Identity CMap without usable ToUnicode")
+		return e
+	}
+	if _, known := cmapEncoderTable[n]; !known {
+		f.V.warn(WarningUnsupportedEncoding, fontRef(f)+": unknown encoding "+clampDetail(n))
+		return e
+	}
+	switch e.(type) {
+	case *multibyteCMapEncoder, *ucs2BEEncoder:
+		f.V.warn(WarningFallbackEncoding, fontRef(f)+": predefined CMap "+n+" decoded via charset approximation")
+	}
+	return e
 }

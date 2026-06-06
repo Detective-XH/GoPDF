@@ -378,7 +378,7 @@ func TestCmapNewDictEncoder(t *testing.T) {
 		enc := makeDictValue(map[string]any{
 			"BaseEncoding": name("WinAnsiEncoding"),
 		})
-		de := newDictEncoder(enc)
+		de, _ := newDictEncoder(enc)
 		if de == nil {
 			t.Fatal("newDictEncoder returned nil")
 		}
@@ -393,7 +393,7 @@ func TestCmapNewDictEncoder(t *testing.T) {
 		enc := makeDictValue(map[string]any{
 			"BaseEncoding": name("MacRomanEncoding"),
 		})
-		de := newDictEncoder(enc)
+		de, _ := newDictEncoder(enc)
 		if de == nil {
 			t.Fatal("newDictEncoder returned nil")
 		}
@@ -407,7 +407,7 @@ func TestCmapNewDictEncoder(t *testing.T) {
 	t.Run("default_encoding_no_differences", func(t *testing.T) {
 		// No BaseEncoding key → falls back to pdfDocEncoding.
 		enc := makeDictValue(map[string]any{})
-		de := newDictEncoder(enc)
+		de, _ := newDictEncoder(enc)
 		if de == nil {
 			t.Fatal("newDictEncoder returned nil")
 		}
@@ -493,7 +493,7 @@ func TestCmapApplyDifferences(t *testing.T) {
 			name("BaseEncoding"): name("WinAnsiEncoding"),
 			name("Differences"):  diffArrData,
 		}}
-		de := newDictEncoder(enc)
+		de, _ := newDictEncoder(enc)
 		if de == nil {
 			t.Fatal("newDictEncoder returned nil")
 		}

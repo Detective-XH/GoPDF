@@ -41,6 +41,7 @@ pure-Go upstream for PDF text extraction.
 - Outline (table of contents) with resolved page numbers
 - Annotations (`Page.Annotations()`) — `/Link` hyperlinks (URI targets and internal GoTo destination page) and `/Text` notes, each with its rectangle
 - Named-destination lookup (`Reader.Dest()`) — resolve a named destination to a 1-based page number
+- **Extraction diagnostics** (`Reader.Warnings()`) — deterministic, deduplicated warnings for silently degraded extraction (missing/broken `/ToUnicode`, fallback CJK encodings, unknown encodings, unmappable glyphs, unsupported stream filters) so pipelines get confidence signals without parsing logs
 - **Safe for concurrent use** — after open, one `Reader`'s pages can be extracted in parallel by multiple goroutines; repeated dereferencing is served from a bounded internal cache
 - **Encrypted PDF support** — transparent decryption of Standard-security-handler files: RC4 (40/128-bit, V=1/2), AES-128 (V=4, AESV2), and **AES-256** (V=5, R=5/R=6 — Acrobat 9+ and PDF 2.0 / ISO 32000-2). Per-class crypt filters (`/Identity`, `StmF ≠ StrF`) and cleartext metadata (`/EncryptMetadata false`) are handled; passwords are SASLprep-normalized. Open with the empty, user, or owner password via `NewReaderEncrypted`.
 - **Broad file compatibility** — PDF 2.0 headers, hybrid-reference files (`/XRefStm`), and the common stream filters: Flate and LZW (full PNG/TIFF predictor set), ASCII85, ASCIIHex, RunLength

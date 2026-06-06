@@ -58,9 +58,6 @@ package pdf
 // handlers and the SASLprep prohibited-output/bidi checks (the mapping and
 // NFKC normalization steps are applied).
 
-// BUG(rsc): The Value API does not support error reporting. The intent is to allow users to
-// set an error reporting callback in Reader, but that code has not been implemented.
-
 import (
 	"bytes"
 	"fmt"
@@ -68,16 +65,20 @@ import (
 	"os"
 )
 
-// DebugOn is responsible for logging messages into stdout. If problems arise during reading, set it true.
+// DebugOn enables debug logging to stdout while reading and extracting.
+// Prefer Reader.Warnings for programmatic extraction diagnostics; DebugOn
+// remains for low-level parse tracing. It is global mutable state: set it
+// before use, not while Readers are active on other goroutines.
 var DebugOn = false
 
 // A Reader is a single PDF file open for reading.
 // After Open/NewReader returns, the methods of Reader (and of the Value,
 // Page, and Outline trees it produces) are safe for concurrent use by
 // multiple goroutines: post-open state is read-only except for an internal
-// bounded cache, which synchronizes itself. The one caller-visible mutable
-// helper remains (*Font).cachedEncoder, which memoizes on the Font value —
-// keep per-goroutine Font copies, as plaintext.go already does.
+// bounded cache and a bounded extraction-warning store, which synchronize
+// themselves. The one caller-visible mutable helper remains
+// (*Font).cachedEncoder, which memoizes on the Font value — keep
+// per-goroutine Font copies, as plaintext.go already does.
 type Reader struct {
 	f          io.ReaderAt
 	end        int64
@@ -101,6 +102,9 @@ type Reader struct {
 	// established until tryDecrypt runs, and an object cached before that
 	// would serve undecrypted strings forever after.
 	cache objCache
+	// warnings accumulates deduplicated non-fatal extraction diagnostics
+	// (diagnostics.go): bounded, self-synchronizing, snapshot via Warnings.
+	warnings warningStore
 }
 
 // Open opens a file for reading.
