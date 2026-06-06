@@ -193,6 +193,24 @@ func BenchmarkDiagnostics(b *testing.B) {
 	}
 }
 
+// BenchmarkExtractionSummary measures whole-document per-page summarization
+// (the headline ingestion use case) on the multi-page synthetic fixture: two
+// interpreter passes per page (Words + image counting) plus the
+// once-per-Reader page-map build amortized across iterations.
+func BenchmarkExtractionSummary(b *testing.B) {
+	r := benchReader(b)
+	n := r.NumPage()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for pg := 1; pg <= n; pg++ {
+			if _, err := r.Page(pg).ExtractionSummary(); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
+
 // Reserved for owning feature PRs (do NOT add until the feature ships):
 //   BenchmarkWords        — words extraction
 //   BenchmarkAnnotations  — annotation extraction

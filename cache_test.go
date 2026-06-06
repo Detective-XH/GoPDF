@@ -201,6 +201,7 @@ type extractionSnapshot struct {
 	pageCount int64
 	fonts     []FontInfo
 	xmp       string
+	summaries []string
 	warnings  []ExtractionWarning
 }
 
@@ -220,6 +221,11 @@ func takeSnapshot(r *Reader) extractionSnapshot {
 		s.pageTexts = append(s.pageTexts, len(p.Content().Text))
 		a, aerr := p.Annotations()
 		s.annots = append(s.annots, fmt.Sprintf("%d %v", len(a), aerr))
+		// Deterministic mid-pass: the call's own emissions for page i land
+		// before its filtered Warnings field is read, and other goroutines
+		// only add duplicates for the same page.
+		sum, serr := p.ExtractionSummary()
+		s.summaries = append(s.summaries, fmt.Sprintf("%+v %v", sum, serr))
 	}
 	s.outline = r.Outline()
 	info := r.Info()
