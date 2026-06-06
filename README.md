@@ -27,6 +27,7 @@ pure-Go upstream for PDF text extraction.
 - Styled text extraction (font name, size, position)
 - Text grouped by row
 - Word-level extraction with bounding boxes (`Page.Words()`) — words in reading order, each with an (X, Y, width, height) box in PDF coordinate space
+- Image draw metadata (`Page.Images()`) — image locations in page coordinates, declared dimensions, and declared filters without decoding image content
 - Multi-font and multi-page extraction, verified against a multilingual regression corpus
 - Broad script coverage — Latin, **Cyrillic**, and CJK (see the CMap list below)
 - Nested **Form XObject** text — content drawn via the `Do` operator is not dropped
@@ -161,7 +162,7 @@ func main() {
 ## Limitations
 
 - Text extraction only — no PDF creation, modification, or rendering.
-- Image content is not decoded (location metadata via `Page.Images()` is planned).
+- Image content is not decoded; `Page.Images()` reports draw metadata only.
 - No AcroForms extraction yet (planned).
 
 ## Changelog
