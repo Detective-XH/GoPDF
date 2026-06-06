@@ -9,7 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
-- **Encryption fixture gap closure** — three new encrypted fixture files (rc4-r4-cfm-v2.pdf, aes256-r5.pdf, aes256-r6.pdf) extend the password-verification test matrix to cover RC4 in V=4 crypt filters and AES-256 R=5/R=6 modes. Verified against qpdf 12.x and Ghostscript. CLAUDE.md known-limits updated with non-default qpdf encryption recipes.
+- **Encryption fixture gap closure** — three new encrypted fixture files (rc4-r4-cfm-v2.pdf, aes256-r5.pdf, aes256-r6.pdf) extend the password-verification test matrix to cover RC4 in V=4 crypt filters and AES-256 R=5/R=6 modes. Verified against qpdf 12.x and Ghostscript.
 - **`Page.ExtractionSummary()` — per-page extraction signals** — returns ingestion-ready fields (HasText, WordCount, ImageCount, page-scoped Warnings) without OCR or image decoding. Image-only page classification requires drawn evidence (Image XObject or inline BI..EI image pair) plus an error-free plain-text confirmation pass. Two new warning codes: `image_only_page` (page-scoped, emitted only by the summary) and `null_page_slot` (reader-level, emitted when Pages() skips a null page-tree slot). Page numbers resolve through a lazily cached page map (summary-only; metadata APIs keep transient builds).
 
 ---
