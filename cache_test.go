@@ -199,6 +199,7 @@ type extractionSnapshot struct {
 	rootKeys  []string
 	kidTypes  []string
 	pageCount int64
+	fonts     []FontInfo
 }
 
 func takeSnapshot(r *Reader) extractionSnapshot {
@@ -229,6 +230,7 @@ func takeSnapshot(r *Reader) extractionSnapshot {
 		s.kidTypes = append(s.kidTypes, kids.Index(i).Key("Type").Name())
 	}
 	s.pageCount = pages.Key("Count").Int64()
+	s.fonts = r.Fonts()
 	return s
 }
 
