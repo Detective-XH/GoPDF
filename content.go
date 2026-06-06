@@ -149,7 +149,11 @@ func (s *contentState) font(name string) *Font {
 	if cached, ok := s.fonts[name]; ok {
 		return cached
 	}
-	f := &Font{V: s.resources.Key("Font").Key(name)}
+	v := s.resources.Key("Font").Key(name)
+	if v.IsNull() {
+		s.resources.warn(WarningMissingGlyphMapping, "font resource "+clampDetail(name)+" not found in page resources")
+	}
+	f := &Font{V: v}
 	if s.fonts == nil {
 		s.fonts = map[string]*Font{}
 	}

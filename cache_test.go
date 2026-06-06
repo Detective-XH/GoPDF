@@ -201,6 +201,7 @@ type extractionSnapshot struct {
 	pageCount int64
 	fonts     []FontInfo
 	xmp       string
+	warnings  []ExtractionWarning
 }
 
 func takeSnapshot(r *Reader) extractionSnapshot {
@@ -234,6 +235,11 @@ func takeSnapshot(r *Reader) extractionSnapshot {
 	s.fonts = r.Fonts()
 	x, xerr := r.XMP()
 	s.xmp = fmt.Sprintf("%d %v", len(x), xerr)
+	// Captured LAST, after every other surface has run: by this point the
+	// goroutine's own full pass guarantees its complete warning set is
+	// present (other goroutines only add duplicates), so the deduplicated,
+	// sorted snapshot must equal the single-goroutine baseline.
+	s.warnings = r.Warnings()
 	return s
 }
 

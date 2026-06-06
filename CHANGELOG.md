@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## v0.6.9 — 2026-06-06
+
+### Added
+
+- **`Reader.Warnings()` — extraction diagnostics** — returns deterministic, deduplicated warnings for extraction problems that previously degraded silently: a missing or unparseable `/ToUnicode` CMap (including `Identity-H/V` CID fonts whose output is not real Unicode), CJK text decoded through an approximate charset fallback rather than the font's CMap program, unknown or unexpected `/Encoding` values, unmappable `/Differences` glyph names, font resources missing from a page, and unsupported stream filters (such as `/Crypt`) that silently empty a page's text. Each warning carries a stable code, a fixed human-readable message, and a bounded detail string; results are sorted, safe for concurrent use, and identical for the same operations regardless of page order or repetition — so indexing/RAG pipelines get confidence signals without parsing logs. Storage is bounded against adversarial documents (4096 entries with a `warnings_truncated` sentinel; detail strings are size-clamped).
+
+### Changed
+
+- **`DebugOn` documentation** now points to `Reader.Warnings` for programmatic diagnostics; a stray unconditional debug print in dictionary parsing now respects `DebugOn`.
+
+---
+
 ## v0.6.8 — 2026-06-06
 
 ### Added

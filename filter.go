@@ -8,9 +8,16 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/ascii85"
+	"errors"
 	"fmt"
 	"io"
 )
+
+// errUnsupportedFilter marks filter names and filter-entry kinds this package
+// cannot decode. Value.Reader surfaces it as an unsupported_filter warning;
+// other (malformed-stream) errors are deliberately not warned — they belong
+// to the future fallback-decoding framework, not this diagnostics layer.
+var errUnsupportedFilter = errors.New("unsupported PDF filter")
 
 const maxDecompressedSize = 256 << 20
 const maxPNGColumns = 65536
@@ -60,7 +67,7 @@ func (a *alphaReader) Read(p []byte) (int, error) {
 func applyFilter(rd io.Reader, name string, param Value) (io.Reader, error) {
 	switch name {
 	default:
-		return nil, fmt.Errorf("unsupported PDF filter: %s", name)
+		return nil, fmt.Errorf("%w: %s", errUnsupportedFilter, name)
 	case "FlateDecode":
 		return applyFlateFilter(rd, param)
 	case "ASCII85Decode":
@@ -259,6 +266,9 @@ func (v Value) Reader() io.ReadCloser {
 	param := v.Key("DecodeParms")
 	out, err := applyStreamFilters(rd, filter, param)
 	if err != nil {
+		if errors.Is(err, errUnsupportedFilter) {
+			v.warn(WarningUnsupportedFilter, filterDetail(filter))
+		}
 		return &errorReadCloser{err}
 	}
 	return io.NopCloser(out)
@@ -295,7 +305,7 @@ func applyStreamFilters(rd io.Reader, filter, param Value) (io.Reader, error) {
 	case Array:
 		return applyArrayFilters(rd, filter, param)
 	default:
-		return nil, fmt.Errorf("unsupported filter %v", filter)
+		return nil, fmt.Errorf("%w: non-name /Filter entry", errUnsupportedFilter)
 	}
 }
 

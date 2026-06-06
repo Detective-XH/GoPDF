@@ -35,6 +35,7 @@ func (s *plainTextState) handlePlainTf(args []Value) {
 	if font, ok := s.fonts[args[0].Name()]; ok {
 		s.enc = font.cachedEncoder()
 	} else {
+		s.resources.warn(WarningMissingGlyphMapping, "font resource "+clampDetail(args[0].Name())+" not found in page resources")
 		s.enc = &nopEncoder{}
 	}
 }

@@ -2,6 +2,7 @@ package pdf
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -120,7 +121,78 @@ func BenchmarkGetTextByRow(b *testing.B) {
 	}
 }
 
+// buildWinAnsiBenchPDF builds a one-page document whose font declares
+// /Encoding /WinAnsiEncoding — the namedEncoder CLEAN path (one table lookup
+// + type switch per font per interpreter run, zero warnings). Inline here so
+// the benchmark-gate baseline worktree (master + this file only) compiles.
+func buildWinAnsiBenchPDF() []byte {
+	content := "BT /F1 12 Tf (Hello WinAnsi benchmark page) Tj ET"
+	return buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+	})
+}
+
+// buildWarningEmittingBenchPDF builds a one-page document whose fonts hit a
+// warning-emitting branch on EVERY interpreter run (broken ToUnicode, unknown
+// encoding, Identity-H, missing font resource) — the worst-case
+// warn()+dedup-hit load. Inline for the same baseline-compile reason; on the
+// baseline the identical extraction simply emits nothing.
+func buildWarningEmittingBenchPDF() []byte {
+	badTU := "endbfchar"
+	content := "BT /F1 12 Tf (a) Tj /F2 12 Tf (b) Tj /F3 12 Tf (c) Tj /F9 12 Tf (d) Tj ET"
+	return buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R >> >> /Contents 4 0 R >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /BadTU /ToUnicode 8 0 R >>",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /BogusEnc /Encoding /Bogus-Enc >>",
+		"<< /Type /Font /Subtype /Type0 /BaseFont /IdentityFont /Encoding /Identity-H >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(badTU), badTU),
+	})
+}
+
+// BenchmarkWinAnsiExtract measures the namedEncoder clean named-encoding path
+// (diagnostics bench gate, controlled pair vs master baseline).
+func BenchmarkWinAnsiExtract(b *testing.B) {
+	r, err := OpenBytes(buildWinAnsiBenchPDF())
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rd, err := r.GetPlainText(context.Background())
+		if err != nil {
+			b.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, rd)
+	}
+}
+
+// BenchmarkDiagnostics measures extraction over a page whose fonts emit
+// warnings on every interpreter run — the worst-case warn()+dedup-hit load
+// (the clean Null-encoding path executes no warn calls at all).
+func BenchmarkDiagnostics(b *testing.B) {
+	r, err := OpenBytes(buildWarningEmittingBenchPDF())
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rd, err := r.GetPlainText(context.Background())
+		if err != nil {
+			b.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, rd)
+	}
+}
+
 // Reserved for owning feature PRs (do NOT add until the feature ships):
 //   BenchmarkWords        — words extraction
 //   BenchmarkAnnotations  — annotation extraction
-//   BenchmarkDiagnostics  — extraction diagnostics

@@ -12,11 +12,11 @@ type dictEncoder struct {
 	table [256]rune
 }
 
-func newDictEncoder(enc Value) *dictEncoder {
+func newDictEncoder(enc Value) (*dictEncoder, int) {
 	e := &dictEncoder{}
 	copy(e.table[:], baseEncodingTable(enc.Key("BaseEncoding"))[:])
-	applyDifferences(&e.table, enc.Key("Differences"))
-	return e
+	unknown := applyDifferences(&e.table, enc.Key("Differences"))
+	return e, unknown
 }
 
 // baseEncodingTable returns the standard 256-rune table for the named base encoding.
@@ -31,10 +31,15 @@ func baseEncodingTable(baseEnc Value) *[256]rune {
 	}
 }
 
-// applyDifferences patches table with the name-to-code mappings from a PDF Differences array.
-func applyDifferences(table *[256]rune, diff Value) {
+// applyDifferences patches table with the name-to-code mappings from a PDF
+// Differences array. It returns the number of glyph entries whose mapping is
+// lost — names absent from nameToRune, and names at an out-of-range code
+// slot (the same traversal, the same loss). The caller surfaces the count as
+// a missing_glyph_mapping diagnostic. Table semantics are unchanged; only
+// counting is added.
+func applyDifferences(table *[256]rune, diff Value) (unknown int) {
 	if diff.Kind() != Array {
-		return
+		return 0
 	}
 	code := -1
 	for j := 0; j < diff.Len(); j++ {
@@ -43,13 +48,21 @@ func applyDifferences(table *[256]rune, diff Value) {
 			code = int(x.Int64())
 			continue
 		}
-		if x.Kind() == Name && code >= 0 && code < 256 {
-			if r := nameToRune[x.Name()]; r != 0 {
-				table[code] = r
-			}
-			code++
+		if x.Kind() != Name {
+			continue // structural junk: carries no glyph mapping to lose
 		}
+		if code < 0 || code > 255 {
+			unknown++ // the mapping is lost: no valid code slot
+			continue
+		}
+		if r := nameToRune[x.Name()]; r != 0 {
+			table[code] = r
+		} else {
+			unknown++
+		}
+		code++
 	}
+	return unknown
 }
 
 func (e *dictEncoder) Decode(raw string) (text string) {
