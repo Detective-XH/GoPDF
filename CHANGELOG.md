@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **`Reader.XMP()` — raw XMP metadata** — returns the catalog's `/Metadata` stream as stored: typically a UTF-8 XMP packet with Dublin Core and custom-namespace fields that the classic `/Info` dictionary cannot carry. The bytes are returned **without validation** — parse them with standard XML tooling. Returns `(nil, nil)` when the catalog has no `/Metadata` entry or the stream is empty, and an **error** (rather than silently truncated data) when a metadata stream exceeds the library's 256 MiB decompression bound. Works transparently on encrypted documents, including `/EncryptMetadata false` files whose metadata is stored in cleartext.
 - **`Reader.Fonts()` — document-level font inventory** — returns every distinct font referenced by the document's pages as a `FontInfo` (BaseFont name, top-level subtype, whether an embedded font program is present, and the 1-based page numbers where it appears). Resources inherited from ancestor page-tree nodes are included, and a font is reported as embedded when any instance of that name in the document carries a font program. Useful for pre-press auditing, accessibility checks, and extraction debugging. Fonts used only inside Form XObject or annotation appearance streams are not listed.
 
 ---

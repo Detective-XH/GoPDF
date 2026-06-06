@@ -200,6 +200,7 @@ type extractionSnapshot struct {
 	kidTypes  []string
 	pageCount int64
 	fonts     []FontInfo
+	xmp       string
 }
 
 func takeSnapshot(r *Reader) extractionSnapshot {
@@ -231,6 +232,8 @@ func takeSnapshot(r *Reader) extractionSnapshot {
 	}
 	s.pageCount = pages.Key("Count").Int64()
 	s.fonts = r.Fonts()
+	x, xerr := r.XMP()
+	s.xmp = fmt.Sprintf("%d %v", len(x), xerr)
 	return s
 }
 
