@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Added
+
+- **`Reader.Fonts()` — document-level font inventory** — returns every distinct font referenced by the document's pages as a `FontInfo` (BaseFont name, top-level subtype, whether an embedded font program is present, and the 1-based page numbers where it appears). Resources inherited from ancestor page-tree nodes are included, and a font is reported as embedded when any instance of that name in the document carries a font program. Useful for pre-press auditing, accessibility checks, and extraction debugging. Fonts used only inside Form XObject or annotation appearance streams are not listed.
+
+---
+
 ## v0.6.7 — 2026-06-06
 
 ### Added
