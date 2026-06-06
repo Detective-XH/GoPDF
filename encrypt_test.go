@@ -964,7 +964,8 @@ func openEncryptedFixture(t *testing.T, fixture, password string) (*Reader, erro
 
 // TestEncryptFixturePasswords verifies user- and owner-password unlocking
 // against external known answers: Ghostscript- and qpdf-encrypted fixtures
-// covering RC4 R2/40, R3/128, R3/40, AES-128 R4, and the two
+// covering RC4 R2/40, R3/128, R3/40, RC4 inside a V=4 crypt filter
+// (CFM /V2), AES-128 R4, AES-256 R5 and R6, and the two
 // /EncryptMetadata-false variants. The R3/40 case discriminates Algorithm 3's
 // full-digest 50-round MD5 loop from Algorithm 2's truncated variant, which
 // the self-consistent unit tests above cannot detect. Successful opening
@@ -981,8 +982,11 @@ func TestEncryptFixturePasswords(t *testing.T) {
 		{"rc4-r2-40.pdf", false},
 		{"rc4-r3-128.pdf", false},
 		{"rc4-r3-40.pdf", false},
+		{"rc4-r4-cfm-v2.pdf", false},
 		{"aes128-r4.pdf", false},
 		{"aes128-r4-cleartext-meta.pdf", true},
+		{"aes256-r5.pdf", false},
+		{"aes256-r6.pdf", false},
 		{"aes256-r6-cleartext-meta.pdf", true},
 	} {
 		for _, pw := range []string{"user-secret", "owner-secret"} {

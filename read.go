@@ -51,12 +51,10 @@ package pdf
 // BUG(detective-xh): Encryption covers the Standard security handler only:
 // RC4 (V=1/2, R=2-3), AES-128 (V=4/R=4), and AES-256 (V=5, R=5-6), each with
 // user- and owner-password authentication. Crypt filters resolve per class:
-// /Identity, distinct stream/string filters (StmF != StrF), and
-// /EncryptMetadata false are handled. The V=4 CFM /V2 (RC4 crypt filter)
-// path is supported but not fixture-verified — no common tool emits it
-// (qpdf's 128-bit RC4 output is V=2/R=3). Not supported: public-key (PKCS#7)
-// handlers and the SASLprep prohibited-output/bidi checks (the mapping and
-// NFKC normalization steps are applied).
+// /Identity, distinct stream/string filters (StmF != StrF), the V=4 CFM /V2
+// (RC4) crypt filter, and /EncryptMetadata false are handled. Not supported:
+// public-key (PKCS#7) handlers and the SASLprep prohibited-output/bidi
+// checks (the mapping and NFKC normalization steps are applied).
 
 import (
 	"bytes"
