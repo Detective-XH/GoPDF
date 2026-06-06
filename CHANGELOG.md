@@ -10,7 +10,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - **Encryption internals split by responsibility** — the encryption subsystem is now organized into focused files: `encrypt.go` for orchestration, `encrypt_standard.go` for V≤4 Standard handler logic, `crypt_filter.go` for crypt-filter resolution, and `decrypt.go` for runtime string/stream decryption. This is an internal refactor only; encrypted PDF behavior and public APIs are unchanged.
-- **Codex adversarial review command documented** — repository-local command files now expose the `/codex:adversarial-review` workflow for Claude Code and Codex users.
 
 ## v0.6.11 — 2026-06-06
 
