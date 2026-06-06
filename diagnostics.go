@@ -51,6 +51,8 @@ var warningMessages = map[ExtractionWarningCode]string{
 	WarningMissingGlyphMapping: "some glyphs cannot be mapped to Unicode",
 	WarningUnsupportedFilter:   "stream filter is unsupported; the stream's contents were skipped",
 	WarningTruncated:           "warning storage limit reached; further distinct warnings were dropped",
+	WarningImageOnlyPage:       "page declares image content but yields no extractable text; OCR is not attempted",
+	WarningNullPageSlot:        "page slot is null and was skipped during extraction",
 }
 
 // warningStore accumulates deduplicated extraction warnings for one Reader.
@@ -125,9 +127,9 @@ func (w *warningStore) snapshot() []ExtractionWarning {
 // recognize.
 type ExtractionWarningCode string
 
-// Extraction warning codes reported by this package. All warnings emitted by
-// this version are document-scoped (Page == 0); page-scoped codes arrive
-// with Page.ExtractionSummary.
+// Extraction warning codes reported by this package. Most warnings are
+// document-scoped (Page == 0); image_only_page and null_page_slot are
+// page-scoped.
 const (
 	// WarningMissingToUnicode: a font has no usable /ToUnicode CMap (absent
 	// for an Identity CMap, or present but unparseable), so extracted bytes
@@ -150,6 +152,16 @@ const (
 	// WarningTruncated: the bounded warning store overflowed; further
 	// distinct warnings were dropped.
 	WarningTruncated ExtractionWarningCode = "warnings_truncated"
+	// WarningImageOnlyPage: a page draws images but yields no extractable
+	// text — an image-only/scanned-page candidate for OCR routing. Emitted
+	// only by Page.ExtractionSummary (never by plain extraction), and only
+	// when the page is locatable in the page tree (Page > 0).
+	WarningImageOnlyPage ExtractionWarningCode = "image_only_page"
+	// WarningNullPageSlot: a page-tree slot resolved to null and was
+	// skipped by reader-level extraction. Page is the 1-based index whose
+	// lookup returned null (for a /Count overstating the real kids, that is
+	// the trailing indices, not the gap's position in the tree).
+	WarningNullPageSlot ExtractionWarningCode = "null_page_slot"
 )
 
 // ExtractionWarning describes one non-fatal issue observed while reading or
@@ -157,9 +169,10 @@ const (
 // use it as a map key; the field set is frozen for the v0.x line (new
 // diagnostics arrive as new codes, not new fields).
 type ExtractionWarning struct {
-	// Page is the 1-based page number for page-scoped warnings, or 0 for
-	// document-scoped warnings. All warnings emitted by this version are
-	// document-scoped: fonts are document-level objects shared across pages.
+	// Page is the 1-based page number for page-scoped warnings
+	// (image_only_page, null_page_slot), or 0 for document-scoped warnings —
+	// font/encoding/filter warnings are document-scoped because fonts are
+	// document-level objects shared across pages.
 	Page int
 	// Code classifies the issue.
 	Code ExtractionWarningCode

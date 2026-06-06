@@ -73,8 +73,9 @@ var DebugOn = false
 // After Open/NewReader returns, the methods of Reader (and of the Value,
 // Page, and Outline trees it produces) are safe for concurrent use by
 // multiple goroutines: post-open state is read-only except for an internal
-// bounded cache and a bounded extraction-warning store, which synchronize
-// themselves. The one caller-visible mutable helper remains
+// bounded cache, a bounded extraction-warning store, and a lazily built
+// page-number map, which synchronize themselves. The one caller-visible
+// mutable helper remains
 // (*Font).cachedEncoder, which memoizes on the Font value — keep
 // per-goroutine Font copies, as plaintext.go already does.
 type Reader struct {
@@ -103,6 +104,9 @@ type Reader struct {
 	// warnings accumulates deduplicated non-fatal extraction diagnostics
 	// (diagnostics.go): bounded, self-synchronizing, snapshot via Warnings.
 	warnings warningStore
+	// pageNums lazily memoizes the page-number map (page_summary.go):
+	// built once, read-only after, used by Page.ExtractionSummary.
+	pageNums pageMapCache
 }
 
 // Open opens a file for reading.

@@ -445,7 +445,9 @@ func TestWarningsAdversarialSizes(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // extractAll runs the full extraction surface without failing the test from
-// non-test goroutines: reader-level text plus per-page Content.
+// non-test goroutines: reader-level text plus per-page Content and
+// ExtractionSummary (the summary is part of the charter — it may emit
+// page-scoped warnings, which the noise gate below must also cover).
 func extractAll(r *Reader) {
 	rd, err := r.GetPlainText(context.Background())
 	if err == nil {
@@ -458,6 +460,7 @@ func extractAll(r *Reader) {
 			continue
 		}
 		_ = p.Content()
+		_, _ = p.ExtractionSummary()
 	}
 }
 
@@ -478,6 +481,9 @@ func TestWarningsCleanDocsNone(t *testing.T) {
 	}
 	// Image XObject page (DCT-free here, but the point holds for any image:
 	// extraction skips image streams entirely, so no filter warnings fire).
+	// PLAIN extraction — GetPlainText + Content, no summary — must stay
+	// silent; the summary's image_only_page is the intended signal, not
+	// noise, and is asserted separately.
 	pageContent := "/Img0 Do"
 	r := mustOpen(t, buildPDFFromObjects([]string{
 		"<< /Type /Catalog /Pages 2 0 R >>",
@@ -486,9 +492,20 @@ func TestWarningsCleanDocsNone(t *testing.T) {
 		"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /Filter /DCTDecode /Length 0 >>\nstream\nendstream",
 		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(pageContent), pageContent),
 	}))
-	extractAll(r)
+	if rd, err := r.GetPlainText(context.Background()); err == nil {
+		_, _ = io.Copy(io.Discard, rd)
+	}
+	_ = r.Page(1).Content()
 	if ws := r.Warnings(); ws != nil {
-		t.Errorf("image-only page: want no warnings, got %v", ws)
+		t.Errorf("image-only page, plain extraction: want no warnings, got %v", ws)
+	}
+	// The summary classifies it — exactly one image_only_page.
+	sum, err := r.Page(1).ExtractionSummary()
+	if err != nil {
+		t.Fatalf("ExtractionSummary: %v", err)
+	}
+	if len(sum.Warnings) != 1 || sum.Warnings[0].Code != WarningImageOnlyPage {
+		t.Errorf("image-only page, summary: got %v, want exactly one image_only_page", sum.Warnings)
 	}
 }
 

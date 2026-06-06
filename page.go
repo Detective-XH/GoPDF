@@ -95,6 +95,7 @@ func (r *Reader) GetPlainText(ctx context.Context) (reader io.Reader, err error)
 		// bogus /Count cannot spin while a malformed-but-openable tree still
 		// yields its real pages after the gap. See buildPageMap.
 		if p.V.IsNull() {
+			r.warn(i, WarningNullPageSlot, "")
 			if misses++; misses > maxLinkDepth {
 				break
 			}
@@ -141,6 +142,7 @@ func (r *Reader) Pages() iter.Seq2[int, Page] {
 			// a bogus /Count cannot spin yet a real page after a gap is still
 			// yielded. See buildPageMap.
 			if p.V.IsNull() {
+				r.warn(i, WarningNullPageSlot, "")
 				if misses++; misses > maxLinkDepth {
 					return
 				}
