@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/Detective-XH/gopdf"
 )
 
 func main() {
-	pdf.DebugOn = true
+	path := "examples/read_plain_text/pdf_test.pdf"
+	if len(os.Args) > 1 {
+		path = os.Args[1]
+	}
 
-	f, r, err := pdf.Open("./pdf_test.pdf")
+	f, r, err := pdf.Open(path)
 	if err != nil {
 		panic(err)
 	}
