@@ -241,7 +241,8 @@ func (s *contentState) handleTextShow(op string, args []Value) {
 	}
 }
 
-// interpretXObject is the Do operator body; only Form XObjects are walked.
+// interpretXObject is the Do operator body for Form XObjects, walked in their
+// own resource context. Image XObjects are handled by Page.Images().
 func (s *contentState) interpretXObject(name string) {
 	xobj := s.resources.Key("XObject").Key(name)
 	if xobj.Key("Subtype").Name() != "Form" {
@@ -337,14 +338,21 @@ func (p Page) Content() (out Content) {
 			out = Content{s.text, s.rect}
 		}
 	}()
-	if p.V.IsNull() || p.V.Key("Contents").Kind() == Null {
+	s = newContentState(p)
+	if s == nil {
 		return
 	}
-	s = &contentState{
+	Interpret(p.V.Key("Contents"), s.interpret)
+	return Content{s.text, s.rect}
+}
+
+func newContentState(p Page) *contentState {
+	if p.V.IsNull() || p.V.Key("Contents").Kind() == Null {
+		return nil
+	}
+	return &contentState{
 		g:         gstate{Th: 1, CTM: ident, enc: &nopEncoder{}},
 		p:         p,
 		resources: p.Resources(),
 	}
-	Interpret(p.V.Key("Contents"), s.interpret)
-	return Content{s.text, s.rect}
 }

@@ -145,10 +145,16 @@ func eiKeywordTerminates(b *buffer) bool {
 // the lexer arbitrary bytes (e.g. 0x3c triggering readHexString)
 // and loop indefinitely.  Per PDF spec §8.9.7, EI must be
 // preceded by a whitespace character.
-func skipInlineImage(b *buffer) {
+func skipInlineImage(b *buffer) bool {
+	var prev byte
 	for !b.eof {
 		c := b.readByte()
 		if c != 'E' {
+			prev = c
+			continue
+		}
+		if !isSpace(prev) {
+			prev = c
 			continue
 		}
 		c2 := b.readByte()
@@ -157,12 +163,15 @@ func skipInlineImage(b *buffer) {
 		}
 		if c2 != 'I' {
 			b.unreadByte()
+			prev = c
 			continue
 		}
 		if eiKeywordTerminates(b) {
-			break
+			return true
 		}
+		prev = c
 	}
+	return false
 }
 
 // lookupInDicts searches dicts from innermost to outermost for kw and pushes
@@ -188,8 +197,9 @@ func dispatchKeyword(kw keyword, stk *Stack, dicts *[]dict, b *buffer, do func(s
 		b.unreadToken(kw)
 		stk.Push(Value{nil, objptr{}, b.readObject()})
 	case "ID":
-		skipInlineImage(b)
-		do(stk, "EI")
+		if skipInlineImage(b) {
+			do(stk, "EI")
+		}
 	default:
 		if execPS(string(kw), stk, dicts) {
 			return false

@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## v0.6.11 — 2026-06-06
+
+### Added
+
+- **`Page.Images()` — image draw metadata without decoding** — returns one `ImageRef` per image draw operation, including Image XObjects and inline images. Each ref reports the page-space bounding box after the active CTM, the primary declared XObject filter, and declared image width/height when available. The scanner recurses through Form XObjects with the existing depth cap, preserves partial refs when malformed content fails after a draw, and never decompresses or decodes image streams. `Page.ExtractionSummary().ImageCount` now shares the same metadata-only scanner, so image counts remain available when later text extraction fails.
+
+### Fixed
+
+- Inline image scanning now requires a real `EI` terminator before counting the draw operation, so unterminated `BI ... ID` payloads and false `EI` byte sequences inside payload data are not misclassified as complete images.
+
+---
+
 ## v0.6.10 — 2026-06-06
 
 ### Added

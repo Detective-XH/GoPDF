@@ -290,7 +290,7 @@ func TestExtractionSummaryMalformedContent(t *testing.T) {
 // so Words reports empty with nil error) while the counting pass completes.
 // The confirmation pass must surface the failure as an error, not classify.
 func TestExtractionSummaryBadOperatorNoClassify(t *testing.T) {
-	content := "BT Tj ET /Img0 Do"
+	content := "/Img0 Do BT Tj ET"
 	r := mustOpen(t, buildPDFFromObjects([]string{
 		"<< /Type /Catalog /Pages 2 0 R >>",
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -301,6 +301,9 @@ func TestExtractionSummaryBadOperatorNoClassify(t *testing.T) {
 	sum, err := r.Page(1).ExtractionSummary()
 	if err == nil {
 		t.Fatalf("ExtractionSummary: want error from the confirmation pass, got %+v", sum)
+	}
+	if sum.ImageCount != 1 {
+		t.Errorf("summary.ImageCount = %d, want 1 (image draw before text failure remains determinable)", sum.ImageCount)
 	}
 	for _, w := range r.Warnings() {
 		if w.Code == WarningImageOnlyPage {

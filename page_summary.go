@@ -104,9 +104,9 @@ func (p Page) ExtractionSummary() (s PageExtractionSummary, err error) {
 	if r != nil {
 		s.Page = r.cachedPageMap()[p.V.ptr.id]
 	}
-	// The counting pass has no internal recover: a malformed content stream
-	// panics through to the deferred handler above and becomes this
-	// summary's error — never a guessed classification.
+	// The counting pass uses the image metadata scanner without internal
+	// recover: a malformed content stream panics through to the deferred
+	// handler above and becomes this summary's error.
 	s.ImageCount = countDrawnImages(p)
 	words, werr := p.Words()
 	if werr != nil {
@@ -135,72 +135,6 @@ func (p Page) ExtractionSummary() (s PageExtractionSummary, err error) {
 		s.Warnings = pageWarnings(r, s.Page)
 	}
 	return s, nil
-}
-
-// imageCountState holds the resources context for one content (or Form
-// XObject) stream while counting image draw operations.
-type imageCountState struct {
-	resources Value
-	depth     int
-	count     int
-	// inBI is true between a BI operator and the EI that closes it. The
-	// lexer dispatches a synthetic EI after byte-skipping an ID payload,
-	// but a stray literal EI in a malformed stream arrives identically —
-	// only a BI-opened EI is draw evidence.
-	inBI bool
-}
-
-// countDrawnImages counts the image draw operations the page's content
-// stream performs: Do of an Image XObject (recursing into Form XObjects,
-// depth-capped by xobjMaxDepth) plus inline images via the EI operator the
-// tokenizer dispatches after byte-skipping the inline payload
-// (skipInlineImage, ps.go). Image streams are never opened — only operator
-// names and header dictionaries are read — so the package's
-// no-image-decoding rule holds structurally. No internal recover: malformed
-// streams panic to the caller (ExtractionSummary's deferred handler reports
-// them as the summary's error).
-func countDrawnImages(p Page) int {
-	if p.V.IsNull() || p.V.Key("Contents").Kind() == Null {
-		return 0
-	}
-	s := &imageCountState{resources: p.Resources()}
-	Interpret(p.V.Key("Contents"), s.interpretImages)
-	return s.count
-}
-
-func (s *imageCountState) interpretImages(stk *Stack, op string) {
-	n := stk.Len()
-	args := make([]Value, n)
-	for i := n - 1; i >= 0; i-- {
-		args[i] = stk.Pop()
-	}
-	switch op {
-	case "BI":
-		s.inBI = true
-	case "EI":
-		// Inline image: payload already byte-skipped by the lexer. Count
-		// only the EI that closes a BI — a bare EI is not draw evidence.
-		if s.inBI {
-			s.count++
-			s.inBI = false
-		}
-	case "Do":
-		if len(args) == 0 {
-			return
-		}
-		xobj := s.resources.Key("XObject").Key(args[0].Name())
-		switch xobj.Key("Subtype").Name() {
-		case "Image":
-			s.count++
-		case "Form":
-			if s.depth >= xobjMaxDepth {
-				return
-			}
-			sub := &imageCountState{resources: xobj.Key("Resources"), depth: s.depth + 1}
-			Interpret(xobj, sub.interpretImages)
-			s.count += sub.count
-		}
-	}
 }
 
 // pageWarnings filters the Reader's warning snapshot to the entries
