@@ -19,7 +19,7 @@ linters:
     rules:
       # PDF 1.x encryption spec mandates MD5 + RC4 (G401/G405/G501/G503).
       # These primitives are required for compatibility; we do not choose them.
-      - path: "encrypt\\.go"
+      - path: "(encrypt|encrypt_standard|decrypt)\\.go"
         linters: [gosec]
 
       # Public API: the caller supplies the file path — G304 is expected here.
