@@ -190,20 +190,22 @@ func TestCacheSharesIdenticalValue(t *testing.T) {
 // extractionSnapshot captures every surface the Reader doc comment promises is
 // safe for concurrent use, in a deterministic comparable form.
 type extractionSnapshot struct {
-	text      string
-	textErr   string
-	pageTexts []int
-	annots    []string
-	outline   Outline
-	info      [4]string
-	rootKeys  []string
-	kidTypes  []string
-	pageCount int64
-	fonts     []FontInfo
-	xmp       string
-	links     string
-	summaries []string
-	warnings  []ExtractionWarning
+	text        string
+	textErr     string
+	pageTexts   []int
+	annots      []string
+	outline     Outline
+	info        [4]string
+	rootKeys    []string
+	kidTypes    []string
+	pageCount   int64
+	fonts       []FontInfo
+	xmp         string
+	links       string
+	attachments []string
+	fields      string
+	summaries   []string
+	warnings    []ExtractionWarning
 }
 
 func takeSnapshot(r *Reader) extractionSnapshot {
@@ -244,6 +246,14 @@ func takeSnapshot(r *Reader) extractionSnapshot {
 	s.xmp = fmt.Sprintf("%d %v", len(x), xerr)
 	l, lerr := r.Links()
 	s.links = fmt.Sprintf("%+v %v", l, lerr)
+	// Attachment.Data is a func field — capture only the comparable fields,
+	// or the snapshot would compare goroutine-dependent pointer formatting.
+	at, aterr := r.Attachments()
+	for _, a := range at {
+		s.attachments = append(s.attachments, fmt.Sprintf("%s %s %d %v", a.Name, a.MimeType, a.Size, aterr))
+	}
+	ff, fferr := r.Fields()
+	s.fields = fmt.Sprintf("%+v %v", ff, fferr)
 	// Captured LAST, after every other surface has run: by this point the
 	// goroutine's own full pass guarantees its complete warning set is
 	// present (other goroutines only add duplicates), so the deduplicated,

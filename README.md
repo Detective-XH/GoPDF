@@ -6,8 +6,8 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/Detective-XH/gopdf)](https://goreportcard.com/report/github.com/Detective-XH/gopdf)
 
 A Go-native PDF extraction toolkit for real-world documents: text, layout,
-metadata, diagnostics, links, fonts, image draw signals, encrypted files, and
-malformed-PDF resilience.
+metadata, diagnostics, links, form fields, attachments, fonts, image draw
+signals, encrypted files, and malformed-PDF resilience.
 
 **Requires Go 1.25+** (`go.mod` directive).
 
@@ -43,6 +43,8 @@ pure-Go upstream for PDF extraction and ingestion pipelines.
 - `Reader.Info()` and `Reader.XMP()` expose classic document metadata and raw XMP packets.
 - `Reader.Fonts()` lists distinct document fonts, embedded-program presence, and pages where each font appears.
 - `Page.Annotations()` extracts link and text annotations; `Reader.Dest()` resolves named destinations; `Reader.Links()` aggregates document links into `LinkRef` entries.
+- `Reader.Fields()` extracts AcroForm field values (text, checkbox, radio, choice) with page and bounding-box locations.
+- `Reader.Attachments()` lists document-level embedded files (name, MIME type, declared size, decoded data).
 - Outlines expose resolved page numbers.
 - `Page.MediaBox()` and `Page.CropBox()` resolve inherited page dimensions.
 
@@ -72,7 +74,8 @@ go get github.com/Detective-XH/gopdf
 
 See `examples/` for runnable programs and [EXAMPLES.md](EXAMPLES.md) for API
 cookbook snippets covering words, image metadata, extraction summaries,
-diagnostics, XMP, fonts, annotations, named destinations, and encrypted PDFs.
+diagnostics, XMP, fonts, annotations, named destinations, link aggregation,
+form fields, attachments, and encrypted PDFs.
 
 Runnable examples:
 
@@ -116,7 +119,8 @@ func main() {
 
 - Extraction only — no PDF creation, modification, or rendering.
 - Image content is not decoded; `Page.Images()` reports draw metadata only.
-- No AcroForms extraction yet (planned).
+- AcroForms extraction is read-only field values — no form filling or appearance rendering.
+- `Reader.Attachments()` walks the document-level name tree only; page-level `/FileAttachment` annotations are not scanned.
 
 ## Changelog
 
