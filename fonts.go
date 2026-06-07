@@ -31,8 +31,7 @@ func (r *Reader) Fonts() []FontInfo {
 	seen := make(map[string]*FontInfo)
 	var order []string
 
-	for i := 1; i <= r.NumPage(); i++ {
-		p := r.Page(i)
+	for pageNum, p := range r.Pages() {
 		seenOnPage := make(map[string]bool)
 		for _, name := range p.Fonts() {
 			f := p.Font(name)
@@ -60,7 +59,7 @@ func (r *Reader) Fonts() []FontInfo {
 			// numbers); it must not skip the metadata aggregation above.
 			if !seenOnPage[base] {
 				seenOnPage[base] = true
-				fi.Pages = append(fi.Pages, i)
+				fi.Pages = append(fi.Pages, pageNum)
 			}
 		}
 	}
