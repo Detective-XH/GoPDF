@@ -5,11 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## Fixed, pending release
+## v0.6.12 — 2026-06-07
 
 ### Added
 
 - **`Page.Lines()` — visual line grouping** — `Page.Lines() ([]Line, error)` returns the text lines on a page in reading order (top-to-bottom, left-to-right). Each `Line` groups words that share a y-band, using the same criterion as `Page.Words()`: a new line starts when the Y-distance from the band anchor exceeds `max(fontSize×0.5, 1)` points. `Line.S` joins constituent words with a single space; `Line.X/Y` is the bottom-left corner in PDF coordinate space (Y increases upward); `Line.W/H` is the bounding box spanning all words on the line, including mixed-baseline glyphs. Returns `(nil, nil)` for pages with no extractable text; content-parse panics are recovered as errors, matching `Words()` semantics.
+
+- **`Reader.Links()` — document-level link aggregation** — `Reader.Links() ([]LinkRef, error)` returns one `LinkRef` per `/Link` annotation across the document, in document order (ascending page number, `/Annots` array order within a page). Each `LinkRef` reports the source page (`FromPage`), the annotation rectangle in PDF coordinate space, the external target (`URI`) for URI actions, and the resolved 1-based target page (`ToPage`) for internal GoTo destinations, including named destinations resolved through the `/Names/Dests` name tree. Links whose action kind is unsupported (e.g. remote GoToR or Launch) are still reported with `URI` empty and `ToPage` zero, so no link is silently hidden. Returns `(nil, nil)` for documents without link annotations. Pages are visited with the same bounded null-slot handling as `Pages()`, so a malformed page count cannot force an unbounded scan; the result matches filtering `Page.Annotations()` page-by-page while building the page-number lookup only once per call.
 
 ### Fixed
 

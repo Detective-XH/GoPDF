@@ -201,6 +201,7 @@ type extractionSnapshot struct {
 	pageCount int64
 	fonts     []FontInfo
 	xmp       string
+	links     string
 	summaries []string
 	warnings  []ExtractionWarning
 }
@@ -241,6 +242,8 @@ func takeSnapshot(r *Reader) extractionSnapshot {
 	s.fonts = r.Fonts()
 	x, xerr := r.XMP()
 	s.xmp = fmt.Sprintf("%d %v", len(x), xerr)
+	l, lerr := r.Links()
+	s.links = fmt.Sprintf("%+v %v", l, lerr)
 	// Captured LAST, after every other surface has run: by this point the
 	// goroutine's own full pass guarantees its complete warning set is
 	// present (other goroutines only add duplicates), so the deduplicated,
