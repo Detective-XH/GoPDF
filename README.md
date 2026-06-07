@@ -5,11 +5,31 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/Detective-XH/gopdf.svg)](https://pkg.go.dev/github.com/Detective-XH/gopdf)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Detective-XH/gopdf)](https://goreportcard.com/report/github.com/Detective-XH/gopdf)
 
-A Go-native PDF extraction toolkit for real-world documents: text, layout,
-metadata, diagnostics, links, form fields, attachments, fonts, image draw
-signals, encrypted files, and malformed-PDF resilience.
+GoPDF is a pure-Go, extraction-first PDF toolkit built for document-ingestion
+pipelines — indexing, RAG, and agent workflows that need reliable structure
+out of real-world PDFs. It extracts text, words and lines with bounding
+boxes, form fields, attachments, links, metadata, fonts, and image draw
+signals; opens modern encrypted files; survives malformed documents; and
+reports deterministic diagnostics whenever extraction silently degrades.
 
 **Requires Go 1.25+** (`go.mod` directive).
+
+## At a glance
+
+| Need | API |
+|------|-----|
+| Plain text (context/cancellation aware) | `Reader.GetPlainText` |
+| Styled text runs (font, size, position) | `Reader.GetStyledTexts` / `Page.Texts` |
+| Words / visual lines with bounding boxes | `Page.Words` / `Page.Lines` |
+| Rows / columns of text | `Page.GetTextByRow` / `Page.GetTextByColumn` |
+| Form field values (AcroForms, read-only) | `Reader.Fields` |
+| Embedded file attachments | `Reader.Attachments` |
+| Link annotations / document-wide links | `Page.Annotations` / `Reader.Links` |
+| Named destinations / outline | `Reader.Dest` / `Reader.Outline` |
+| Image draw metadata (no decoding) | `Page.Images` |
+| Fonts / XMP / document info | `Reader.Fonts` / `Reader.XMP` / `Reader.Info` |
+| Page extraction readiness + warnings | `Page.ExtractionSummary` / `Reader.Warnings` |
+| Encrypted PDFs (RC4, AES-128, AES-256) | `NewReaderEncrypted` |
 
 ## Background
 
@@ -121,6 +141,7 @@ func main() {
 - Image content is not decoded; `Page.Images()` reports draw metadata only.
 - AcroForms extraction is read-only field values — no form filling or appearance rendering.
 - `Reader.Attachments()` walks the document-level name tree only; page-level `/FileAttachment` annotations are not scanned.
+- No table reconstruction: a spatial table-detection heuristic was evaluated against a real-document corpus and deferred — it does not yet meet the cell-accuracy bar we require for structured output.
 
 ## Changelog
 
