@@ -13,6 +13,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **PDF encoding internals reorganized** — the dict-based font encoder (`dictEncoder`) now lives in `encoder.go` alongside all other `TextEncoding` implementations; `cmap.go` retains only ToUnicode CMap stream parsing. No public API or behavior change.
+
 - **Encryption internals split by responsibility** — the encryption subsystem is now organized into focused files: `encrypt.go` for orchestration, `encrypt_standard.go` for V≤4 Standard handler logic, `crypt_filter.go` for crypt-filter resolution, and `decrypt.go` for runtime string/stream decryption. This is an internal refactor only; encrypted PDF behavior and public APIs are unchanged.
 
 ## v0.6.11 — 2026-06-06
