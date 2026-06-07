@@ -143,6 +143,32 @@ func main() {
 - `Reader.Attachments()` walks the document-level name tree only; page-level `/FileAttachment` annotations are not scanned.
 - No table reconstruction: a spatial table-detection heuristic was evaluated against a real-document corpus and deferred — it does not yet meet the cell-accuracy bar we require for structured output.
 
+## Releases & Verification
+
+Versions are published as **signed git tags** (mirrored as GitHub Releases —
+Go module resolution only needs the tag). Tags are signed with a
+hardware-backed SSH key:
+
+```
+256 SHA256:duCP4h22hb2oNAZMaFhUlpq0j8+qBbZuaXnS99yUhkY (ED25519-SK)
+```
+
+Verify a release tag — the trusted keys are published on the maintainer's
+GitHub account, so nothing needs to be copied from this README:
+
+```bash
+curl -s https://api.github.com/users/Detective-XH/ssh_signing_keys \
+  | python3 -c "import json,sys; [print('*', k['key']) for k in json.load(sys.stdin)]" > allowed_signers
+git -c gpg.ssh.allowedSignersFile=./allowed_signers tag -v v0.7.0
+# expect: Good "git" signature for * with ED25519-SK key SHA256:duCP4h22...
+```
+
+Module integrity is independently guaranteed by the Go checksum database:
+
+```bash
+go mod download github.com/Detective-XH/gopdf@latest && go mod verify
+```
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history of fixes and additions.
