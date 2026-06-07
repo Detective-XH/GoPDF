@@ -10,6 +10,8 @@
 //	P5  FlateDecode stream followed by trailing garbage — no panic, readable
 //	P7  Q operator with empty gstack — no panic from Content()
 //	P8  Td operator with wrong arg count — no panic from Content()
+//	P9a PS dict-stack DoS: 2×maxPSDictStack "begin" ops — capped at maxPSDictStack, no OOM/panic
+//	P9b PS value-stack DoS: maxPSValueStack+1000 integer tokens — capped at maxPSValueStack, no OOM/panic
 package pdf
 
 import (
@@ -371,4 +373,64 @@ func TestContentMalformedArgNoPanic(t *testing.T) {
 	assertNoPanic(t, func() {
 		_ = page.Content()
 	})
+}
+
+// P9a — PS dict-stack DoS: CMap stream containing 2×maxPSDictStack "begin" operators.
+// Before the fix, psBegin appended to *dicts without bound, exhausting memory.
+// After the fix, the dict stack is silently capped at maxPSDictStack; no OOM or panic.
+func TestRedTeamPSDictStackDoS(t *testing.T) {
+	var buf strings.Builder
+	for range maxPSDictStack * 2 {
+		buf.WriteString("0 dict begin ")
+	}
+	v := testStream([]byte(buf.String()))
+
+	done := make(chan any, 1)
+	go func() {
+		var pv any
+		func() {
+			defer func() { pv = recover() }()
+			Interpret(v, func(_ *Stack, _ string) {})
+		}()
+		done <- pv
+	}()
+
+	select {
+	case pv := <-done:
+		if pv != nil {
+			t.Fatalf("P9a: Interpret panicked on dict-stack DoS input: %v", pv)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("P9a: Interpret hung on dict-stack DoS input (resource exhaustion)")
+	}
+}
+
+// P9b — PS value-stack DoS: CMap stream containing maxPSValueStack+1000 bare integer tokens.
+// Before the fix, Stack.Push appended without bound, exhausting memory.
+// After the fix, the value stack is silently capped at maxPSValueStack; no OOM or panic.
+func TestRedTeamPSValueStackDoS(t *testing.T) {
+	var buf strings.Builder
+	for range maxPSValueStack + 1000 {
+		buf.WriteString("1 ")
+	}
+	v := testStream([]byte(buf.String()))
+
+	done := make(chan any, 1)
+	go func() {
+		var pv any
+		func() {
+			defer func() { pv = recover() }()
+			Interpret(v, func(_ *Stack, _ string) {})
+		}()
+		done <- pv
+	}()
+
+	select {
+	case pv := <-done:
+		if pv != nil {
+			t.Fatalf("P9b: Interpret panicked on value-stack DoS input: %v", pv)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("P9b: Interpret hung on value-stack DoS input (resource exhaustion)")
+	}
 }
