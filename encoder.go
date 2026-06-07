@@ -121,3 +121,70 @@ func encoderForCMapName(n string) TextEncoding {
 	}
 	return &byteEncoder{&pdfDocEncoding}
 }
+
+// dictEncoder handles fonts with Encoding dictionaries containing
+// BaseEncoding and/or Differences arrays per PDF spec section 9.6.6.
+type dictEncoder struct {
+	table [256]rune
+}
+
+func newDictEncoder(enc Value) (*dictEncoder, int) {
+	e := &dictEncoder{}
+	copy(e.table[:], baseEncodingTable(enc.Key("BaseEncoding"))[:])
+	unknown := applyDifferences(&e.table, enc.Key("Differences"))
+	return e, unknown
+}
+
+// baseEncodingTable returns the standard 256-rune table for the named base encoding.
+func baseEncodingTable(baseEnc Value) *[256]rune {
+	switch baseEnc.Name() {
+	case "WinAnsiEncoding":
+		return &winAnsiEncoding
+	case "MacRomanEncoding":
+		return &macRomanEncoding
+	default:
+		return &pdfDocEncoding
+	}
+}
+
+// applyDifferences patches table with the name-to-code mappings from a PDF
+// Differences array. It returns the number of glyph entries whose mapping is
+// lost — names absent from nameToRune, and names at an out-of-range code
+// slot (the same traversal, the same loss). The caller surfaces the count as
+// a missing_glyph_mapping diagnostic. Table semantics are unchanged; only
+// counting is added.
+func applyDifferences(table *[256]rune, diff Value) (unknown int) {
+	if diff.Kind() != Array {
+		return 0
+	}
+	code := -1
+	for j := 0; j < diff.Len(); j++ {
+		x := diff.Index(j)
+		if x.Kind() == Integer {
+			code = int(x.Int64())
+			continue
+		}
+		if x.Kind() != Name {
+			continue // structural junk: carries no glyph mapping to lose
+		}
+		if code < 0 || code > 255 {
+			unknown++ // the mapping is lost: no valid code slot
+			continue
+		}
+		if r := nameToRune[x.Name()]; r != 0 {
+			table[code] = r
+		} else {
+			unknown++
+		}
+		code++
+	}
+	return unknown
+}
+
+func (e *dictEncoder) Decode(raw string) (text string) {
+	r := make([]rune, 0, len(raw))
+	for i := 0; i < len(raw); i++ {
+		r = append(r, e.table[raw[i]])
+	}
+	return string(r)
+}
