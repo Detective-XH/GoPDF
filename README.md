@@ -135,6 +135,13 @@ func main() {
 }
 ```
 
+## API stability
+
+Exported APIs are tiered contracts — see [API-STABILITY.md](API-STABILITY.md)
+for what is frozen today, what will only grow additively, and the v1.0 freeze
+milestone. The geometry convention (PDF-native bottom-left, points) and the
+screen-space conversion recipe are documented there too.
+
 ## Limitations
 
 - Extraction only — no PDF creation, modification, or rendering.

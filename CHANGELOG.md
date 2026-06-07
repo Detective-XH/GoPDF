@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Added
+
+- [`API-STABILITY.md`](API-STABILITY.md): a tiered API stability contract.
+  The Stable tier freezes today's extraction surface (no signature changes,
+  no removals — additive struct fields only); the Additive-evolving tier
+  pre-announces upcoming field additions (quality signals, per-word font
+  info); the Deprecation-review tier flags `GetTextByColumn`/`GetTextByRow`.
+  Also documents the PDF-native coordinate system (baseline vs box semantics
+  per type, with a screen-space conversion recipe), drop-in compatibility
+  with the `ledongthuc/pdf` lineage call sites, and the v1.0 freeze
+  milestone. README links it from the new "API stability" section.
+
 ## v0.7.0 — 2026-06-07
 
 Milestone release: the extraction-ready-structure scope is complete — words, lines,
