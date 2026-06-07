@@ -77,6 +77,21 @@ for _, w := range words {
 }
 ```
 
+## Lines
+
+```go
+p := r.Page(1)
+lines, err := p.Lines()
+if err != nil {
+	panic(err)
+}
+
+for _, l := range lines {
+	fmt.Printf("line=%q x=%.1f y=%.1f w=%.1f h=%.1f words=%d\n",
+		l.S, l.X, l.Y, l.W, l.H, len(l.Words))
+}
+```
+
 ## Image Draw Metadata
 
 `Page.Images()` reports draw operations, not distinct resources. It does not
