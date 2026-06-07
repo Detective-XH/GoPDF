@@ -257,6 +257,38 @@ func TestFontsConflictingAliases(t *testing.T) {
 	}
 }
 
+func TestFontsUsesHardenedPagesIterator(t *testing.T) {
+	data := buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 3 >>",
+		"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+		"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 6 0 R >> >> >>",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /TimesRoman >>",
+	})
+	r, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+
+	fonts := r.Fonts()
+	if len(fonts) != 2 {
+		t.Fatalf("Fonts() returned %d entries, want 2", len(fonts))
+	}
+	if fonts[0].Name != "Helvetica" || len(fonts[0].Pages) != 1 || fonts[0].Pages[0] != 1 {
+		t.Errorf("Fonts()[0] = %+v, want Helvetica on page 1", fonts[0])
+	}
+	if fonts[1].Name != "TimesRoman" || len(fonts[1].Pages) != 1 || fonts[1].Pages[0] != 2 {
+		t.Errorf("Fonts()[1] = %+v, want TimesRoman on page 2", fonts[1])
+	}
+
+	ws := r.Warnings()
+	want := ExtractionWarning{Page: 3, Code: WarningNullPageSlot, Message: warningMessages[WarningNullPageSlot]}
+	if len(ws) != 1 || ws[0] != want {
+		t.Fatalf("Warnings() = %+v, want [%+v]", ws, want)
+	}
+}
+
 func TestFontsEmpty(t *testing.T) {
 	data := buildFontPDF(nil)
 	r, err := OpenBytes(data)

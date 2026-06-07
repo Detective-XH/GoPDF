@@ -19,6 +19,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   with the `ledongthuc/pdf` lineage call sites, and the v1.0 freeze
   milestone. README links it from the new "API stability" section.
 
+### Fixed
+
+- **`Reader.Fonts()` now uses the hardened page iterator** — document-level
+  font inventory inherits the same malformed page-tree handling as other
+  document-wide extraction APIs. Overstated page counts now emit the standard
+  `null_page_slot` warning and stop after a long run of null slots instead of
+  walking the raw page count directly, while reported font page numbers remain
+  1-based.
+
 ## v0.7.0 — 2026-06-07
 
 Milestone release: the extraction-ready-structure scope is complete — words, lines,
