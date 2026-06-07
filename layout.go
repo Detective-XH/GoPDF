@@ -245,6 +245,18 @@ func (p Page) Words() (words []Word, err error) {
 		return nil, nil
 	}
 
+	for _, band := range bandsByY(texts) {
+		words = append(words, wordsFromBand(band)...)
+	}
+	return words, nil
+}
+
+// bandsByY sorts texts top-to-bottom (Y descending then X ascending) and
+// groups them into y-bands: a new band starts when the Y-distance from the
+// first glyph of the current band exceeds max(band[0].FontSize*0.5, 1).
+// Each band is re-sorted X-ascending before appending, satisfying
+// wordsFromBand's left-to-right precondition and handling sub/superscript Y-shift.
+func bandsByY(texts []Text) [][]Text {
 	sort.SliceStable(texts, func(i, j int) bool {
 		if texts[i].Y != texts[j].Y {
 			return texts[i].Y > texts[j].Y
@@ -252,15 +264,13 @@ func (p Page) Words() (words []Word, err error) {
 		return texts[i].X < texts[j].X
 	})
 
+	var bands [][]Text
 	var band []Text
 	flush := func() {
-		// The global sort keys on Y first, so a band spanning multiple Y values
-		// (e.g. sub/superscripts within tolerance) is not guaranteed X-ascending.
-		// Re-sort by X here to satisfy wordsFromBand's left-to-right precondition.
 		sort.SliceStable(band, func(i, j int) bool {
 			return band[i].X < band[j].X
 		})
-		words = append(words, wordsFromBand(band)...)
+		bands = append(bands, band)
 		band = nil
 	}
 
@@ -278,9 +288,20 @@ func (p Page) Words() (words []Word, err error) {
 		}
 		band = append(band, t)
 	}
-	flush()
+	if len(band) > 0 {
+		flush()
+	}
+	return bands
+}
 
-	return words, nil
+// isAllSpace reports whether every rune in s is a Unicode space character.
+func isAllSpace(s string) bool {
+	for _, r := range s {
+		if !unicode.IsSpace(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // wordsFromBand groups per-glyph Text entries that share a y-band into Word values.
@@ -307,14 +328,7 @@ func wordsFromBand(band []Text) []Word {
 		if t.S == "" || t.S == "\n" {
 			continue
 		}
-		isSpace := true
-		for _, r := range t.S {
-			if !unicode.IsSpace(r) {
-				isSpace = false
-				break
-			}
-		}
-		if isSpace {
+		if isAllSpace(t.S) {
 			emit()
 			continue
 		}
@@ -339,10 +353,83 @@ func wordsFromBand(band []Text) []Word {
 		if end := t.X + t.W; end > cur.X+cur.W {
 			cur.W = end - cur.X
 		}
-		if t.FontSize > cur.H {
-			cur.H = t.FontSize
+		curTop := cur.Y + cur.H
+		if t.Y < cur.Y {
+			cur.Y = t.Y
 		}
+		if tTop := t.Y + t.FontSize; tTop > curTop {
+			curTop = tTop
+		}
+		cur.H = curTop - cur.Y
 	}
 	emit()
 	return words
+}
+
+// Line is a reading-order group of words that share a visual line.
+// X and Y are the bottom-left origin in PDF coordinate space (Y increases upward).
+// W and H are the bounding box of the entire line in points.
+// S is the words joined by a single space.
+// Words preserves the left-to-right order of the constituent Word values.
+//
+// Lines groups by the same y-band criterion as Page.Words(): two words are on
+// the same line when they share a y-band. Multi-column pages with columns at
+// the same Y will be collapsed into one Line per visual row.
+type Line struct {
+	S     string
+	X, Y  float64
+	W, H  float64
+	Words []Word
+}
+
+// Lines returns visual text lines on the page in reading order (top-to-bottom,
+// left-to-right). Each Line corresponds to one y-band — the same grouping
+// criterion as Page.Words(). Words within a line are in left-to-right order;
+// lines are top-to-bottom.
+//
+// Returns (nil, nil) for pages with no extractable text. Panics during content
+// parsing are recovered and returned as errors, matching Words() semantics.
+func (p Page) Lines() (lines []Line, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			lines = nil
+			err = errors.New(fmt.Sprint(r))
+		}
+	}()
+
+	texts := p.Content().Text
+	if len(texts) == 0 {
+		return nil, nil
+	}
+
+	for _, band := range bandsByY(texts) {
+		ws := wordsFromBand(band)
+		if len(ws) == 0 {
+			continue
+		}
+		l := Line{
+			S:     ws[0].S,
+			X:     ws[0].X,
+			Y:     ws[0].Y,
+			W:     ws[0].W,
+			H:     ws[0].H,
+			Words: ws,
+		}
+		top := l.Y + l.H
+		for _, w := range ws[1:] {
+			l.S += " " + w.S
+			if end := w.X + w.W; end > l.X+l.W {
+				l.W = end - l.X
+			}
+			if w.Y < l.Y {
+				l.Y = w.Y
+			}
+			if wTop := w.Y + w.H; wTop > top {
+				top = wTop
+			}
+		}
+		l.H = top - l.Y
+		lines = append(lines, l)
+	}
+	return lines, nil
 }

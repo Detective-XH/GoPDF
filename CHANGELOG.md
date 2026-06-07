@@ -7,15 +7,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Fixed, pending release
 
+### Added
+
+- **`Page.Lines()` — visual line grouping** — `Page.Lines() ([]Line, error)` returns the text lines on a page in reading order (top-to-bottom, left-to-right). Each `Line` groups words that share a y-band, using the same criterion as `Page.Words()`: a new line starts when the Y-distance from the band anchor exceeds `max(fontSize×0.5, 1)` points. `Line.S` joins constituent words with a single space; `Line.X/Y` is the bottom-left corner in PDF coordinate space (Y increases upward); `Line.W/H` is the bounding box spanning all words on the line, including mixed-baseline glyphs. Returns `(nil, nil)` for pages with no extractable text; content-parse panics are recovered as errors, matching `Words()` semantics.
+
 ### Fixed
 
+- **`Page.Words()` mixed-baseline bounding boxes corrected** — when glyphs at different Y positions (e.g. a subscript or superscript) merge into one word, `Word.Y` is now the minimum baseline across all constituent glyphs and `Word.H` is the full vertical span. Previously, `Word.Y` was taken from the first glyph only and `Word.H` from its font size alone, silently excluding any glyph at a shifted baseline from the bounding box.
+
 - **Security:** PS interpreter stacks in `ps.go` are now bounded. The dict stack is capped at 1 000 levels; the value stack is capped at 200 000 entries. Before this fix, a crafted ToUnicode CMap stream could exhaust memory via unbounded stack growth. No public API changed.
-
-### Changed
-
-- **PDF encoding internals reorganized** — the dict-based font encoder (`dictEncoder`) now lives in `encoder.go` alongside all other `TextEncoding` implementations; `cmap.go` retains only ToUnicode CMap stream parsing. No public API or behavior change.
-
-- **Encryption internals split by responsibility** — the encryption subsystem is now organized into focused files: `encrypt.go` for orchestration, `encrypt_standard.go` for V≤4 Standard handler logic, `crypt_filter.go` for crypt-filter resolution, and `decrypt.go` for runtime string/stream decryption. This is an internal refactor only; encrypted PDF behavior and public APIs are unchanged.
 
 ## v0.6.11 — 2026-06-06
 
