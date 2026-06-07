@@ -216,6 +216,38 @@ for _, l := range links {
 }
 ```
 
+## Form Fields
+
+```go
+fields, err := r.Fields()
+if err != nil {
+	panic(err)
+}
+
+for _, f := range fields {
+	fmt.Printf("%s (page %d) = %q\n", f.Name, f.PageNum, f.Value)
+}
+```
+
+## Attachments
+
+```go
+atts, err := r.Attachments()
+if err != nil {
+	panic(err)
+}
+
+for _, a := range atts {
+	fmt.Printf("%s (%s, %d bytes)\n", a.Name, a.MimeType, a.Size)
+	rc, err := a.Data()
+	if err != nil {
+		panic(err)
+	}
+	// ... read rc ...
+	_ = rc.Close()
+}
+```
+
 ## Page Iteration
 
 ```go
