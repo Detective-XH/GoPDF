@@ -199,6 +199,23 @@ if errors.Is(err, pdf.ErrDestNotFound) {
 }
 ```
 
+## Link Aggregation
+
+```go
+links, err := r.Links()
+if err != nil {
+	panic(err)
+}
+
+for _, l := range links {
+	if l.URI != "" {
+		fmt.Printf("page %d: external link %s\n", l.FromPage, l.URI)
+		continue
+	}
+	fmt.Printf("page %d: internal link to page %d\n", l.FromPage, l.ToPage)
+}
+```
+
 ## Page Iteration
 
 ```go

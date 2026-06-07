@@ -153,3 +153,67 @@ func walkNameTreeDepth(node Value, name string, pages map[uint32]int, seen map[u
 	}
 	return 0
 }
+
+// LinkRef identifies one link annotation: the page it appears on, its
+// bounding rectangle, and its target.
+//
+// URI is non-empty for /URI actions. ToPage is non-zero for /GoTo
+// destinations that resolve to a page in this document. Both stay
+// zero-valued when the link's action kind is unsupported (e.g. GoToR,
+// Launch, JavaScript) or its destination cannot be resolved — the entry is
+// still reported so callers can see the link exists.
+// Rect is in PDF user space (origin bottom-left, y increases upward).
+type LinkRef struct {
+	FromPage int    // 1-based page number the annotation appears on
+	Rect     Rect   // bounding rectangle in PDF coordinate space
+	URI      string // non-empty for URI actions
+	ToPage   int    // 1-based target page for resolvable GoTo destinations (0 otherwise)
+}
+
+// Links returns every /Link annotation in the document in document order:
+// ascending page number, /Annots array order within a page. It is a
+// convenience aggregation over the same per-annotation parsing as
+// Page.Annotations() — no semantic graph, no text extraction.
+//
+// Returns (nil, nil) when the document has no link annotations. Pages are
+// visited via Pages(), inheriting its null-slot semantics by construction:
+// isolated missing slots are skipped with a null_page_slot warning, and a
+// long run of consecutive missing slots ends the scan, so a malformed page
+// count cannot force an unbounded walk — the same bound GetPlainText and
+// the page-map build apply. Safe for concurrent use; each call builds its
+// own transient page-number map, so repeated calls on a long-lived Reader
+// do not retain document-sized state.
+func (r *Reader) Links() ([]LinkRef, error) {
+	var (
+		out   []LinkRef
+		pages map[uint32]int
+		dests Value
+		built bool
+	)
+	for i, p := range r.Pages() {
+		annots := p.V.Key("Annots")
+		m := annots.Len()
+		if m == 0 {
+			continue
+		}
+		// Build the shared lookup context on the first annotated page only: a
+		// document with no annotations never pays for the page-tree walk, and
+		// a link-heavy document pays for it exactly once per call — not once
+		// per page, which is what wrapping Page.Annotations() directly would
+		// cost. Per-call (not per-Reader) keeps the no-lifetime-retention
+		// decision recorded on cachedPageMap (page_summary.go).
+		if !built {
+			pages = r.buildPageMap()
+			dests = r.Trailer().Key("Root").Key("Names").Key("Dests")
+			built = true
+		}
+		for j := 0; j < m; j++ {
+			ann := parseAnnotation(annots.Index(j), pages, dests)
+			if ann.Type != AnnotLink {
+				continue
+			}
+			out = append(out, LinkRef{FromPage: i, Rect: ann.Rect, URI: ann.URI, ToPage: ann.Page})
+		}
+	}
+	return out, nil
+}

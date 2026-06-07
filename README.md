@@ -42,7 +42,7 @@ pure-Go upstream for PDF extraction and ingestion pipelines.
 
 - `Reader.Info()` and `Reader.XMP()` expose classic document metadata and raw XMP packets.
 - `Reader.Fonts()` lists distinct document fonts, embedded-program presence, and pages where each font appears.
-- `Page.Annotations()` extracts link and text annotations; `Reader.Dest()` resolves named destinations.
+- `Page.Annotations()` extracts link and text annotations; `Reader.Dest()` resolves named destinations; `Reader.Links()` aggregates document links into `LinkRef` entries.
 - Outlines expose resolved page numbers.
 - `Page.MediaBox()` and `Page.CropBox()` resolve inherited page dimensions.
 
