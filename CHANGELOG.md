@@ -5,7 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## v0.6.12 — 2026-06-06
+## Fixed, pending release
+
+### Fixed
+
+- **Security:** PS interpreter stacks in `ps.go` are now bounded. The dict stack is capped at 1 000 levels; the value stack is capped at 200 000 entries. Before this fix, a crafted ToUnicode CMap stream could exhaust memory via unbounded stack growth. No public API changed.
 
 ### Changed
 

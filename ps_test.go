@@ -5,10 +5,10 @@
 // ps_test.go — unit tests for ps.go internals.
 //
 // Coverage targets:
-//   - TestPsCurrentdict           psCurrentdict: normal push and empty-dicts panic
+//   - TestPsCurrentdict           psCurrentdict: normal push and empty-dicts noop (no panic)
 //   - TestPsExecDefNonNameKey     execDef: non-name key silent-skip path
-//   - TestPsBeginNonDictPanic     psBegin: non-dict panic path
-//   - TestPsEndEmptyPanic         psEnd: empty-dicts panic path
+//   - TestPsBeginNonDictNoop      psBegin: non-dict silent-return (no panic)
+//   - TestPsEndEmptyNoop          psEnd: empty-dicts silent-return (no panic)
 //   - TestPsOpenInterpBufferArray openInterpBuffer: Array path (io.MultiReader)
 //   - TestPsEiKeywordTerminatesEOF eiKeywordTerminates: EOF → true
 //   - TestPsSkipInlineImage       skipInlineImage: normal EI-found path
@@ -89,7 +89,7 @@ func psCmapStreamValue(body string) Value {
 // ---------------------------------------------------------------------------
 
 // TestPsCurrentdict verifies that psCurrentdict pushes the top dict onto the
-// stack, and panics when the dict stack is empty.
+// stack, and returns silently (no panic) when the dict stack is empty.
 func TestPsCurrentdict(t *testing.T) {
 	t.Run("normal: pushes top dict", func(t *testing.T) {
 		sentinel := name("sentinel")
@@ -112,15 +112,18 @@ func TestPsCurrentdict(t *testing.T) {
 		}
 	})
 
-	t.Run("panic: empty dicts", func(t *testing.T) {
+	t.Run("noop: empty dicts", func(t *testing.T) {
 		var dicts []dict
 		stk := psMakeStack()
 		defer func() {
-			if r := recover(); r == nil {
-				t.Error("psCurrentdict on empty dicts: expected panic, got none")
+			if r := recover(); r != nil {
+				t.Errorf("psCurrentdict on empty dicts: unexpected panic: %v", r)
 			}
 		}()
 		psCurrentdict(stk, &dicts)
+		if stk.Len() != 0 {
+			t.Errorf("stack should be unchanged; got len=%d", stk.Len())
+		}
 	})
 }
 
@@ -153,38 +156,44 @@ func TestPsExecDefNonNameKey(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestPsBeginNonDictPanic — psBegin panics when top of stack is not a dict
+// TestPsBeginNonDictNoop — psBegin returns silently when top of stack is not a dict
 // ---------------------------------------------------------------------------
 
-// TestPsBeginNonDictPanic verifies that psBegin panics when the value popped
-// from the stack has Kind != Dict.
-func TestPsBeginNonDictPanic(t *testing.T) {
+// TestPsBeginNonDictNoop verifies that psBegin does not panic and leaves the
+// dict stack unchanged when the value popped from the value stack has Kind != Dict.
+func TestPsBeginNonDictNoop(t *testing.T) {
 	dicts := []dict{}
 	stk := psMakeStack()
 	stk.Push(psMakeIntValue(7)) // not a dict
 
 	defer func() {
-		if r := recover(); r == nil {
-			t.Error("psBegin on non-dict: expected panic, got none")
+		if r := recover(); r != nil {
+			t.Errorf("psBegin on non-dict: unexpected panic: %v", r)
 		}
 	}()
 	psBegin(stk, &dicts)
+	if len(dicts) != 0 {
+		t.Errorf("dicts should be unchanged; got len=%d", len(dicts))
+	}
 }
 
 // ---------------------------------------------------------------------------
-// TestPsEndEmptyPanic — psEnd panics when dict stack is empty
+// TestPsEndEmptyNoop — psEnd returns silently when dict stack is empty
 // ---------------------------------------------------------------------------
 
-// TestPsEndEmptyPanic verifies that psEnd panics with "mismatched begin/end"
-// when called with an empty dict stack.
-func TestPsEndEmptyPanic(t *testing.T) {
+// TestPsEndEmptyNoop verifies that psEnd does not panic and leaves the dict
+// stack unchanged when called with an empty dict stack.
+func TestPsEndEmptyNoop(t *testing.T) {
 	dicts := []dict{}
 	defer func() {
-		if r := recover(); r == nil {
-			t.Error("psEnd on empty dicts: expected panic, got none")
+		if r := recover(); r != nil {
+			t.Errorf("psEnd on empty dicts: unexpected panic: %v", r)
 		}
 	}()
 	psEnd(&dicts)
+	if len(dicts) != 0 {
+		t.Errorf("dicts should remain empty; got len=%d", len(dicts))
+	}
 }
 
 // ---------------------------------------------------------------------------

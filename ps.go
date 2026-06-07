@@ -8,6 +8,15 @@ import (
 	"io"
 )
 
+// maxPSDictStack caps the dict stack (psBegin) to prevent memory exhaustion.
+// Legitimate CMap dict nesting is 1–3 levels; 1000 is an ample bound.
+const maxPSDictStack = 1000
+
+// maxPSValueStack caps the value stack (Stack.Push) to prevent memory exhaustion.
+// Must exceed the maximum operand accumulation between any begin*/end* pair:
+// maxCmapEntries (65536) × 3 operands per entry (bfrange) = 196608.
+const maxPSValueStack = 200_000
+
 // A Stack represents a stack of values.
 type Stack struct {
 	stack []Value
@@ -18,6 +27,9 @@ func (stk *Stack) Len() int {
 }
 
 func (stk *Stack) Push(v Value) {
+	if len(stk.stack) >= maxPSValueStack {
+		return
+	}
 	stk.stack = append(stk.stack, v)
 }
 
@@ -61,7 +73,7 @@ func openInterpBuffer(strm Value) *buffer {
 // storing if the key is not a name (silent skip per PS semantics).
 func execDef(stk *Stack, dicts *[]dict) {
 	if len(*dicts) <= 0 {
-		panic("def without open dict")
+		return
 	}
 	val := stk.Pop()
 	key, ok := stk.Pop().data.(name)
@@ -78,7 +90,7 @@ func psDict(stk *Stack) {
 
 func psCurrentdict(stk *Stack, dicts *[]dict) {
 	if len(*dicts) == 0 {
-		panic("no current dictionary")
+		return
 	}
 	stk.Push(Value{nil, objptr{}, (*dicts)[len(*dicts)-1]})
 }
@@ -86,14 +98,17 @@ func psCurrentdict(stk *Stack, dicts *[]dict) {
 func psBegin(stk *Stack, dicts *[]dict) {
 	d := stk.Pop()
 	if d.Kind() != Dict {
-		panic("cannot begin non-dict")
+		return
+	}
+	if len(*dicts) >= maxPSDictStack {
+		return
 	}
 	*dicts = append(*dicts, d.data.(dict))
 }
 
 func psEnd(dicts *[]dict) {
 	if len(*dicts) <= 0 {
-		panic("mismatched begin/end")
+		return
 	}
 	*dicts = (*dicts)[:len(*dicts)-1]
 }
