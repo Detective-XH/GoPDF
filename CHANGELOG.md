@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## v0.7.0 — 2026-06-07
+
+Milestone release: the extraction-ready-structure scope is complete — words, lines,
+annotations, links, images, fonts, XMP, diagnostics, page summaries, modern encryption,
+and now AcroForm fields and embedded-file attachments.
+
+### Added
+
+- **`Reader.Fields()` — read-only AcroForm extraction** — `Reader.Fields() ([]FormField, error)` returns every terminal form field in the document, in `/Fields` array order (depth-first). Each `FormField` reports the fully qualified name (`parent.child.leaf` via `/T`), the classified type (text, checkbox, radio, combo, list; pushbuttons and signatures map to `FieldOther`), the decoded value (`/V` as UTF-8 text; checkbox/radio on-state name with absent `/V` reported as `"Off"`; multi-select choice arrays joined with `", "`), the ReadOnly flag, the widget bounding rectangle, and the 1-based page number of the field's widget (0 when unknown). `/FT`, `/Ff`, and `/V` honor field-tree inheritance through the `/Parent` chain (ISO 32000-1 §12.7.3.1); merged field+widget dictionaries and multi-widget radio groups each yield one entry. Page attribution resolves through a per-call page-annotation map with a `/P` back-reference fallback. The walk is bounded by the package's standard depth cap and visited-set cycle guard; encrypted documents work transparently. Returns `(nil, nil)` for PDFs without `/AcroForm`. Safe for concurrent use with per-call transient state only.
+
+- **`Reader.Attachments()` — embedded-file listing** — `Reader.Attachments() ([]Attachment, error)` returns all files embedded at the document level via the `/Names /EmbeddedFiles` name tree, in tree order. Each `Attachment` reports the filename (`/UF` preferred, `/F` fallback, then the name-tree key, with PDFDocEncoding/UTF-16BE decoding), the MIME type (`/Subtype` of the embedded stream, with `#XX` name escapes decoded), the declared uncompressed size (`/Params /Size`, 0 if absent), and a `Data()` thunk returning a fresh decoded (decompressed, decrypted) `io.ReadCloser` per call. Filespec entries without an embedded stream (external file references) are skipped. The tree walk carries the same depth cap and cycle guard as the named-destination walker. Returns `(nil, nil)` for documents with no embedded files. Page-level `/FileAttachment` annotations are out of scope for this release.
+
 ## v0.6.12 — 2026-06-07
 
 ### Added
