@@ -13,16 +13,31 @@ import (
 // plainTextState holds mutable state for the GetPlainText Interpret callback.
 type plainTextState struct {
 	enc       TextEncoding
+	encSource encSource      // decode-path tag for enc (set with enc on Tf)
+	counters  decodeCounters // per-decode-path glyph counts for this run
 	fonts     map[string]*Font
 	buf       bytes.Buffer
 	resources Value
 	depth     int
 }
 
+// showEncoded decodes a genuine content show-string, records it against the
+// decode-path counters, and writes its runes. Interpreter-synthesised separators
+// must use writeSeparator so the counters match the content sink.
 func (s *plainTextState) showEncoded(str string) {
-	for _, ch := range s.enc.Decode(str) {
-		_, err := s.buf.WriteRune(ch)
-		if err != nil {
+	decoded := s.enc.Decode(str)
+	s.counters.record(s.encSource, decoded)
+	s.writeDecoded(decoded)
+}
+
+// writeSeparator writes the T* newline without counting it (layout, not content;
+// the content sink emits no such separator, so counting it would make the two
+// sinks' decode-path counters disagree).
+func (s *plainTextState) writeSeparator(sep string) { s.writeDecoded(s.enc.Decode(sep)) }
+
+func (s *plainTextState) writeDecoded(decoded string) {
+	for _, ch := range decoded {
+		if _, err := s.buf.WriteRune(ch); err != nil {
 			panic(err)
 		}
 	}
@@ -33,10 +48,11 @@ func (s *plainTextState) handlePlainTf(args []Value) {
 		panic("bad TL")
 	}
 	if font, ok := s.fonts[args[0].Name()]; ok {
-		s.enc = font.cachedEncoder()
+		s.enc, s.encSource = font.cachedEncoder()
 	} else {
 		s.resources.warn(WarningMissingGlyphMapping, "font resource "+clampDetail(args[0].Name())+" not found in page resources")
 		s.enc = &nopEncoder{}
+		s.encSource = encSourceUnset
 	}
 }
 
@@ -54,7 +70,7 @@ func (s *plainTextState) handlePlainShow(op string, args []Value) {
 	switch op {
 	case "BT":
 	case "T*":
-		s.showEncoded("\n")
+		s.writeSeparator("\n")
 	case "\"":
 		if len(args) != 3 {
 			panic("bad \" operator")
@@ -89,11 +105,23 @@ func (s *plainTextState) handlePlainDo(args []Value) {
 	sub := &plainTextState{enc: &nopEncoder{}, resources: xobjRes, depth: s.depth + 1}
 	sub.fonts = make(map[string]*Font)
 	for _, fn := range xobjRes.Key("Font").Keys() {
-		f := Font{xobjRes.Key("Font").Key(fn), nil}
+		f := Font{V: xobjRes.Key("Font").Key(fn)}
 		sub.fonts[fn] = &f
 	}
+	// Merge the sub-state's decode counts even if the form panics mid-stream, so
+	// the glyphs it decoded before a malformed operator are not lost — that is
+	// exactly the degraded-input evidence the counters exist to surface (mirrors
+	// imageScanState.interpretXObject). The recover()==nil normal path falls
+	// through to the single explicit merge below, so counts are never doubled.
+	defer func() {
+		if rec := recover(); rec != nil {
+			s.counters.merge(sub.counters)
+			panic(rec)
+		}
+	}()
 	Interpret(xobj, sub.interpretPlain)
 	s.buf.WriteString(sub.buf.String())
+	s.counters.merge(sub.counters)
 }
 
 func (s *plainTextState) interpretPlain(stk *Stack, op string) {
@@ -120,15 +148,33 @@ func (s *plainTextState) interpretPlain(stk *Stack, op string) {
 // passed-in map is treated read-only: its Font values are copied internally
 // before encoders are cached, so the same map is safe to share across calls.
 func (p Page) GetPlainText(fonts map[string]*Font) (result string, err error) {
+	result, _, err = p.plainTextAndCounters(fonts)
+	return result, err
+}
+
+// plainTextAndCounters runs the plain-text interpreter once, returning both the
+// extracted text and the per-decode-path counters accumulated at the showEncoded
+// sink. GetPlainText wraps it (text only); decodeCountersFromPlainText wraps it
+// (counters only). Sharing one pass keeps the two surfaces byte-consistent.
+func (p Page) plainTextAndCounters(fonts map[string]*Font) (result string, counters decodeCounters, err error) {
+	var s *plainTextState
 	defer func() {
 		if r := recover(); r != nil {
+			// GetPlainText's contract returns "" text on a panic, but the decode
+			// counters keep whatever was tallied before it (including a panicking
+			// Form's pre-panic glyphs, merged by handlePlainDo) so the content and
+			// plain-text sinks stay consistent on degraded input instead of one
+			// zeroing while the other keeps a partial count.
 			result = ""
+			if s != nil {
+				counters = s.counters
+			}
 			err = errors.New(fmt.Sprint(r))
 		}
 	}()
 
 	if p.V.IsNull() || p.V.Key("Contents").Kind() == Null {
-		return "", nil
+		return "", decodeCounters{}, nil
 	}
 	// Build a local map of fresh *Font so cachedEncoder memoizes on our own
 	// copies; never write to a caller-supplied map, which may be shared across
@@ -145,7 +191,16 @@ func (p Page) GetPlainText(fonts map[string]*Font) (result string, err error) {
 			local[name] = &cp
 		}
 	}
-	s := &plainTextState{enc: &nopEncoder{}, fonts: local, resources: p.Resources()}
+	s = &plainTextState{enc: &nopEncoder{}, fonts: local, resources: p.Resources()}
 	Interpret(p.V.Key("Contents"), s.interpretPlain)
-	return s.buf.String(), nil
+	return s.buf.String(), s.counters, nil
+}
+
+// decodeCountersFromPlainText runs the plain-text interpreter (the GetPlainText
+// sink) and returns its per-decode-path counters. Internal: the plain-text half
+// of the cross-sink agreement check and the canonical source for the per-page
+// extraction ratios (it shares classifyPageSignal's strict text authority).
+func (p Page) decodeCountersFromPlainText() (decodeCounters, error) {
+	_, counters, err := p.plainTextAndCounters(nil)
+	return counters, err
 }

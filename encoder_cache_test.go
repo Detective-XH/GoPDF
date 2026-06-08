@@ -35,11 +35,15 @@ func TestCachedEncoderParsesOnce(t *testing.T) {
 	}
 	// Non-vacuity guard: uncached parsing yields DISTINCT instances (not a
 	// singleton), else the assertion below would be trivially true.
-	if f.getEncoder() == f.getEncoder() {
+	g1, _ := f.getEncoder()
+	g2, _ := f.getEncoder()
+	if g1 == g2 {
 		t.Skip("font uses a singleton encoder; caching test would be vacuous")
 	}
 	// The fix: repeated cachedEncoder() returns the SAME instance.
-	if f.cachedEncoder() != f.cachedEncoder() {
+	c1, _ := f.cachedEncoder()
+	c2, _ := f.cachedEncoder()
+	if c1 != c2 {
 		t.Fatal("cachedEncoder() re-parsed the CMap; cache ineffective")
 	}
 }

@@ -4,13 +4,17 @@
 
 package pdf
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+)
 
 // A Font represent a font in a PDF file.
 // The methods interpret a Font dictionary stored in V.
 type Font struct {
-	V   Value
-	enc TextEncoding
+	V         Value
+	enc       TextEncoding
+	encSource encSource // decode-path tag classified alongside enc; valid once enc != nil
 }
 
 // BaseFont returns the font's name (BaseFont property).
@@ -55,28 +59,33 @@ func (f Font) Width(code int) float64 {
 // interpreter) must use cachedEncoder instead.
 func (f Font) Encoder() TextEncoding {
 	if f.enc == nil {
-		f.enc = f.getEncoder()
+		f.enc, _ = f.getEncoder() // value receiver: the source tag cannot persist, so discard it
 	}
 	return f.enc
 }
 
-// cachedEncoder returns f's TextEncoding, parsing it once and memoizing it on
-// f.enc. The pointer receiver is essential: it lets the cache persist across
-// calls, so a font's ToUnicode CMap is parsed once instead of on every Tf
-// operator. Callers that hold a *Font (the per-page font maps, the content
-// interpreter's font cache) must use this, not the value-receiver Encoder.
-func (f *Font) cachedEncoder() TextEncoding {
+// cachedEncoder returns f's TextEncoding and its decode-path source, parsing
+// them once and memoizing on f.enc / f.encSource. The pointer receiver is
+// essential: it lets the cache persist across calls, so a font's ToUnicode CMap
+// is parsed once instead of on every Tf operator. Callers that hold a *Font (the
+// per-page font maps, the content interpreter's font cache) must use this, not
+// the value-receiver Encoder.
+func (f *Font) cachedEncoder() (TextEncoding, encSource) {
 	if f.enc == nil {
-		f.enc = f.getEncoder()
+		f.enc, f.encSource = f.getEncoder()
 	}
-	return f.enc
+	return f.enc, f.encSource
 }
 
-func (f Font) getEncoder() TextEncoding {
+// getEncoder selects the font's TextEncoding and reports the decode-path source
+// it came from (so decoded glyphs can be attributed without extending the
+// TextEncoding interface). The source mirrors the diagnostic emitted at each
+// branch 1:1.
+func (f Font) getEncoder() (TextEncoding, encSource) {
 	toUnicode := f.V.Key("ToUnicode")
 	if toUnicode.Kind() == Stream {
 		if m := readCmap(toUnicode); m != nil {
-			return m
+			return m, encSourceToUnicode
 		}
 		if DebugOn {
 			println("ToUnicode stream failed to parse, falling back to Encoding")
@@ -93,36 +102,42 @@ func (f Font) getEncoder() TextEncoding {
 			f.V.warn(WarningMissingGlyphMapping,
 				fontRef(f)+": "+strconv.Itoa(unknown)+" unmappable glyph entries in /Differences")
 		}
-		return d
+		return d, encSourceDict
 	case Null:
-		return &byteEncoder{&pdfDocEncoding}
+		return &byteEncoder{&pdfDocEncoding}, encSourceSimple
 	default:
 		if DebugOn {
 			println("unexpected encoding", enc.String())
 		}
 		f.V.warn(WarningUnsupportedEncoding, fontRef(f)+": unexpected /Encoding kind")
-		return &byteEncoder{&pdfDocEncoding}
+		return &byteEncoder{&pdfDocEncoding}, encSourceUnsupported
 	}
 }
 
-// namedEncoder resolves a named /Encoding via encoderForCMapName and emits
-// the matching diagnostic. Reached only when the font has no usable
-// ToUnicode (getEncoder returns early on a parsed ToUnicode CMap), which is
-// why an Identity CMap here means the missing-ToUnicode case. Split from
-// getEncoder to keep both under the gocyclo threshold.
-func (f Font) namedEncoder(n string) TextEncoding {
+// namedEncoder resolves a named /Encoding via encoderForCMapName, emits the
+// matching diagnostic, and reports the decode-path source. Reached only when the
+// font has no usable ToUnicode (getEncoder returns early on a parsed ToUnicode
+// CMap), which is why an Identity CMap here means the missing-ToUnicode case.
+// The vertical writing-mode check is FIRST, before the Identity / unknown-name
+// early returns, so an Identity-V CMap is flagged too. Split from getEncoder to
+// keep both under the gocyclo threshold.
+func (f Font) namedEncoder(n string) (TextEncoding, encSource) {
+	if strings.HasSuffix(n, "-V") {
+		f.V.warn(WarningVerticalWritingMode, fontRef(f)+": vertical writing-mode CMap "+clampDetail(n))
+	}
 	e := encoderForCMapName(n)
 	if n == "Identity-H" || n == "Identity-V" {
 		f.V.warn(WarningMissingToUnicode, fontRef(f)+": Identity CMap without usable ToUnicode")
-		return e
+		return e, encSourceMissingToUnicode
 	}
 	if _, known := cmapEncoderTable[n]; !known {
 		f.V.warn(WarningUnsupportedEncoding, fontRef(f)+": unknown encoding "+clampDetail(n))
-		return e
+		return e, encSourceUnsupported
 	}
 	switch e.(type) {
 	case *multibyteCMapEncoder, *ucs2BEEncoder:
 		f.V.warn(WarningFallbackEncoding, fontRef(f)+": predefined CMap "+n+" decoded via charset approximation")
+		return e, encSourceFallback
 	}
-	return e
+	return e, encSourceSimple
 }

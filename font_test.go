@@ -96,7 +96,7 @@ func TestFontGetEncoderToUnicode(t *testing.T) {
 	}
 	font := Font{V: Value{r, objptr{}, fontDict}}
 
-	enc := font.getEncoder()
+	enc, _ := font.getEncoder()
 	if enc == nil {
 		t.Fatal("getEncoder returned nil; expected a cmap encoder")
 	}
@@ -120,7 +120,7 @@ func TestFontGetEncoderDictEncoding(t *testing.T) {
 	}
 	font := fontTestFontValue(r, fontDict)
 
-	enc := font.getEncoder()
+	enc, _ := font.getEncoder()
 	if enc == nil {
 		t.Fatal("getEncoder returned nil; expected WinAnsiEncoding encoder")
 	}
@@ -146,7 +146,7 @@ func TestFontGetEncoderDictEncodingDict(t *testing.T) {
 	}
 	font := fontTestFontValue(r, fontDict)
 
-	enc := font.getEncoder()
+	enc, _ := font.getEncoder()
 	if enc == nil {
 		t.Fatal("getEncoder returned nil; expected a dict encoder")
 	}
@@ -168,7 +168,7 @@ func TestFontGetEncoderFallback(t *testing.T) {
 	fontDict := dict{}
 	font := fontTestFontValue(r, fontDict)
 
-	enc := font.getEncoder()
+	enc, _ := font.getEncoder()
 	if enc == nil {
 		t.Fatal("getEncoder returned nil; expected pdfDocEncoding fallback")
 	}
@@ -190,7 +190,7 @@ func TestFontGetEncoderFallbackUnknownName(t *testing.T) {
 	}
 	font := fontTestFontValue(r, fontDict)
 
-	enc := font.getEncoder()
+	enc, _ := font.getEncoder()
 	if enc == nil {
 		t.Fatal("getEncoder returned nil for unknown encoding name")
 	}
@@ -225,7 +225,7 @@ func TestFontGetEncoderToUnicodeFailedParse(t *testing.T) {
 	}
 	font := Font{V: Value{r, objptr{}, fontDict}}
 
-	enc := font.getEncoder()
+	enc, _ := font.getEncoder()
 	if enc == nil {
 		t.Fatal("getEncoder returned nil after failed ToUnicode parse")
 	}
@@ -247,7 +247,7 @@ func TestFontGetEncoderUnexpectedEncodingKind(t *testing.T) {
 	}
 	font := fontTestFontValue(r, fontDict)
 
-	enc := font.getEncoder()
+	enc, _ := font.getEncoder()
 	if enc == nil {
 		t.Fatal("getEncoder returned nil for unexpected Encoding kind")
 	}
@@ -382,7 +382,7 @@ func TestFontGetEncoderDebugToUnicodeFailedParse(t *testing.T) {
 	}
 	font := Font{V: Value{r, objptr{}, fontDict}}
 
-	enc := font.getEncoder()
+	enc, _ := font.getEncoder()
 	if enc == nil {
 		t.Fatal("getEncoder returned nil after failed ToUnicode parse with DebugOn=true")
 	}
@@ -408,7 +408,7 @@ func TestFontGetEncoderDebugUnexpectedKind(t *testing.T) {
 	}
 	font := fontTestFontValue(r, fontDict)
 
-	enc := font.getEncoder()
+	enc, _ := font.getEncoder()
 	if enc == nil {
 		t.Fatal("getEncoder returned nil for unexpected Encoding kind with DebugOn=true")
 	}

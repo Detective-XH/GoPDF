@@ -33,7 +33,7 @@ func (s *walkState) handleWalkFont(op string, args []Value) {
 			panic("bad TL")
 		}
 		if font, ok := s.fonts[args[0].Name()]; ok {
-			s.enc = font.cachedEncoder()
+			s.enc, _ = font.cachedEncoder() // legacy column/row path: no decode-path counting
 		} else {
 			s.resources.warn(WarningMissingGlyphMapping, "font resource "+clampDetail(args[0].Name())+" not found in page resources")
 			s.enc = &nopEncoder{}
@@ -121,7 +121,7 @@ func (s *walkState) handleWalkXObject(args []Value) {
 	sub := &walkState{enc: &nopEncoder{}, resources: xobjRes, depth: s.depth + 1, walker: s.walker}
 	sub.fonts = make(map[string]*Font)
 	for _, fn := range xobjRes.Key("Font").Keys() {
-		f := Font{xobjRes.Key("Font").Key(fn), nil}
+		f := Font{V: xobjRes.Key("Font").Key(fn)}
 		sub.fonts[fn] = &f
 	}
 	Interpret(xobj, sub.interpretWalk)

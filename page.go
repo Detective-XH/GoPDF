@@ -227,5 +227,5 @@ func (p Page) Fonts() []string {
 
 // Font returns the font with the given name associated with the page.
 func (p Page) Font(name string) Font {
-	return Font{p.Resources().Key("Font").Key(name), nil}
+	return Font{V: p.Resources().Key("Font").Key(name)}
 }

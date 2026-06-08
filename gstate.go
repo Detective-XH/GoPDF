@@ -38,6 +38,10 @@ type gstate struct {
 	// Q restore Tf while leaving enc pointing at the inner block's font, so text
 	// shown after a Q would decode through the wrong encoder.
 	enc TextEncoding
+	// encSource is enc's decode-path classification, paired with enc so q/Q
+	// save and restore it together (a font set inside q…Q must not leak its
+	// classification past the Q that restores the outer font).
+	encSource encSource
 }
 
 // xobjMaxDepth caps Form XObject recursion to guard against malformed PDFs
