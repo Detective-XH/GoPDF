@@ -157,6 +157,18 @@ func TestEncryptValidateKeyLength(t *testing.T) {
 	if err == nil {
 		t.Error("length 3: want error, got nil")
 	}
+
+	// /Length 32 (8-aligned but below minimum 40) → error; isolates the n<40 branch
+	_, err = validateKeyLength(dict{name("Length"): int64(32)})
+	if err == nil {
+		t.Error("length 32: want error, got nil")
+	}
+
+	// /Length 136 (8-aligned but above maximum 128) → error; isolates the n>128 branch
+	_, err = validateKeyLength(dict{name("Length"): int64(136)})
+	if err == nil {
+		t.Error("length 136: want error, got nil")
+	}
 }
 
 // --- extractTrailerID --------------------------------------------------------
