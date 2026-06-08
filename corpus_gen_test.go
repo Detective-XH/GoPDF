@@ -26,6 +26,14 @@ func TestCorpusRegenerate(t *testing.T) {
 		{"plaintext/hello-ascii.pdf", buildTextPDF("BT /F1 12 Tf (Hello, Corpus.) Tj ET")},
 		{"styled/multifont.pdf", buildStyledCorpusPDF()},
 		{"bench/synthetic-multipage.pdf", buildBenchCorpusPDF()},
+		// Extraction-readiness signal fixtures (consumers: quality score, image/scanned classifier).
+		{"signals/image-full-bleed.pdf", buildImageFullBleedPDF()},
+		{"signals/image-thumbnail.pdf", buildImageThumbnailPDF()},
+		{"signals/image-thumbnail-text.pdf", buildImageThumbnailTextPDF()},
+		{"signals/text-artifact-only.pdf", buildArtifactOnlyPDF()},
+		{"signals/malformed-unclosed-bt.pdf", buildMalformedUnclosedBTPDF()},
+		{"signals/malformed-mismatched-qq.pdf", buildMalformedMismatchedQQPDF()},
+		{"signals/malformed-truncated.pdf", buildMalformedTruncatedPDF()},
 	}
 	for _, e := range synth {
 		p := corpusPath(e.rel)
@@ -139,4 +147,79 @@ func buildBenchCorpusPDF() []byte {
 	objs = append(objs, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
 
 	return buildPDFFromObjects(objs)
+}
+
+// --- Extraction-readiness signal fixtures -----------------------------------
+// All byte-deterministic (no time, no map iteration). q…Q isolates each image's
+// scaling CTM from the text matrix. imageStream (images_test.go) is a never-decoded
+// stub (/Length 0); the /Filter name is metadata only — no image stream is opened.
+
+// buildImageFullBleedPDF builds a one-page fixture whose only content is a single
+// image scaled to fill the MediaBox, with no text. Coverage ratio (image bbox /
+// page area) ≈ 1.0 — the full-bleed scan signal for the image/scanned classifier.
+func buildImageFullBleedPDF() []byte {
+	content := "q 612 0 0 792 0 0 cm /Img0 Do Q"
+	return buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R" +
+			" /Resources << /XObject << /Img0 5 0 R >> >> >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content),
+		imageStream(1200, 1600, "DCTDecode"),
+	})
+}
+
+// buildImageThumbnailPDF builds a one-page fixture with a 60x60 image and no text.
+// Coverage ratio 3600/484704 ≈ 0.0074 — same v1 signal as full-bleed today (locks
+// the thumbnail-vs-full-bleed gap the classifier closes).
+func buildImageThumbnailPDF() []byte {
+	content := "q 60 0 0 60 0 0 cm /Img0 Do Q"
+	return buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R" +
+			" /Resources << /XObject << /Img0 5 0 R >> >> >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content),
+		imageStream(64, 64, "DCTDecode"),
+	})
+}
+
+// buildImageThumbnailTextPDF builds a one-page fixture with BOTH a small image and
+// a body-text run. Resources carries /Font AND /XObject (template: page_test.go's
+// TestGetPlainTextXObjectNestedFont). Mixed page — must NOT be classified image-only.
+func buildImageThumbnailTextPDF() []byte {
+	content := "q 60 0 0 60 0 0 cm /Img0 Do Q BT /F1 12 Tf 72 700 Td (body text run) Tj ET"
+	return buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R" +
+			" /Resources << /Font << /F1 5 0 R >> /XObject << /Img0 6 0 R >> >> >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+		imageStream(64, 64, "DCTDecode"),
+	})
+}
+
+// buildArtifactOnlyPDF builds a one-page fixture whose only text is a page-number-like
+// token at the bottom extremity (Td 300 24). v1 reports HasText=true (the sparse-text
+// false-negative the classifier closes). Feeds the classifier's "short tokens at page extremities".
+func buildArtifactOnlyPDF() []byte {
+	return buildTextPDF("BT /F1 8 Tf 300 24 Td (12) Tj ET")
+}
+
+// buildMalformedUnclosedBTPDF builds a fixture whose content opens BT but never
+// closes it with ET.
+func buildMalformedUnclosedBTPDF() []byte {
+	return buildTextPDF("BT /F1 12 Tf (alpha beta) Tj")
+}
+
+// buildMalformedMismatchedQQPDF builds a fixture with more Q than q (excess restores).
+func buildMalformedMismatchedQQPDF() []byte {
+	return buildTextPDF("q BT /F1 12 Tf (gamma) Tj ET Q Q Q")
+}
+
+// buildMalformedTruncatedPDF builds a fixture with content-level truncation — TJ with
+// no array operand (NOT file/xref truncation; that surface is TestRedteamP2TruncatedXref).
+func buildMalformedTruncatedPDF() []byte {
+	return buildTextPDF("BT /F1 12 Tf (delta) Tj TJ")
 }

@@ -63,3 +63,27 @@ fallback-encoding work.
 - `tables/` and `multicolumn/` are the accuracy and false-positive surfaces for the
   table-detection spike; `hard/` holds negative fixtures (no goldens) that document
   current extraction gaps for future fallback-encoding work.
+
+## Synthetic extraction-signal fixtures (`signals/`)
+
+Byte-exact synthetic fixtures (added by `TestCorpusRegenerate -update`) feeding the
+v0.8 extraction-readiness signals — the extraction quality score and the image/scanned
+page classifier. They are **not** real documents and carry no provenance/license
+obligations. Image streams are never-decoded `/Length 0` stubs. The signal each fixture
+locks today is asserted by `TestCorpusSignalFixtures` (and `TestCorpusNoGoldenFixtures`
+for the no-golden entries) in `../../corpus_signals_test.go`.
+
+| File | Type | Locked signal today | Golden | Consumer |
+|------|------|---------------------|--------|----------|
+| `signals/image-full-bleed.pdf` | image-only, coverage ~1.0 | HasText=false, ImageCount=1, image_only warning | — | classifier |
+| `signals/image-thumbnail.pdf` | image-only, coverage ~0.0074 | same as full-bleed (v1 cannot distinguish) | — | classifier |
+| `signals/image-thumbnail-text.pdf` | mixed image + text | HasText=true, ImageCount=1, no warning | `body text run` | classifier / quality score |
+| `signals/text-artifact-only.pdf` | sparse text (page number at extremity) | HasText=true (v1 sparse-text gap), ImageCount=0 | `12` | classifier / quality score |
+| `signals/malformed-unclosed-bt.pdf` | malformed: BT without ET | tolerated, deterministic partial text, no panic | `alpha beta` | quality score |
+| `signals/malformed-mismatched-qq.pdf` | malformed: excess Q | tolerated, deterministic text, no panic | `gamma` | quality score |
+| `signals/malformed-truncated.pdf` | malformed: TJ without array (empty-TJ, not a byte-level cut) | GetPlainText errors; ExtractionSummary recovers to HasText=true (silent-ok gap); no panic | — | quality score |
+
+The `malformed-truncated` entry deliberately records a divergence: `GetPlainText`
+surfaces the panic as an error (so it is no-golden), while `ExtractionSummary` reports
+a clean-looking `HasText=true` from the partial `delta` run. That silent-ok gap is the
+behavior the quality-score work must reconcile; this slice locks it as the current truth.
