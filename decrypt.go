@@ -30,6 +30,10 @@ func cryptKey(key []byte, mode cipherMode, ptr objptr) []byte {
 // decryptAES decrypts an AES-CBC payload: data = [BlockSize IV] || [PKCS7-padded ciphertext].
 // Modifies data in-place. Returns nil on any validation or cipher error.
 func decryptAES(key, data []byte) []byte {
+	kl := len(key)
+	if kl != 16 && kl != 24 && kl != 32 {
+		return nil
+	}
 	if len(data) < aes.BlockSize || (len(data)-aes.BlockSize)%aes.BlockSize != 0 {
 		return nil
 	}
