@@ -185,6 +185,62 @@ var corpusManifest = []corpusEntry{
 		// byte-level cut-off stream — slice-1 ships no genuinely-truncated fixture.
 		Purpose: "Malformed operator (TJ w/o array); GetPlainText errors, ExtractionSummary recovers (silent-ok gap), no panic",
 	},
+	// Fallback decode-path fixtures (consumer: the fallback encoding framework).
+	// One per no-/ToUnicode decode-path class. Golden cells reflect the EMPIRICAL
+	// classification (probe run at implementation): all six extract deterministic
+	// text and are byte-locked; the document-scoped warning each fires is asserted
+	// by TestCorpusDecodePathFixtures (corpus_decodepath_test.go).
+	{
+		Path: "encoding/predefined-identity.pdf", Golden: "encoding/predefined-identity.golden.txt",
+		Synthetic: true, Compare: compareExact, Feature: "signal-decode-path",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Predefined CMap (/Identity-H) without ToUnicode → missing_tounicode",
+	},
+	{
+		Path: "encoding/charset-shiftjis.pdf", Golden: "encoding/charset-shiftjis.golden.txt",
+		Synthetic: true, Compare: compareExact, Feature: "signal-decode-path",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Shift-JIS charset fallback (/90ms-RKSJ-H) → fallback_encoding",
+	},
+	{
+		Path: "encoding/ucs2-be.pdf", Golden: "encoding/ucs2-be.golden.txt",
+		Synthetic: true, Compare: compareExact, Feature: "signal-decode-path",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "UCS-2 BE predefined CMap (/UniGB-UCS2-H) → fallback_encoding",
+	},
+	{
+		Path: "encoding/differences-partial.pdf", Golden: "encoding/differences-partial.golden.txt",
+		Synthetic: true, Compare: compareExact, Feature: "signal-decode-path",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Encoding dict /Differences with an unmappable glyph name → missing_glyph_mapping",
+	},
+	{
+		Path: "encoding/unknown-name.pdf", Golden: "encoding/unknown-name.golden.txt",
+		Synthetic: true, Compare: compareExact, Feature: "signal-decode-path",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Unknown /Encoding name → unsupported_encoding (pdfDoc fallback)",
+	},
+	{
+		Path: "encoding/unmapped-glyph.pdf", Golden: "encoding/unmapped-glyph.golden.txt",
+		Synthetic: true, Compare: compareExact, Feature: "signal-decode-path",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "ToUnicode CMap under-covering its codespace → U+FFFD in output (silent today)",
+	},
+	// Rotated + vertical warning fixtures (no golden; warning-level only). Consumer:
+	// fallback-encoding risk warnings; also the fixture half of the rotated/vertical
+	// geometry gate.
+	{
+		Path: "geometry/rotated-90.pdf", Golden: "",
+		Synthetic: true, Compare: compareExact, Feature: "signal-geometry",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "90°-rotated Tm run (FontSize=Trm[0][0]=0); looks healthy today (no rotation warning)",
+	},
+	{
+		Path: "geometry/vertical-cmap.pdf", Golden: "",
+		Synthetic: true, Compare: compareExact, Feature: "signal-geometry",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Vertical -V CMap (/UniJIS-UCS2-V); WMode unread, no vertical warning today",
+	},
 }
 
 func corpusPath(rel string) string { return filepath.Join(corpusRoot, filepath.FromSlash(rel)) }
@@ -383,16 +439,10 @@ func assertNoGoldenGap(t *testing.T, e corpusEntry, r *Reader) {
 		if e.Feature == "hard-pdf" {
 			t.Fatalf("%s: hard-pdf entry without an anchored gap assertion — add one here", e.Path)
 		}
-		// signals/ no-golden fixtures (image-only, panic-recovered streams)
-		// are anchored via the shared signalExpectations map so they cannot
-		// pass vacuously; reclassifying one needs no edit here.
-		if strings.HasPrefix(e.Path, "signals/") {
-			exp, ok := signalExpectations[e.Path]
-			if !ok {
-				t.Fatalf("%s: signals/ no-golden fixture without a signalExpectations entry", e.Path)
-			}
-			assertPageSignal(t, r, exp)
-		}
+		// signals/ (slice 1) and geometry/ (slice 2) no-golden fixtures are
+		// anchored via their shared expectations maps so they cannot pass
+		// vacuously; reclassifying one needs no edit here. See anchorNoGoldenSignal.
+		anchorNoGoldenSignal(t, e, r)
 	}
 }
 

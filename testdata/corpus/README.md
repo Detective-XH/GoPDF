@@ -87,3 +87,34 @@ The `malformed-truncated` entry deliberately records a divergence: `GetPlainText
 surfaces the panic as an error (so it is no-golden), while `ExtractionSummary` reports
 a clean-looking `HasText=true` from the partial `delta` run. That silent-ok gap is the
 behavior the quality-score work must reconcile; this slice locks it as the current truth.
+
+## Synthetic decode-path + geometry fixtures (`encoding/`, `geometry/`)
+
+Byte-exact synthetic fixtures (added by `TestCorpusRegenerate -update`) feeding the
+v0.8 fallback encoding framework. Each `encoding/` fixture omits a usable
+`/ToUnicode` so the extractor takes exactly one decode-path class; the `geometry/`
+fixtures exercise rotated and vertical text. They are **not** real documents and carry
+no provenance/license obligations. The page signal and the **document-scoped** encoder
+warning each fixture fires today are asserted by `TestCorpusDecodePathFixtures` (and,
+for the no-golden `geometry/` entries, `TestCorpusNoGoldenFixtures`) in
+`../../corpus_decodepath_test.go`. Encoder-selection warnings are document-scoped, so
+they appear in `DocumentSummary().Warnings` / `Reader.Warnings()`, not in
+`PageExtractionSummary.Warnings`.
+
+| File | Decode path / geometry | Locked signal today | Golden |
+|------|------------------------|---------------------|--------|
+| `encoding/predefined-identity.pdf` | predefined CMap (`/Identity-H`) | text + `missing_tounicode` | `identity` |
+| `encoding/charset-shiftjis.pdf` | charset fallback (Shift-JIS) | text + `fallback_encoding` | `あ` |
+| `encoding/ucs2-be.pdf` | UCS-2 BE (`/UniGB-UCS2-H`) | text + `fallback_encoding` | `中` |
+| `encoding/differences-partial.pdf` | dict `/Differences` (1 lost) | text + `missing_glyph_mapping` | `differ` |
+| `encoding/unknown-name.pdf` | unknown name → pdfDoc | text + `unsupported_encoding` | `unknown` |
+| `encoding/unmapped-glyph.pdf` | ToUnicode under-coverage | text, U+FFFD in output (silent) | `A` + U+FFFD |
+| `geometry/rotated-90.pdf` | 90°-rotated Tm | text, no rotation warning | — |
+| `geometry/vertical-cmap.pdf` | vertical `-V` CMap | text + `fallback_encoding`, no vertical warning | — |
+
+The `geometry/` fixtures are warning-level only (no extraction golden): they lock that
+a rotated or vertical page looks healthy today (`text` signal; FontSize collapses to
+`Trm[0][0]=0` for the 90° run, and the `-V` CMap's WMode is unread). The fallback
+encoding framework adds the rotated-text / vertical-writing-mode risk warnings these
+fixtures will then trigger; they also satisfy the fixture half of the rotated/vertical
+geometry gate.
