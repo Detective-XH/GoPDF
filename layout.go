@@ -108,7 +108,10 @@ func (p Page) GetTextByColumn() (Columns, error) {
 		sort.Stable(column.Content)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
+	// Columns have unique Position values: showText appends a new *Column only when
+	// no existing column matches int64(currentX), so this ordering is already total.
+	// SliceStable keeps it deterministic if that dedup invariant ever changes.
+	sort.SliceStable(result, func(i, j int) bool {
 		return result[i].Position < result[j].Position
 	})
 
@@ -179,7 +182,9 @@ func (p Page) GetTextByRow() (Rows, error) {
 		sort.Stable(row.Content)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
+	// Rows have unique Position values (int64(currentY)); see GetTextByColumn.
+	// SliceStable keeps the ordering deterministic under future invariant changes.
+	sort.SliceStable(result, func(i, j int) bool {
 		return result[i].Position > result[j].Position
 	})
 
