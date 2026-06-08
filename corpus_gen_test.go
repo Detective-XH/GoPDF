@@ -31,6 +31,7 @@ func TestCorpusRegenerate(t *testing.T) {
 		{"signals/image-thumbnail.pdf", buildImageThumbnailPDF()},
 		{"signals/image-thumbnail-text.pdf", buildImageThumbnailTextPDF()},
 		{"signals/text-artifact-only.pdf", buildArtifactOnlyPDF()},
+		{"signals/text-numeric-center.pdf", buildNumericCenterPDF()},
 		{"signals/malformed-unclosed-bt.pdf", buildMalformedUnclosedBTPDF()},
 		{"signals/malformed-mismatched-qq.pdf", buildMalformedMismatchedQQPDF()},
 		{"signals/malformed-truncated.pdf", buildMalformedTruncatedPDF()},
@@ -216,6 +217,14 @@ func buildImageThumbnailTextPDF() []byte {
 // false-negative the classifier closes). Feeds the classifier's "short tokens at page extremities".
 func buildArtifactOnlyPDF() []byte {
 	return buildTextPDF("BT /F1 8 Tf 300 24 Td (12) Tj ET")
+}
+
+// buildNumericCenterPDF builds a one-page fixture whose only text is the same
+// page-number-like token as buildArtifactOnlyPDF but drawn at the page CENTRE
+// (Td 300 400), not the margin. Same token, different position: it proves the
+// sparse-text margin band is load-bearing — this page must NOT fire WarningSparseText.
+func buildNumericCenterPDF() []byte {
+	return buildTextPDF("BT /F1 8 Tf 300 400 Td (12) Tj ET")
 }
 
 // buildMalformedUnclosedBTPDF builds a fixture whose content opens BT but never

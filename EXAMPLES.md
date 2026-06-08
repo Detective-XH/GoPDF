@@ -123,11 +123,19 @@ for pageNum, p := range r.Pages() {
 		fmt.Printf("page %d: extraction failed: %v\n", pageNum, err)
 		continue
 	}
-	fmt.Printf("page=%d hasText=%t words=%d images=%d warnings=%d\n",
+	fmt.Printf("page=%d hasText=%t words=%d images=%d coverage=%.2f warnings=%d\n",
 		summary.Page, summary.HasText, summary.WordCount,
-		summary.ImageCount, len(summary.Warnings))
+		summary.ImageCount, summary.ImageCoverage, len(summary.Warnings))
 }
 ```
+
+`summary.ImageCoverage` is the fraction of the page covered by drawn image
+bounding boxes (clamped to `[0,1]`): a value near `1.0` is a full-bleed scan
+(route to OCR), while a small value is an incidental thumbnail or logo. A
+text-bearing page whose entire text layer is page furniture — a page number or
+folio at the margin — records a `sparse_text` page-scoped warning so a scanned
+page with a stray page number is still routed to OCR rather than indexed as
+clean text.
 
 ## Routing signal
 
@@ -195,6 +203,11 @@ rotated, non-horizontal baseline — synthetic-italic shear is *not* flagged) an
 `vertical_writing_mode` (a vertical `-V` CMap whose advances are not honored). Both
 are document-scoped (`Page == 0`); `rotated_text` is observed only on the
 `Content`/`Words`/`Lines`/`Texts` path (the plain-text path tracks no geometry).
+
+Three page-scoped codes (`Page > 0`, emitted by `Page.ExtractionSummary`) route
+pages for OCR: `image_only_page` (images drawn, no extractable text),
+`sparse_text` (the only text is page furniture — a page number/folio at the
+margin), and `null_page_slot` (a null page-tree slot was skipped).
 
 ## Metadata
 

@@ -155,7 +155,8 @@ func TestImagesInlineImage(t *testing.T) {
 	if len(images) != 1 {
 		t.Fatalf("Images returned %d refs, want 1: %+v", len(images), images)
 	}
-	assertImageRef(t, images[0], ImageRef{X: 5, Y: 6, W: 10, H: 20})
+	// /W 1 /H 1 are now captured from the inline dict into DeclaredWidth/Height.
+	assertImageRef(t, images[0], ImageRef{X: 5, Y: 6, W: 10, H: 20, DeclaredWidth: 1, DeclaredHeight: 1})
 }
 
 func TestImagesInlineImagePayloadFalseEINotTerminator(t *testing.T) {
@@ -174,7 +175,7 @@ func TestImagesInlineImagePayloadFalseEINotTerminator(t *testing.T) {
 	if len(images) != 1 {
 		t.Fatalf("Images returned %d refs, want only the inline image: %+v", len(images), images)
 	}
-	assertImageRef(t, images[0], ImageRef{X: 0, Y: 0, W: 1, H: 1})
+	assertImageRef(t, images[0], ImageRef{X: 0, Y: 0, W: 1, H: 1, DeclaredWidth: 1, DeclaredHeight: 1})
 }
 
 func TestImagesInlineImageUnterminatedNotCounted(t *testing.T) {
@@ -315,4 +316,47 @@ func TestImagesAtMaxFormDepth(t *testing.T) {
 		X: 0, Y: 0, W: 1, H: 1,
 		Filter: "DCTDecode", DeclaredWidth: 10, DeclaredHeight: 20,
 	})
+}
+
+// inlineImages opens a one-page PDF whose content is an inline-image stream and
+// returns its drawn images. buildTextPDF wraps content in a page with a content
+// stream; inline images need no XObject resources.
+func inlineImages(t *testing.T, content string) []ImageRef {
+	t.Helper()
+	r := mustOpen(t, buildTextPDF(content))
+	imgs, err := r.Page(1).Images()
+	if err != nil {
+		t.Fatalf("Images(%q): %v", content, err)
+	}
+	return imgs
+}
+
+// TestImagesInlineImageDeclaredDims captures the inline-image /W and /H pixel
+// dimensions (abbreviated keys) into DeclaredWidth/DeclaredHeight.
+func TestImagesInlineImageDeclaredDims(t *testing.T) {
+	imgs := inlineImages(t, "q 30 0 0 20 0 0 cm BI /W 8 /H 4 /CS /G /BPC 8 ID xxxx EI Q")
+	if len(imgs) != 1 {
+		t.Fatalf("want 1 inline image, got %d: %+v", len(imgs), imgs)
+	}
+	if imgs[0].DeclaredWidth != 8 || imgs[0].DeclaredHeight != 4 {
+		t.Fatalf("inline dims: got %dx%d, want 8x4", imgs[0].DeclaredWidth, imgs[0].DeclaredHeight)
+	}
+}
+
+// TestImagesInlineImageLongFormDims accepts the spelled-out /Width /Height keys.
+func TestImagesInlineImageLongFormDims(t *testing.T) {
+	imgs := inlineImages(t, "BI /Width 5 /Height 7 ID a EI")
+	if len(imgs) != 1 || imgs[0].DeclaredWidth != 5 || imgs[0].DeclaredHeight != 7 {
+		t.Fatalf("long-form inline dims: %+v", imgs)
+	}
+}
+
+// TestImagesInlineImageBoolValueKeepsAlignment locks the case where a boolean
+// inline-dict value (/IM true) is a bool token, NOT a keyword, so it does not
+// drain the operand stack before EI - /W /H are still captured.
+func TestImagesInlineImageBoolValueKeepsAlignment(t *testing.T) {
+	imgs := inlineImages(t, "BI /W 6 /H 3 /IM true ID a EI")
+	if len(imgs) != 1 || imgs[0].DeclaredWidth != 6 || imgs[0].DeclaredHeight != 3 {
+		t.Fatalf("inline dims with bool value: %+v, want 6x3", imgs)
+	}
 }

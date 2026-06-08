@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Added
+
+- **Image-only / scanned-page classifier v2** — three new OCR-routing signals,
+  all without decoding image streams. `Page.ExtractionSummary()` now reports
+  `ImageCoverage`, the fraction of the page area covered by drawn image bounding
+  boxes (clamped to `[0,1]`): a value near `1.0` is a full-bleed scan, a small
+  value an incidental thumbnail or logo — the case the previous binary classifier
+  could not tell apart. A new page-scoped `sparse_text` warning flags a
+  text-bearing page whose entire text layer is page furniture (a few short
+  page-number-like tokens at the top or bottom margin), so a scan carrying only a
+  stray page number still routes to OCR instead of being indexed as clean text;
+  it recognises Unicode decimal digits, so fullwidth and Arabic-Indic page numbers
+  are caught while letters of any script (including a lone CJK glyph) are not.
+  Inline image (`BI`) `/W`/`/H` dimensions are now captured into
+  `ImageRef.DeclaredWidth`/`DeclaredHeight` (previously always zero for inline
+  images). The coverage signal is computed without retaining per-image data, so it
+  stays O(1) in memory even on documents that draw an image many times. The
+  `ExtractionSignal` enum is unchanged. EXAMPLES.md, API-STABILITY.md, and README
+  document the new field and warning.
+
+---
+
 ## v0.7.1 — 2026-06-08
 
 ### Added
