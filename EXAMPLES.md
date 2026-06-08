@@ -129,6 +129,49 @@ for pageNum, p := range r.Pages() {
 }
 ```
 
+## Routing signal
+
+`Reader.DocumentSummary()` and `Page.ExtractionSignal()` provide ingestion
+pipelines with deterministic routing decisions (index as-is / send to OCR /
+flag) without parsing logs. The page signal maps onto the usual
+fast / hi_res / ocr_only routing families: text-bearing pages index as-is
+(fast), image-only pages go to OCR (ocr_only), and empty or degraded pages are
+flagged for review.
+
+```go
+ds := r.DocumentSummary()
+fmt.Printf("total pages=%d text=%d image-only=%d empty=%d degraded=%d\n",
+	ds.TotalPages, ds.TextPages, ds.ImageOnlyPages,
+	ds.EmptyPages, ds.DegradedPages)
+
+for _, ps := range ds.Pages {
+	switch ps.Signal {
+	case pdf.SignalText:
+		fmt.Printf("page %d: fast/index as-is (%d images)\n", ps.Page, ps.ImageCount)
+	case pdf.SignalImageOnly:
+		fmt.Printf("page %d: ocr_only (no extractable text)\n", ps.Page)
+	case pdf.SignalDegraded, pdf.SignalEmpty:
+		fmt.Printf("page %d: flag for review (signal=%s)\n", ps.Page, ps.Signal)
+	default:
+		// Tolerate unknown values added in later releases.
+		fmt.Printf("page %d: unknown signal %q (flag for review)\n", ps.Page, ps.Signal)
+	}
+}
+```
+
+Per-page routing:
+
+```go
+p := r.Page(1)
+if p.ExtractionSignal() == pdf.SignalText {
+	fmt.Println("page 1 has extractable text: index as-is")
+}
+```
+
+Document-scoped confidence metadata: `ds.Warnings` carries font and encoding
+issues that reduce confidence. An ecosystem adapter would surface the page
+signal under the cross-tool `extraction_confidence` metadata key.
+
 ## Diagnostics
 
 Warnings are deterministic and deduplicated. They are intended for pipeline

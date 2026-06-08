@@ -29,6 +29,7 @@ reports deterministic diagnostics whenever extraction silently degrades.
 | Image draw metadata (no decoding) | `Page.Images` |
 | Fonts / XMP / document info | `Reader.Fonts` / `Reader.XMP` / `Reader.Info` |
 | Page extraction readiness + warnings | `Page.ExtractionSummary` / `Reader.Warnings` |
+| Extraction routing signals (text / image / empty / degraded) | `Page.ExtractionSignal` / `Reader.DocumentSummary` |
 | Encrypted PDFs (RC4, AES-128, AES-256) | `NewReaderEncrypted` |
 
 ## Background
@@ -54,6 +55,7 @@ pure-Go upstream for PDF extraction and ingestion pipelines.
 
 ### Ingestion signals and diagnostics
 
+- `Page.ExtractionSignal()` and `Reader.DocumentSummary()` emit deterministic per-page and per-document routing signals for LLM/RAG pipelines: index text-bearing pages as-is, route image-only pages to OCR, and flag empty or degraded pages for review.
 - `Page.ExtractionSummary()` reports page-level text/image readiness: `HasText`, `WordCount`, `ImageCount`, and page-scoped warnings.
 - `Reader.Warnings()` returns deterministic diagnostics for silently degraded extraction, including missing or broken `/ToUnicode`, fallback CJK encodings, unknown encodings, unmappable glyphs, and unsupported stream filters.
 - `Page.Images()` reports image draw metadata — page-space bounds, declared dimensions, and declared filters — without decoding image content.

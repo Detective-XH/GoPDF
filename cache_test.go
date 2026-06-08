@@ -190,22 +190,23 @@ func TestCacheSharesIdenticalValue(t *testing.T) {
 // extractionSnapshot captures every surface the Reader doc comment promises is
 // safe for concurrent use, in a deterministic comparable form.
 type extractionSnapshot struct {
-	text        string
-	textErr     string
-	pageTexts   []int
-	annots      []string
-	outline     Outline
-	info        [4]string
-	rootKeys    []string
-	kidTypes    []string
-	pageCount   int64
-	fonts       []FontInfo
-	xmp         string
-	links       string
-	attachments []string
-	fields      string
-	summaries   []string
-	warnings    []ExtractionWarning
+	text            string
+	textErr         string
+	pageTexts       []int
+	annots          []string
+	outline         Outline
+	info            [4]string
+	rootKeys        []string
+	kidTypes        []string
+	pageCount       int64
+	fonts           []FontInfo
+	xmp             string
+	links           string
+	attachments     []string
+	fields          string
+	summaries       []string
+	documentSummary string
+	warnings        []ExtractionWarning
 }
 
 func takeSnapshot(r *Reader) extractionSnapshot {
@@ -254,6 +255,10 @@ func takeSnapshot(r *Reader) extractionSnapshot {
 	}
 	ff, fferr := r.Fields()
 	s.fields = fmt.Sprintf("%+v %v", ff, fferr)
+	// DocumentSummary is a public aggregation on the concurrency
+	// contract. It captures its own doc-scoped warnings at the end of its full
+	// page pass, so it is timing-independent across the racing goroutines.
+	s.documentSummary = fmt.Sprintf("%+v", r.DocumentSummary())
 	// Captured LAST, after every other surface has run: by this point the
 	// goroutine's own full pass guarantees its complete warning set is
 	// present (other goroutines only add duplicates), so the deduplicated,
