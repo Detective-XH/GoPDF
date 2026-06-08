@@ -53,6 +53,8 @@ var warningMessages = map[ExtractionWarningCode]string{
 	WarningTruncated:           "warning storage limit reached; further distinct warnings were dropped",
 	WarningImageOnlyPage:       "page declares image content but yields no extractable text; OCR is not attempted",
 	WarningNullPageSlot:        "page slot is null and was skipped during extraction",
+	WarningRotatedText:         "a text run has a rotated (non-horizontal) baseline; geometry-based layout for it is unreliable",
+	WarningVerticalWritingMode: "a vertical writing-mode CMap was selected; vertical text advances are not honored",
 }
 
 // warningStore accumulates deduplicated extraction warnings for one Reader.
@@ -162,6 +164,21 @@ const (
 	// lookup returned null (for a /Count overstating the real kids, that is
 	// the trailing indices, not the gap's position in the tree).
 	WarningNullPageSlot ExtractionWarningCode = "null_page_slot"
+	// WarningRotatedText: a text run was drawn with a rotated baseline (the
+	// writing direction has a vertical component, Trm[0][1] != 0), so its
+	// FontSize = Trm[0][0] and X-advance degrade and geometry-based layout for
+	// that run is unreliable. A horizontal-baseline shear (synthetic italic) is
+	// NOT flagged — its baseline and FontSize stay correct. Detection only — no
+	// geometry fix is attempted. Document-scoped: observed only on the
+	// Content/Words/Lines/Texts path (the plain-text path tracks no geometry).
+	WarningRotatedText ExtractionWarningCode = "rotated_text"
+	// WarningVerticalWritingMode: a vertical (-V) writing-mode CMap was
+	// selected. Glyphs decode correctly but advance horizontally because WMode
+	// is not honored, so vertical text smears along X. Detection only.
+	// Document-scoped; emitted at encoder selection, so a vertical font that
+	// also carries a usable /ToUnicode is not flagged (the ToUnicode path wins
+	// before the CMap name is examined).
+	WarningVerticalWritingMode ExtractionWarningCode = "vertical_writing_mode"
 )
 
 // ExtractionWarning describes one non-fatal issue observed while reading or

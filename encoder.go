@@ -80,6 +80,7 @@ var cmapEncoderTable = func() map[string]TextEncoding {
 	return map[string]TextEncoding{
 		"WinAnsiEncoding":  &byteEncoder{&winAnsiEncoding},
 		"MacRomanEncoding": &byteEncoder{&macRomanEncoding},
+		"StandardEncoding": &byteEncoder{&standardEncoding},
 		"Identity-H":       &byteEncoder{&pdfDocEncoding},
 		"90ms-RKSJ-H":      shiftJIS,
 		"90ms-RKSJ-V":      shiftJIS,
@@ -135,13 +136,18 @@ func newDictEncoder(enc Value) (*dictEncoder, int) {
 	return e, unknown
 }
 
-// baseEncodingTable returns the standard 256-rune table for the named base encoding.
+// baseEncodingTable returns the standard 256-rune table for the named base
+// encoding. StandardEncoding is recognized explicitly (its table approximates
+// Adobe StandardEncoding atop PDFDocEncoding; see standardEncoding) rather than
+// silently falling through to PDFDocEncoding as an unknown name.
 func baseEncodingTable(baseEnc Value) *[256]rune {
 	switch baseEnc.Name() {
 	case "WinAnsiEncoding":
 		return &winAnsiEncoding
 	case "MacRomanEncoding":
 		return &macRomanEncoding
+	case "StandardEncoding":
+		return &standardEncoding
 	default:
 		return &pdfDocEncoding
 	}

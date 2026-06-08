@@ -27,6 +27,15 @@ type decodePathExpect struct {
 	// Trm[0][0] = 0 for a 90° run; a normal page carries the Tf size). Without it a
 	// rotated fixture asserts only SignalText, which every text page satisfies.
 	degenerateRun bool
+	// wantRotatedWarning requires WarningRotatedText to fire after a Content() pass.
+	// Rotation is detectable ONLY on the content sink (Trm exists only there), so
+	// DocumentSummary's GetPlainText pass never sees it — assert it via r.Warnings()
+	// after an explicit Content() pass.
+	wantRotatedWarning bool
+	// notWarnings are codes that MUST be absent after the full extraction (the
+	// cross-contamination guard: a Tm/encoder mixup would otherwise pass green —
+	// e.g. the rotated fixture must not fire the vertical warning, and vice versa).
+	notWarnings []ExtractionWarningCode
 }
 
 // decodePathExpectations is the single source of truth for slice-2 signal
@@ -44,9 +53,17 @@ var decodePathExpectations = map[string]decodePathExpect{
 	"encoding/ucs2-be.pdf":             {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningFallbackEncoding}},
 	"encoding/differences-partial.pdf": {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningMissingGlyphMapping}, detailSubstr: "Differences"},
 	"encoding/unknown-name.pdf":        {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningUnsupportedEncoding}},
-	"encoding/unmapped-glyph.pdf":      {signal: SignalText, hasUnmapped: true},   // silent today
-	"geometry/rotated-90.pdf":          {signal: SignalText, degenerateRun: true}, // no warning today; FontSize=0 run pins rotation
-	"geometry/vertical-cmap.pdf":       {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningFallbackEncoding}, detailSubstr: "UniJIS-UCS2-V"},
+	"encoding/unmapped-glyph.pdf":      {signal: SignalText, hasUnmapped: true}, // silent today
+	"geometry/rotated-90.pdf": {
+		signal: SignalText, degenerateRun: true, wantRotatedWarning: true,
+		notWarnings: []ExtractionWarningCode{WarningVerticalWritingMode},
+	},
+	"geometry/vertical-cmap.pdf": {
+		signal:       SignalText,
+		docWarnings:  []ExtractionWarningCode{WarningFallbackEncoding, WarningVerticalWritingMode},
+		detailSubstr: "UniJIS-UCS2-V",
+		notWarnings:  []ExtractionWarningCode{WarningRotatedText},
+	},
 }
 
 // assertDecodePath runs DocumentSummary (which classifies and emits/captures the
@@ -80,6 +97,33 @@ func assertDecodePath(t *testing.T, r *Reader, exp decodePathExpect) {
 	}
 	if exp.degenerateRun {
 		assertDegenerateRun(t, r)
+	}
+	assertRiskWarnings(t, r, exp)
+}
+
+// assertRiskWarnings checks the rotation/vertical risk warnings. Rotation is
+// detectable only on the content sink, so it runs a Content() pass (idempotent —
+// warnings dedup) before reading the union r.Warnings(): wantRotatedWarning
+// requires WarningRotatedText present, and every notWarnings code must be absent
+// (the cross-contamination guard). It runs the pass whenever either expectation
+// is set so the absence check is exercised on the real content path.
+func assertRiskWarnings(t *testing.T, r *Reader, exp decodePathExpect) {
+	t.Helper()
+	if !exp.wantRotatedWarning && len(exp.notWarnings) == 0 {
+		return
+	}
+	_ = r.Page(1).Content() // fire content-path (rotation) warnings into r.warnings
+	have := map[ExtractionWarningCode]bool{}
+	for _, w := range r.Warnings() {
+		have[w.Code] = true
+	}
+	if exp.wantRotatedWarning && !have[WarningRotatedText] {
+		t.Errorf("expected WarningRotatedText after a Content() pass; got %+v", r.Warnings())
+	}
+	for _, code := range exp.notWarnings {
+		if have[code] {
+			t.Errorf("unexpected warning %q (cross-contamination); got %+v", code, r.Warnings())
+		}
 	}
 }
 

@@ -158,6 +158,44 @@ var macRomanEncoding = [256]rune{
 	0x00af, 0x02d8, 0x02d9, 0x02da, 0x00b8, 0x02dd, 0x02db, 0x02c7,
 }
 
+// standardEncoding approximates Adobe StandardEncoding (PDF 32000-1:2008 Annex
+// D.2 / PostScript Language Reference Appendix E). It exists so a font declaring
+// StandardEncoding — either as /Encoding /StandardEncoding (a Name, via
+// cmapEncoderTable) or as /BaseEncoding /StandardEncoding in an /Encoding dict
+// (via baseEncodingTable) — is recognized explicitly and decoded through this
+// table, symmetric with WinAnsi/MacRoman, instead of silently falling through to
+// PDFDocEncoding (and, on the Name path, firing a spurious unsupported_encoding
+// warning).
+//
+// It is built FROM PDFDocEncoding — the value the previous fall-through returned —
+// then overrides the StandardEncoding-specific glyphs via the AGL nameToRune
+// table, so no code point ever regresses relative to the prior behavior. Today it
+// corrects the two code points where StandardEncoding most commonly and
+// consequentially diverges from PDFDocEncoding: the curly single quotes at 0x27
+// (quoteright, U+2019) and 0x60 (quoteleft, U+2018), the classic reason
+// apostrophes in StandardEncoding-era PDFs decode as ' / '. The remaining
+// upper-range divergences are a documented limitation: those slots keep their
+// PDFDocEncoding values until an authoritative full table is wired in (no worse
+// than the prior fall-through, and never a guessed-wrong entry).
+var standardEncoding = func() [256]rune {
+	t := pdfDocEncoding
+	for code, glyph := range standardEncodingDiff {
+		if r := nameToRune[glyph]; r != 0 {
+			t[code] = r
+		}
+	}
+	return t
+}()
+
+// standardEncodingDiff lists the StandardEncoding code → glyph-name entries this
+// package corrects relative to PDFDocEncoding. Names resolve through the AGL
+// nameToRune table; an unknown name leaves the PDFDocEncoding value untouched, so
+// a typo can never regress a slot.
+var standardEncodingDiff = map[byte]string{
+	0x27: "quoteright", // U+2019 ’  (PDFDocEncoding: U+0027 ')
+	0x60: "quoteleft",  // U+2018 ‘  (PDFDocEncoding: U+0060 `)
+}
+
 // isSameSentence checks if the current text segment likely belongs to the same sentence
 // as the last text segment based on font, size, vertical position, and lack of
 // sentence-ending punctuation in the last segment.

@@ -29,6 +29,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   success; the classification and counts never read the warning store, so they
   are fully deterministic and safe for concurrent use. EXAMPLES.md and
   API-STABILITY.md document the new APIs.
+- **Decode-path diagnostics** — extraction now emits two new document-scoped
+  warnings that flag text whose layout geometry is unreliable: `rotated_text`
+  (a text run with a rotated, non-horizontal baseline — a synthetic-italic
+  slant, which keeps a horizontal baseline, is deliberately not flagged) and
+  `vertical_writing_mode` (a vertical `-V` CMap whose glyph advances are not
+  honoured). Internally, every decoded glyph is now attributed to its decode
+  path (parsed `/ToUnicode`, charset fallback, encoding dictionary, …) and
+  unmapped (U+FFFD) glyphs are counted per page, consistently across the
+  `Words`/`Lines`/`Texts` and `GetPlainText` paths — groundwork for upcoming
+  per-page extraction-confidence ratios. No public type or function signature
+  changed.
 
 ### Security
 
@@ -49,6 +60,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   the result slices are sorted with a stable sort, so the column/row ordering is
   deterministic across runs and platforms. Output is byte-identical to before;
   the change makes the determinism guarantee explicit and robust.
+- **`StandardEncoding` fonts now decode correctly** — a font declaring
+  `/Encoding /StandardEncoding` by name previously fell back to PDFDocEncoding and
+  emitted a spurious `unsupported_encoding` warning. It is now recognised like
+  `WinAnsiEncoding` / `MacRomanEncoding`, decoding the StandardEncoding curly
+  single quotes (`0x27` → `’`, `0x60` → `‘`); the `/BaseEncoding /StandardEncoding`
+  dictionary form is recognised the same way. (Other upper-range StandardEncoding
+  glyphs continue to map through PDFDocEncoding for now.)
 
 ## v0.7.0 — 2026-06-07
 
