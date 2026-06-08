@@ -133,6 +133,58 @@ var corpusManifest = []corpusEntry{
 		Source: "IRS Pub 1040 Tax Tables pp. 3-4, qpdf excerpt", License: "US-Gov PD (17 USC 105)",
 		Purpose: "Zero-advance glyph widths (W=0) plus partial ToUnicode loss",
 	},
+	// Synthetic extraction-readiness signal fixtures.
+	// Consumers: the extraction quality score and the image/scanned-page classifier.
+	// Golden cells reflect the EMPIRICAL classification (probe run at implementation):
+	// image-only pages and the truncated stream extract no usable plain text (Golden:"");
+	// the rest extract deterministic text and are byte-locked. wantErr/HasText live in
+	// signalExpectations (corpus_signals_test.go), keyed on ExtractionSummary, which can
+	// differ from the GetPlainText-keyed Golden decision (truncated: Golden:"" yet
+	// ExtractionSummary recovers to HasText=true — a silent-ok gap the quality score will close).
+	{
+		Path: "signals/image-full-bleed.pdf", Golden: "",
+		Synthetic: true, Compare: compareExact, Feature: "signal-image-classifier",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Full-bleed image-only page (coverage ~1.0); image_only signal",
+	},
+	{
+		Path: "signals/image-thumbnail.pdf", Golden: "",
+		Synthetic: true, Compare: compareExact, Feature: "signal-image-classifier",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Thumbnail-only image page (coverage ~0.0074); v1 indistinguishable from full-bleed",
+	},
+	{
+		Path: "signals/image-thumbnail-text.pdf", Golden: "signals/image-thumbnail-text.golden.txt",
+		Synthetic: true, Compare: compareExact, Feature: "signal-image-classifier",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Small image + body text; mixed page, not image-only",
+	},
+	{
+		Path: "signals/text-artifact-only.pdf", Golden: "signals/text-artifact-only.golden.txt",
+		Synthetic: true, Compare: compareExact, Feature: "signal-image-classifier",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Artifact-only sparse text (page number at extremity); v1 reports HasText=true",
+	},
+	{
+		Path: "signals/malformed-unclosed-bt.pdf", Golden: "signals/malformed-unclosed-bt.golden.txt",
+		Synthetic: true, Compare: compareExact, Feature: "signal-malformed-stream",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Unclosed BT (no ET); tolerated, deterministic partial extraction, no panic",
+	},
+	{
+		Path: "signals/malformed-mismatched-qq.pdf", Golden: "signals/malformed-mismatched-qq.golden.txt",
+		Synthetic: true, Compare: compareExact, Feature: "signal-malformed-stream",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Excess Q (q/Q imbalance); tolerated, deterministic extraction, no panic",
+	},
+	{
+		Path: "signals/malformed-truncated.pdf", Golden: "",
+		Synthetic: true, Compare: compareExact, Feature: "signal-malformed-stream",
+		Source: "synthetic", License: "synthetic",
+		// Realized as an empty-TJ operator (deterministic panic trigger), NOT a
+		// byte-level cut-off stream — slice-1 ships no genuinely-truncated fixture.
+		Purpose: "Malformed operator (TJ w/o array); GetPlainText errors, ExtractionSummary recovers (silent-ok gap), no panic",
+	},
 }
 
 func corpusPath(rel string) string { return filepath.Join(corpusRoot, filepath.FromSlash(rel)) }
@@ -293,36 +345,54 @@ func TestCorpusNoGoldenFixtures(t *testing.T) {
 			if n := r.NumPage(); n < 1 {
 				t.Fatalf("NumPage = %d, want >= 1", n)
 			}
-			switch e.Path {
-			case "hard/bea-dici0724.pdf":
-				// Documented gap: subset fonts without usable ToUnicode —
-				// text extracts as replacement runes.
-				if !strings.ContainsRune(extractPlainText(t, r), '�') {
-					t.Errorf("%s: documented gap (U+FFFD text) no longer reproduces — promote to a golden-tested entry", e.Path)
-				}
-			case "hard/irs-p1040-tax-tables-excerpt.pdf":
-				// Documented gap: zero-advance glyph widths — words on the
-				// first page carry W == 0 despite non-empty text.
-				words, err := r.Page(1).Words()
-				if err != nil {
-					t.Fatalf("Words: %v", err)
-				}
-				zero := false
-				for _, w := range words {
-					if w.W == 0 && strings.TrimSpace(w.S) != "" {
-						zero = true
-						break
-					}
-				}
-				if !zero {
-					t.Errorf("%s: documented gap (zero-advance widths) no longer reproduces — promote to a golden-tested entry", e.Path)
-				}
-			default:
-				if e.Feature == "hard-pdf" {
-					t.Fatalf("%s: hard-pdf entry without an anchored gap assertion — add one here", e.Path)
-				}
-			}
+			assertNoGoldenGap(t, e, r)
 		})
+	}
+}
+
+// assertNoGoldenGap asserts the anchored, non-vacuous gap/signal a Golden == ""
+// fixture documents. Split out of TestCorpusNoGoldenFixtures to keep that test's
+// cyclomatic complexity within the gocyclo budget (mirrors checkManifestEntry).
+func assertNoGoldenGap(t *testing.T, e corpusEntry, r *Reader) {
+	t.Helper()
+	switch e.Path {
+	case "hard/bea-dici0724.pdf":
+		// Documented gap: subset fonts without usable ToUnicode —
+		// text extracts as replacement runes.
+		if !strings.ContainsRune(extractPlainText(t, r), '�') {
+			t.Errorf("%s: documented gap (U+FFFD text) no longer reproduces — promote to a golden-tested entry", e.Path)
+		}
+	case "hard/irs-p1040-tax-tables-excerpt.pdf":
+		// Documented gap: zero-advance glyph widths — words on the
+		// first page carry W == 0 despite non-empty text.
+		words, err := r.Page(1).Words()
+		if err != nil {
+			t.Fatalf("Words: %v", err)
+		}
+		zero := false
+		for _, w := range words {
+			if w.W == 0 && strings.TrimSpace(w.S) != "" {
+				zero = true
+				break
+			}
+		}
+		if !zero {
+			t.Errorf("%s: documented gap (zero-advance widths) no longer reproduces — promote to a golden-tested entry", e.Path)
+		}
+	default:
+		if e.Feature == "hard-pdf" {
+			t.Fatalf("%s: hard-pdf entry without an anchored gap assertion — add one here", e.Path)
+		}
+		// signals/ no-golden fixtures (image-only, panic-recovered streams)
+		// are anchored via the shared signalExpectations map so they cannot
+		// pass vacuously; reclassifying one needs no edit here.
+		if strings.HasPrefix(e.Path, "signals/") {
+			exp, ok := signalExpectations[e.Path]
+			if !ok {
+				t.Fatalf("%s: signals/ no-golden fixture without a signalExpectations entry", e.Path)
+			}
+			assertPageSignal(t, r, exp)
+		}
 	}
 }
 
