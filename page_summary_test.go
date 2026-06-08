@@ -536,3 +536,62 @@ func TestCachedPageMapMetadataUnchanged(t *testing.T) {
 		t.Errorf("Annotations changed across summaries: %v/%v -> %v/%v", annotsBefore, errBefore, annotsAfter, errAfter)
 	}
 }
+
+// TestImageCoverageClampAndZero locks the coverage helper: simple ratio, the
+// overlap/off-page clamp to 1.0, and the zero-area page guard. The input is the
+// summed image-bbox area (count-only scanners accumulate it without retaining refs).
+func TestImageCoverageClampAndZero(t *testing.T) {
+	box := [4]float64{0, 0, 100, 100} // area 10000
+	cases := []struct {
+		name    string
+		areaSum float64
+		want    float64
+	}{
+		{"none", 0, 0},
+		{"quarter", 2500, 0.25},           // a 50x50 image
+		{"overlap clamps to 1", 20000, 1}, // two full-page images summed
+	}
+	for _, c := range cases {
+		if got := imageCoverage(c.areaSum, box); got != c.want {
+			t.Errorf("%s: imageCoverage = %v, want %v", c.name, got, c.want)
+		}
+	}
+	if got := imageCoverage(100, [4]float64{0, 0, 0, 0}); got != 0 {
+		t.Errorf("degenerate box: got %v, want 0", got)
+	}
+}
+
+// TestIsSparseArtifactText locks the page-furniture predicate: page-number tokens
+// at the margin fire; body-centre numerics, CJK/latin words, and overflow do not.
+func TestIsSparseArtifactText(t *testing.T) {
+	box := [4]float64{0, 0, 612, 792} // margin band = 79.2
+	mk := func(s string, x, y float64) Word { return Word{S: s, X: x, Y: y, W: 5, H: 8} }
+	cases := []struct {
+		name  string
+		words []Word
+		want  bool
+	}{
+		{"page number bottom", []Word{mk("12", 300, 24)}, true},
+		{"page number top", []Word{mk("3", 300, 770)}, true},
+		{"dash number dash", []Word{mk("-", 290, 24), mk("12", 300, 24), mk("-", 320, 24)}, true},
+		{"fullwidth digits at margin", []Word{mk("\uff11\uff12", 300, 24)}, true},    // \uff11\uff12 (Nd)
+		{"arabic-indic digits at margin", []Word{mk("\u0661\u0662", 300, 24)}, true}, // \u0661\u0662 (Nd)
+		{"number in body centre", []Word{mk("12", 300, 400)}, false},
+		{"cjk glyph at margin", []Word{mk("\u3042", 0, 0)}, false},
+		{"cjk numeral letter stays clean", []Word{mk("\u4e00", 0, 0)}, false}, // \u4e00 is Lo, not Nd
+		{"latin word at margin", []Word{mk("Hello,", 0, 0)}, false},
+		{"three letter words", []Word{mk("body", 72, 700), mk("text", 110, 700), mk("run", 150, 700)}, false},
+		{"too many words", []Word{mk("1", 0, 0), mk("2", 0, 0), mk("3", 0, 0), mk("4", 0, 0)}, false},
+		{"lone dash only", []Word{mk("-", 300, 24)}, false},
+		{"empty", nil, false},
+	}
+	for _, c := range cases {
+		if got := isSparseArtifactText(c.words, box); got != c.want {
+			t.Errorf("%s: isSparseArtifactText = %v, want %v", c.name, got, c.want)
+		}
+	}
+	// Degenerate box (no height) can never localise furniture.
+	if isSparseArtifactText([]Word{mk("12", 0, 0)}, [4]float64{0, 0, 612, 0}) {
+		t.Error("degenerate box: got true, want false")
+	}
+}

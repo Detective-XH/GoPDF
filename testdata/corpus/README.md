@@ -75,10 +75,11 @@ for the no-golden entries) in `../../corpus_signals_test.go`.
 
 | File | Type | Locked signal today | Golden | Consumer |
 |------|------|---------------------|--------|----------|
-| `signals/image-full-bleed.pdf` | image-only, coverage ~1.0 | HasText=false, ImageCount=1, image_only warning | — | classifier |
-| `signals/image-thumbnail.pdf` | image-only, coverage ~0.0074 | same as full-bleed (v1 cannot distinguish) | — | classifier |
-| `signals/image-thumbnail-text.pdf` | mixed image + text | HasText=true, ImageCount=1, no warning | `body text run` | classifier / quality score |
-| `signals/text-artifact-only.pdf` | sparse text (page number at extremity) | HasText=true (v1 sparse-text gap), ImageCount=0 | `12` | classifier / quality score |
+| `signals/image-full-bleed.pdf` | image-only, coverage ~1.0 | HasText=false, ImageCount=1, ImageCoverage~1.0, image_only warning | — | classifier |
+| `signals/image-thumbnail.pdf` | image-only, coverage ~0.0074 | HasText=false, ImageCount=1, ImageCoverage~0.0074 (distinct from full-bleed) | — | classifier |
+| `signals/image-thumbnail-text.pdf` | mixed image + text | HasText=true, ImageCount=1, ImageCoverage~0.0074, no warning | `body text run` | classifier / quality score |
+| `signals/text-artifact-only.pdf` | sparse text (page number at bottom extremity) | HasText=true, ImageCount=0, fires sparse_text warning | `12` | classifier / quality score |
+| `signals/text-numeric-center.pdf` | page-number token at page centre (margin-band negative) | HasText=true, ImageCount=0, NO sparse_text warning | — | classifier |
 | `signals/malformed-unclosed-bt.pdf` | malformed: BT without ET | tolerated, deterministic partial text, no panic | `alpha beta` | quality score |
 | `signals/malformed-mismatched-qq.pdf` | malformed: excess Q | tolerated, deterministic text, no panic | `gamma` | quality score |
 | `signals/malformed-truncated.pdf` | malformed: TJ without array (empty-TJ, not a byte-level cut) | GetPlainText errors; ExtractionSummary recovers to HasText=true (silent-ok gap); no panic | — | quality score |

@@ -17,9 +17,9 @@ type ImageRef struct {
 	// Filter is the primary declared image filter name, such as DCTDecode or
 	// FlateDecode. If /Filter is an array, Filter is the first name in the array.
 	Filter string
-	// DeclaredWidth and DeclaredHeight come from the image dictionary's /Width
-	// and /Height entries. Inline image dictionaries are skipped by the current
-	// lexer, so inline images report zero for both fields.
+	// DeclaredWidth and DeclaredHeight are the image's pixel dimensions from the
+	// image dictionary's /Width and /Height (or the abbreviated /W and /H of an
+	// inline image). They are 0 when the dictionary omits them.
 	DeclaredWidth  int
 	DeclaredHeight int
 }
@@ -67,17 +67,23 @@ type imageScanState struct {
 	depth     int
 	images    []ImageRef
 	count     int
+	areaSum   float64 // summed page-space bbox area of drawn images (for coverage)
 	countOnly bool
 	inBI      bool
 }
 
-func scanPageImages(p Page, countOnly bool) ([]ImageRef, int) {
+// scanPageImages interprets the page's content for drawn-image metadata. It always
+// returns the draw count and the summed page-space bounding-box area; the []ImageRef
+// slice is populated only when countOnly is false. The area accumulates in either
+// mode, so a coverage caller can stay count-only (O(1) memory) on a content stream
+// that draws an image many times.
+func scanPageImages(p Page, countOnly bool) (images []ImageRef, count int, areaSum float64) {
 	s := newImageScanState(p, countOnly)
 	if s == nil {
-		return nil, 0
+		return nil, 0, 0
 	}
 	Interpret(p.V.Key("Contents"), s.interpret)
-	return s.images, s.count
+	return s.images, s.count, s.areaSum
 }
 
 func newImageScanState(p Page, countOnly bool) *imageScanState {
@@ -92,7 +98,7 @@ func newImageScanState(p Page, countOnly bool) *imageScanState {
 }
 
 func countDrawnImages(p Page) int {
-	_, count := scanPageImages(p, true)
+	_, count, _ := scanPageImages(p, true)
 	return count
 }
 
@@ -104,7 +110,7 @@ func (s *imageScanState) interpret(stk *Stack, op string) {
 	case "Do":
 		s.handleDo(args)
 	case "BI", "EI":
-		s.handleInlineImage(op)
+		s.handleInlineImage(op, args)
 	}
 }
 
@@ -164,28 +170,72 @@ func (s *imageScanState) interpretXObject(name string) {
 
 func (s *imageScanState) merge(sub *imageScanState) {
 	s.count += sub.count
+	s.areaSum += sub.areaSum
 	if !s.countOnly {
 		s.images = append(s.images, sub.images...)
 	}
 }
 
-func (s *imageScanState) handleInlineImage(op string) {
+func (s *imageScanState) handleInlineImage(op string, args []Value) {
 	switch op {
 	case "BI":
 		s.inBI = true
 	case "EI":
 		// The lexer dispatches EI after byte-skipping an ID payload. A stray
 		// literal EI arrives through the same callback, so only a BI-opened EI
-		// is treated as image draw evidence.
+		// is treated as image draw evidence. args holds the inline image
+		// dictionary (the operands pushed between BI and ID).
 		if s.inBI {
-			s.recordImage(imageRefFromCTM(s.ctm))
+			ref := imageRefFromCTM(s.ctm)
+			applyInlineDims(&ref, args)
+			s.recordImage(ref)
 			s.inBI = false
 		}
 	}
 }
 
+// applyInlineDims reads /W (or /Width) and /H (or /Height) from a flattened inline
+// image dictionary (alternating name/value operands) into ref's declared pixel
+// dimensions. It is best-effort: non-name keys, a trailing key with no value, and
+// unknown keys are skipped, so a malformed dict leaves the fields at zero rather
+// than panicking. Other inline keys (/CS /F /BPC /D /IM /I) are ignored.
+func applyInlineDims(ref *ImageRef, args []Value) {
+	for i := 0; i+1 < len(args); i += 2 {
+		key := args[i]
+		if key.Kind() != Name {
+			continue
+		}
+		switch key.Name() {
+		case "W", "Width":
+			ref.DeclaredWidth = int(args[i+1].Int64())
+		case "H", "Height":
+			ref.DeclaredHeight = int(args[i+1].Int64())
+		}
+	}
+}
+
+// imageCoverage returns the fraction of the page (MediaBox area) covered by
+// areaSum, the summed page-space bounding-box area of the page's drawn images,
+// clamped to [0,1]. It distinguishes a full-bleed scan (near 1.0) from an
+// incidental thumbnail (well under 1.0). Coarse by design: overlapping or partly
+// off-page images are summed naively, so areaSum may exceed the page before the
+// clamp - a density signal, not exact coverage. Returns 0 when box has no positive
+// area. areaSum is non-negative (each term is a max-minus-min extent), so no lower
+// clamp is needed.
+func imageCoverage(areaSum float64, box [4]float64) float64 {
+	pageArea := (box[2] - box[0]) * (box[3] - box[1])
+	if pageArea <= 0 {
+		return 0
+	}
+	if cov := areaSum / pageArea; cov < 1 {
+		return cov
+	}
+	return 1
+}
+
 func (s *imageScanState) recordImage(ref ImageRef) {
 	s.count++
+	s.areaSum += ref.W * ref.H
 	if !s.countOnly {
 		s.images = append(s.images, ref)
 	}

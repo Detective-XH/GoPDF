@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 // pageMapCache lazily memoizes buildPageMap's objptr.id -> 1-based page
@@ -61,6 +62,14 @@ type PageExtractionSummary struct {
 	// are never opened; only operator names and header dictionaries are
 	// read. Undrawn resource-dictionary entries do not count.
 	ImageCount int
+	// ImageCoverage is the fraction of the page (MediaBox) area covered by drawn
+	// image bounding boxes, clamped to [0,1]; 0 when the page has no images or no
+	// positive MediaBox area. It distinguishes a full-bleed scan (near 1.0) from
+	// an incidental thumbnail (well under 1.0) so an OCR router can tell a scanned
+	// page from a logo. Coarse by design: overlapping or partly off-page images
+	// are summed naively before clamping, so it is a density signal, not exact
+	// coverage.
+	ImageCoverage float64
 	// Warnings holds this page's page-scoped warnings (ExtractionWarning
 	// with Page equal to this page's number) observed so far, sorted by
 	// (Page, Code, Detail); nil when none or when Page is 0.
@@ -104,10 +113,16 @@ func (p Page) ExtractionSummary() (s PageExtractionSummary, err error) {
 	if r != nil {
 		s.Page = r.cachedPageMap()[p.V.ptr.id]
 	}
-	// The counting pass uses the image metadata scanner without internal
-	// recover: a malformed content stream panics through to the deferred
-	// handler above and becomes this summary's error.
-	s.ImageCount = countDrawnImages(p)
+	box := p.MediaBox()
+	// One count-only image scan yields both the draw count and the summed image
+	// area for coverage, retaining no per-image refs - so a tiled or adversarial
+	// content stream that draws an image many times cannot inflate memory here
+	// (Page.Images is the only path that retains refs). Like the previous
+	// countDrawnImages call it uses the scanner without an internal recover, so a
+	// malformed content stream panics through to the deferred handler above.
+	_, cnt, areaSum := scanPageImages(p, true)
+	s.ImageCount = cnt
+	s.ImageCoverage = imageCoverage(areaSum, box)
 	words, werr := p.Words()
 	if werr != nil {
 		// Text extraction failed: report the failure rather than guess.
@@ -116,25 +131,126 @@ func (p Page) ExtractionSummary() (s PageExtractionSummary, err error) {
 	}
 	s.WordCount = len(words)
 	s.HasText = s.WordCount > 0
-	if !s.HasText && s.ImageCount > 0 {
-		// Confirmation pass: Words is shielded by Content's internal
-		// recover and can present a failed stream as empty. GetPlainText
-		// surfaces those panics as an error; classify only on a clean,
-		// whitespace-empty pass. Runs only on this candidate path, where
-		// there is no text to decode.
-		text, terr := p.GetPlainText(nil)
-		if terr != nil {
-			return s, terr
-		}
-		if strings.TrimSpace(text) == "" && r != nil && s.Page != 0 {
-			r.warn(s.Page, WarningImageOnlyPage,
-				strconv.Itoa(s.ImageCount)+" image draw operation(s), no extractable text")
-		}
+	if rerr := emitRoutingWarning(r, p, s, words, box); rerr != nil {
+		return s, rerr
 	}
 	if r != nil && s.Page != 0 {
 		s.Warnings = pageWarnings(r, s.Page)
 	}
 	return s, nil
+}
+
+// emitRoutingWarning records the page-scoped routing warning implied by the
+// summary so far: image_only_page for an image-bearing page with no text, or
+// sparse_text for a text-bearing page whose whole text layer is page furniture
+// (a page number/folio at the margin) that the binary HasText signal misses. The
+// image-only branch runs a confirmation pass that can fail; that error is
+// returned and becomes the summary's error.
+func emitRoutingWarning(r *Reader, p Page, s PageExtractionSummary, words []Word, box [4]float64) error {
+	switch {
+	case !s.HasText && s.ImageCount > 0:
+		// Confirmation pass: Words is shielded by Content's internal recover and
+		// can present a failed stream as empty. GetPlainText surfaces those
+		// panics as an error; classify only on a clean, whitespace-empty pass.
+		text, terr := p.GetPlainText(nil)
+		if terr != nil {
+			return terr
+		}
+		if strings.TrimSpace(text) == "" {
+			warnPageScoped(r, s.Page, WarningImageOnlyPage,
+				strconv.Itoa(s.ImageCount)+" image draw operation(s), no extractable text")
+		}
+	case s.HasText && isSparseArtifactText(words, box):
+		warnPageScoped(r, s.Page, WarningSparseText,
+			strconv.Itoa(s.WordCount)+" page-furniture token(s) at the margin, no body text")
+	}
+	return nil
+}
+
+// warnPageScoped emits a page-scoped warning when the page is locatable in a
+// present Reader, and is a no-op otherwise. It centralises the
+// (r != nil && page != 0) guard the page-scoped emitters share.
+func warnPageScoped(r *Reader, page int, code ExtractionWarningCode, detail string) {
+	if r != nil && page != 0 {
+		r.warn(page, code, detail)
+	}
+}
+
+// Sparse-text (page-furniture) detection thresholds. A text-bearing page whose
+// entire text layer is a few short page-number-like tokens at the top/bottom
+// margin is page furniture (a folio), not body text - the artifact-only
+// false-positive an OCR router must still see as scan-like.
+const (
+	sparseTextMaxWords       = 3    // at most this many words on the page
+	sparseTextMaxTokenRunes  = 4    // each furniture token at most this many runes
+	sparseTextMarginFraction = 0.10 // top/bottom band as a fraction of page height
+)
+
+// isSparseArtifactText reports whether words are nothing but page furniture: at
+// most sparseTextMaxWords short page-number-like tokens (Unicode decimal digits
+// and page-number punctuation, at least one digit overall), every one inside the
+// top or bottom margin band of box. It reads only word geometry and code points,
+// so it is deterministic and script-independent (fullwidth and other Unicode
+// decimal digits count; letters of any script, including a lone CJK glyph, do
+// not). Returns false when box has no positive height (furniture cannot then be
+// localised).
+func isSparseArtifactText(words []Word, box [4]float64) bool {
+	if len(words) == 0 || len(words) > sparseTextMaxWords {
+		return false
+	}
+	bottom, top := box[1], box[3]
+	if top <= bottom {
+		return false
+	}
+	margin := (top - bottom) * sparseTextMarginFraction
+	sawDigit := false
+	for _, w := range words {
+		hasDigit, ok := furnitureToken(w.S)
+		if !ok || !inMarginBand(w.Y, bottom, top, margin) {
+			return false
+		}
+		sawDigit = sawDigit || hasDigit
+	}
+	return sawDigit
+}
+
+// furnitureToken reports whether s is a page-number-like token - non-empty, at
+// most sparseTextMaxTokenRunes runes, every rune a Unicode decimal digit or
+// page-number punctuation - and whether it contains at least one digit. Using
+// unicode.IsDigit (category Nd) catches fullwidth and Arabic-Indic page numbers;
+// any letter (any script, so a lone CJK glyph is real content) disqualifies it.
+func furnitureToken(s string) (hasDigit, ok bool) {
+	n := 0
+	for _, r := range s {
+		if n++; n > sparseTextMaxTokenRunes {
+			return false, false
+		}
+		switch {
+		case unicode.IsDigit(r):
+			hasDigit = true
+		case isPageNumberPunct(r):
+			// allowed, not a digit
+		default:
+			return false, false
+		}
+	}
+	return hasDigit, n > 0
+}
+
+// isPageNumberPunct reports whether r is punctuation that can appear in a page
+// number or folio (ASCII punctuation plus the en dash and em dash).
+func isPageNumberPunct(r rune) bool {
+	switch r {
+	case '.', '-', '/', '(', ')', '[', ']', '\u2013', '\u2014':
+		return true
+	}
+	return false
+}
+
+// inMarginBand reports whether y (a word's bottom edge) sits within margin of the
+// page's bottom or top edge.
+func inMarginBand(y, bottom, top, margin float64) bool {
+	return y <= bottom+margin || y >= top-margin
 }
 
 // pageWarnings filters the Reader's warning snapshot to the entries

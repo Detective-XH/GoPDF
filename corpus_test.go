@@ -163,7 +163,13 @@ var corpusManifest = []corpusEntry{
 		Path: "signals/text-artifact-only.pdf", Golden: "signals/text-artifact-only.golden.txt",
 		Synthetic: true, Compare: compareExact, Feature: "signal-image-classifier",
 		Source: "synthetic", License: "synthetic",
-		Purpose: "Artifact-only sparse text (page number at extremity); v1 reports HasText=true",
+		Purpose: "Artifact-only sparse text (page number at extremity); fires sparse_text warning",
+	},
+	{
+		Path: "signals/text-numeric-center.pdf", Golden: "",
+		Synthetic: true, Compare: compareExact, Feature: "signal-image-classifier",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Page-number token at page centre; text signal, NO sparse_text warning (margin-band negative)",
 	},
 	{
 		Path: "signals/malformed-unclosed-bt.pdf", Golden: "signals/malformed-unclosed-bt.golden.txt",

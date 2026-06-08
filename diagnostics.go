@@ -55,6 +55,7 @@ var warningMessages = map[ExtractionWarningCode]string{
 	WarningNullPageSlot:        "page slot is null and was skipped during extraction",
 	WarningRotatedText:         "a text run has a rotated (non-horizontal) baseline; geometry-based layout for it is unreliable",
 	WarningVerticalWritingMode: "a vertical writing-mode CMap was selected; vertical text advances are not honored",
+	WarningSparseText:          "page text is only sparse page furniture (e.g. a page number) at the margin; it may be a scanned page",
 }
 
 // warningStore accumulates deduplicated extraction warnings for one Reader.
@@ -179,6 +180,11 @@ const (
 	// also carries a usable /ToUnicode is not flagged (the ToUnicode path wins
 	// before the CMap name is examined).
 	WarningVerticalWritingMode ExtractionWarningCode = "vertical_writing_mode"
+	// WarningSparseText: a page yields only a few short page-number-like tokens
+	// at the top or bottom margin (page furniture) and no body text, so it reads
+	// as text-bearing yet is an image-only/scanned-page candidate for OCR
+	// routing. Emitted only by Page.ExtractionSummary; page-scoped (Page > 0).
+	WarningSparseText ExtractionWarningCode = "sparse_text"
 )
 
 // ExtractionWarning describes one non-fatal issue observed while reading or

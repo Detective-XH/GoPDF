@@ -56,7 +56,7 @@ pure-Go upstream for PDF extraction and ingestion pipelines.
 ### Ingestion signals and diagnostics
 
 - `Page.ExtractionSignal()` and `Reader.DocumentSummary()` emit deterministic per-page and per-document routing signals for LLM/RAG pipelines: index text-bearing pages as-is, route image-only pages to OCR, and flag empty or degraded pages for review.
-- `Page.ExtractionSummary()` reports page-level text/image readiness: `HasText`, `WordCount`, `ImageCount`, and page-scoped warnings.
+- `Page.ExtractionSummary()` reports page-level text/image readiness: `HasText`, `WordCount`, `ImageCount`, `ImageCoverage` (image bbox area / page area — distinguishes a full-bleed scan from a thumbnail), and page-scoped warnings including `sparse_text` (a page whose only text is page furniture, e.g. a page number, so it still routes to OCR).
 - `Reader.Warnings()` returns deterministic diagnostics for silently degraded extraction, including missing or broken `/ToUnicode`, fallback CJK encodings, unknown encodings, unmappable glyphs, and unsupported stream filters.
 - `Page.Images()` reports image draw metadata — page-space bounds, declared dimensions, and declared filters — without decoding image content.
 

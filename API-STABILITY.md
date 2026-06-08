@@ -100,8 +100,8 @@ Planned, pre-announced additions (additive only — nothing existing changes):
 
 | Symbol | Planned additions |
 |--------|-------------------|
-| `PageExtractionSummary` | decode-path ratio and image-coverage fields |
-| `ExtractionWarningCode` | new warning codes (the enum is additive by design; match known codes, pass unknown ones through) |
+| `PageExtractionSummary` | decode-path ratio fields (the `ImageCoverage` image-coverage ratio has shipped) |
+| `ExtractionWarningCode` | new warning codes (the enum is additive by design; match known codes, pass unknown ones through). Shipped: page-scoped `sparse_text` (page furniture, no body text) |
 | `ImageRef` | image metadata fields (e.g. color space, inline-image dimensions) |
 | `Word`, `Line` | font name/size fields (per-word font info), aligning with the cross-ecosystem norm |
 | `Text` | height field completing the bounding box; possibly an orientation field later |

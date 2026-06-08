@@ -17,6 +17,9 @@ type signalExpect struct {
 	wantErr       bool             // ExtractionSummary returns an error (panic propagated past Words)
 	gpErr         bool             // Reader.GetPlainText returns an error (independent of wantErr)
 	signal        ExtractionSignal // expected Page.ExtractionSignal on page 1
+	coverage      float64          // expected ImageCoverage on page 1, asserted with tolerance when assertCov
+	assertCov     bool             // whether to assert coverage (a literal 0 is meaningful, so this gates it)
+	sparseWarn    bool             // expect WarningSparseText on page 1
 }
 
 // signalExpectations is the single source of truth for slice-1 signal contracts,
@@ -40,10 +43,14 @@ type signalExpect struct {
 // confirmed by an empirical classification probe at implementation time, per
 // the plans-conventions Honesty Rule.
 var signalExpectations = map[string]signalExpect{
-	"signals/image-full-bleed.pdf":        {hasText: false, imageCount: 1, imageOnlyWarn: true, signal: SignalImageOnly},
-	"signals/image-thumbnail.pdf":         {hasText: false, imageCount: 1, imageOnlyWarn: true, signal: SignalImageOnly},
-	"signals/image-thumbnail-text.pdf":    {hasText: true, wordCountMin: 1, imageCount: 1, imageOnlyWarn: false, signal: SignalText},
-	"signals/text-artifact-only.pdf":      {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false, signal: SignalText},
+	// Coverage distinguishes the full-bleed scan (1.0) from the thumbnail
+	// (3600/484704 = 60x60 image on a 612x792 page); sparseWarn separates the
+	// page-furniture artifact page from the centre-numeric negative.
+	"signals/image-full-bleed.pdf":        {hasText: false, imageCount: 1, imageOnlyWarn: true, signal: SignalImageOnly, coverage: 1.0, assertCov: true},
+	"signals/image-thumbnail.pdf":         {hasText: false, imageCount: 1, imageOnlyWarn: true, signal: SignalImageOnly, coverage: 3600.0 / 484704.0, assertCov: true},
+	"signals/image-thumbnail-text.pdf":    {hasText: true, wordCountMin: 1, imageCount: 1, imageOnlyWarn: false, signal: SignalText, coverage: 3600.0 / 484704.0, assertCov: true, sparseWarn: false},
+	"signals/text-artifact-only.pdf":      {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false, signal: SignalText, coverage: 0, assertCov: true, sparseWarn: true},
+	"signals/text-numeric-center.pdf":     {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false, signal: SignalText, coverage: 0, assertCov: true, sparseWarn: false},
 	"signals/malformed-unclosed-bt.pdf":   {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false, signal: SignalText},
 	"signals/malformed-mismatched-qq.pdf": {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false, signal: SignalText},
 	"signals/malformed-truncated.pdf":     {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false, gpErr: true, signal: SignalDegraded},
@@ -107,7 +114,8 @@ func assertSignalValue(t *testing.T, p Page, want ExtractionSignal) {
 func assertSummaryDeterministic(t *testing.T, s1, s2 PageExtractionSummary) {
 	t.Helper()
 	if s1.HasText != s2.HasText || s1.WordCount != s2.WordCount ||
-		s1.ImageCount != s2.ImageCount || s1.Page != s2.Page {
+		s1.ImageCount != s2.ImageCount || s1.Page != s2.Page ||
+		s1.ImageCoverage != s2.ImageCoverage {
 		t.Fatalf("ExtractionSummary scalar fields not deterministic: %+v vs %+v", s1, s2)
 	}
 }
@@ -125,15 +133,28 @@ func assertSignalFields(t *testing.T, s PageExtractionSummary, exp signalExpect)
 	if exp.imageCount >= 0 && s.ImageCount != exp.imageCount {
 		t.Errorf("ImageCount = %d, want %d", s.ImageCount, exp.imageCount)
 	}
-	got := false
-	for _, w := range s.Warnings {
-		if w.Code == WarningImageOnlyPage {
-			got = true
+	if exp.assertCov {
+		const covTol = 1e-3
+		if d := s.ImageCoverage - exp.coverage; d > covTol || d < -covTol {
+			t.Errorf("ImageCoverage = %v, want ~%v", s.ImageCoverage, exp.coverage)
 		}
 	}
-	if got != exp.imageOnlyWarn {
+	if got := hasWarning(s.Warnings, WarningImageOnlyPage); got != exp.imageOnlyWarn {
 		t.Errorf("WarningImageOnlyPage present = %v, want %v (warnings=%+v)", got, exp.imageOnlyWarn, s.Warnings)
 	}
+	if got := hasWarning(s.Warnings, WarningSparseText); got != exp.sparseWarn {
+		t.Errorf("WarningSparseText present = %v, want %v (warnings=%+v)", got, exp.sparseWarn, s.Warnings)
+	}
+}
+
+// hasWarning reports whether ws contains a warning with the given code.
+func hasWarning(ws []ExtractionWarning, code ExtractionWarningCode) bool {
+	for _, w := range ws {
+		if w.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 // TestCorpusSignalFixtures is the consumer-facing characterization layer for the
