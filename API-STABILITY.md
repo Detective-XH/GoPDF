@@ -100,12 +100,19 @@ Planned, pre-announced additions (additive only — nothing existing changes):
 
 | Symbol | Planned additions |
 |--------|-------------------|
-| `PageExtractionSummary` | extraction-quality signal fields (confidence/routing signals, decode-path ratios, image-coverage data) |
-| document-level summary | a new aggregation type complementing per-page summaries |
+| `PageExtractionSummary` | decode-path ratio and image-coverage fields |
 | `ExtractionWarningCode` | new warning codes (the enum is additive by design; match known codes, pass unknown ones through) |
 | `ImageRef` | image metadata fields (e.g. color space, inline-image dimensions) |
 | `Word`, `Line` | font name/size fields (per-word font info), aligning with the cross-ecosystem norm |
 | `Text` | height field completing the bounding box; possibly an orientation field later |
+
+### Additive-evolving: extraction-quality tier
+
+- `type ExtractionSignal string` — routing signal enum. Values: `SignalText` ("text"), `SignalImageOnly` ("image_only"), `SignalEmpty` ("empty"), `SignalDegraded` ("degraded"). The value set is additive (callers MUST tolerate unknown values, treating them as "needs review").
+- `Page.ExtractionSignal() ExtractionSignal` — classifies the page's extraction readiness for ingestion routing. Deterministic, safe for concurrent use.
+- `type PageSignal struct { Page int; Signal ExtractionSignal; ImageCount int }` — one page's routing classification with image-draw count.
+- `type DocumentSummary struct { TotalPages int; Pages []PageSignal; TextPages int; ImageOnlyPages int; EmptyPages int; DegradedPages int; Warnings []ExtractionWarning }` — document-level extraction summary with per-signal tallies. Fields are additive (decode-path and coverage ratio fields planned).
+- `Reader.DocumentSummary() DocumentSummary` — classifies every page and aggregates signals to document level.
 
 Consumers should treat these structs as growable: decode JSON leniently and
 construct values with keyed literals.

@@ -11,11 +11,12 @@ import (
 // guesses. -1 means "do not assert".
 type signalExpect struct {
 	hasText       bool
-	wordCountMin  int  // minimum Words() on page 1; 0 = no lower bound
-	imageCount    int  // expected countDrawnImages; -1 = do not assert
-	imageOnlyWarn bool // expect WarningImageOnlyPage on page 1
-	wantErr       bool // ExtractionSummary returns an error (panic propagated past Words)
-	gpErr         bool // Reader.GetPlainText returns an error (independent of wantErr)
+	wordCountMin  int              // minimum Words() on page 1; 0 = no lower bound
+	imageCount    int              // expected countDrawnImages; -1 = do not assert
+	imageOnlyWarn bool             // expect WarningImageOnlyPage on page 1
+	wantErr       bool             // ExtractionSummary returns an error (panic propagated past Words)
+	gpErr         bool             // Reader.GetPlainText returns an error (independent of wantErr)
+	signal        ExtractionSignal // expected Page.ExtractionSignal on page 1
 }
 
 // signalExpectations is the single source of truth for slice-1 signal contracts,
@@ -31,14 +32,21 @@ type signalExpect struct {
 // tell it apart from a clean page, so without gpErr the malformed anchor would pass
 // equally for well-formed content and silently lose coverage if the panic-recover
 // path ever changed.
+//
+// signal is keyed on Page.ExtractionSignal, whose text authority is
+// the STRICT GetPlainText path. It therefore tracks gpErr, not HasText:
+// malformed-truncated has HasText=true (Words recovers) yet signal=degraded
+// (GetPlainText errors) — the same divergence gpErr already locks. Values were
+// confirmed by an empirical classification probe at implementation time, per
+// the plans-conventions Honesty Rule.
 var signalExpectations = map[string]signalExpect{
-	"signals/image-full-bleed.pdf":        {hasText: false, imageCount: 1, imageOnlyWarn: true},
-	"signals/image-thumbnail.pdf":         {hasText: false, imageCount: 1, imageOnlyWarn: true},
-	"signals/image-thumbnail-text.pdf":    {hasText: true, wordCountMin: 1, imageCount: 1, imageOnlyWarn: false},
-	"signals/text-artifact-only.pdf":      {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false},
-	"signals/malformed-unclosed-bt.pdf":   {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false},
-	"signals/malformed-mismatched-qq.pdf": {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false},
-	"signals/malformed-truncated.pdf":     {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false, gpErr: true},
+	"signals/image-full-bleed.pdf":        {hasText: false, imageCount: 1, imageOnlyWarn: true, signal: SignalImageOnly},
+	"signals/image-thumbnail.pdf":         {hasText: false, imageCount: 1, imageOnlyWarn: true, signal: SignalImageOnly},
+	"signals/image-thumbnail-text.pdf":    {hasText: true, wordCountMin: 1, imageCount: 1, imageOnlyWarn: false, signal: SignalText},
+	"signals/text-artifact-only.pdf":      {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false, signal: SignalText},
+	"signals/malformed-unclosed-bt.pdf":   {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false, signal: SignalText},
+	"signals/malformed-mismatched-qq.pdf": {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false, signal: SignalText},
+	"signals/malformed-truncated.pdf":     {hasText: true, wordCountMin: 1, imageCount: 0, imageOnlyWarn: false, gpErr: true, signal: SignalDegraded},
 }
 
 // assertPageSignal locks the page-1 signal for a signals/ fixture and asserts
@@ -71,6 +79,22 @@ func assertPageSignal(t *testing.T, r *Reader, exp signalExpect) {
 	}
 	assertSummaryDeterministic(t, s1, s2)
 	assertSignalFields(t, s1, exp)
+	assertSignalValue(t, r.Page(1), exp.signal)
+}
+
+// assertSignalValue locks Page.ExtractionSignal: deterministic across
+// two calls and equal to the fixture's expected routing signal. Split out of
+// assertPageSignal for the gocyclo budget.
+func assertSignalValue(t *testing.T, p Page, want ExtractionSignal) {
+	t.Helper()
+	got1 := p.ExtractionSignal()
+	got2 := p.ExtractionSignal()
+	if got1 != got2 {
+		t.Fatalf("ExtractionSignal not deterministic: %q vs %q", got1, got2)
+	}
+	if got1 != want {
+		t.Errorf("ExtractionSignal = %q, want %q", got1, want)
+	}
 }
 
 // assertSummaryDeterministic compares the SCALAR fields of two ExtractionSummary
