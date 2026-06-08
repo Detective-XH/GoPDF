@@ -132,6 +132,32 @@ func TestDecryptAES256MalformedLength(t *testing.T) {
 	}
 }
 
+// TestInitEncryptAES256Guards covers the two early-exit guards in initEncryptAES256
+// that are not exercised by the R5/R6 roundtrip or wrong-password tests:
+// an unsupported revision (R=4) and a non-Standard filter name.
+func TestInitEncryptAES256Guards(t *testing.T) {
+	fileKey := make([]byte, 32)
+
+	// R=4 with V=5 dict — rev check must reject before any key derivation.
+	// fixture rev must be 6 (not 5) so removing the guard lets R=4 mis-validate:
+	// with rev=5 the hash path differs from rev=6, so initEncrypt returns
+	// ErrInvalidPassword for the wrong reason and the guard becomes untestable.
+	encBadRev := aes256Fixture(6, "", fileKey)
+	encBadRev[name("R")] = int64(4)
+	r := &Reader{f: bytes.NewReader(nil), trailer: dict{name("Encrypt"): encBadRev}}
+	if err := r.initEncrypt(""); err == nil {
+		t.Error("R=4 on V=5 dict: want error, got nil")
+	}
+
+	// Filter != "Standard" with V=5 dict — filter check must reject.
+	encBadFilter := aes256Fixture(6, "", fileKey)
+	encBadFilter[name("Filter")] = name("NotStandard")
+	r2 := &Reader{f: bytes.NewReader(nil), trailer: dict{name("Encrypt"): encBadFilter}}
+	if err := r2.initEncrypt(""); err == nil {
+		t.Error("Filter=NotStandard on V=5 dict: want error, got nil")
+	}
+}
+
 // TestAESCBCNoPadKAT pins aesCBCNoPad (the UE/OE key unwrap) against an
 // INDEPENDENT AES-256-CBC zero-IV no-padding vector computed with openssl, so a
 // bug coupled between aesCBCNoPad and the fixtures' aesCBCNoPadEncrypt cannot
