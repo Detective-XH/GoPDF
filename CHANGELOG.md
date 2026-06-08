@@ -18,6 +18,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   per type, with a screen-space conversion recipe), drop-in compatibility
   with the `ledongthuc/pdf` lineage call sites, and the v1.0 freeze
   milestone. README links it from the new "API stability" section.
+- **Extraction routing signals** — `Page.ExtractionSignal()` returns a per-page
+  routing classification (`text` / `image_only` / `empty` / `degraded`), and
+  `Reader.DocumentSummary()` rolls the per-page signals up to the document level
+  (per-signal page counts plus document-scoped encoder/filter warnings). The
+  signal is a deterministic index / send-to-OCR / flag hint for ingestion
+  pipelines, derived only from existing extraction diagnostics — no OCR, no
+  rendering. It uses the strict `GetPlainText` path as the text authority, so a
+  truncated content stream is reported as `degraded` rather than a silent
+  success; the classification and counts never read the warning store, so they
+  are fully deterministic and safe for concurrent use. EXAMPLES.md and
+  API-STABILITY.md document the new APIs.
+
+### Security
+
+- **Security:** `decryptAES` now validates the AES key length (16 / 24 / 32
+  bytes) at the function boundary. Behaviour is unchanged — an invalid key
+  length was already rejected downstream — but the contract is now explicit at
+  the entry point, surfaced during a security audit.
 
 ### Fixed
 
@@ -27,6 +45,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `null_page_slot` warning and stop after a long run of null slots instead of
   walking the raw page count directly, while reported font page numbers remain
   1-based.
+- **`Page.GetTextByColumn()` / `Page.GetTextByRow()` ordering is now stable** —
+  the result slices are sorted with a stable sort, so the column/row ordering is
+  deterministic across runs and platforms. Output is byte-identical to before;
+  the change makes the determinism guarantee explicit and robust.
 
 ## v0.7.0 — 2026-06-07
 

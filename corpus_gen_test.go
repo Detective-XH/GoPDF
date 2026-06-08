@@ -34,6 +34,17 @@ func TestCorpusRegenerate(t *testing.T) {
 		{"signals/malformed-unclosed-bt.pdf", buildMalformedUnclosedBTPDF()},
 		{"signals/malformed-mismatched-qq.pdf", buildMalformedMismatchedQQPDF()},
 		{"signals/malformed-truncated.pdf", buildMalformedTruncatedPDF()},
+		// Fallback decode-path fixtures (consumer: the fallback encoding framework).
+		{"encoding/predefined-identity.pdf", buildPredefinedIdentityPDF()},
+		{"encoding/charset-shiftjis.pdf", buildCharsetShiftJISPDF()},
+		{"encoding/ucs2-be.pdf", buildUCS2BEPDF()},
+		{"encoding/differences-partial.pdf", buildDifferencesPartialPDF()},
+		{"encoding/unknown-name.pdf", buildUnknownEncodingPDF()},
+		{"encoding/unmapped-glyph.pdf", buildUnmappedGlyphPDF()},
+		// Rotated + vertical warning fixtures (consumer: fallback-encoding risk
+		// warnings; also the fixture half of the rotated/vertical geometry gate).
+		{"geometry/rotated-90.pdf", buildRotated90PDF()},
+		{"geometry/vertical-cmap.pdf", buildVerticalCMapPDF()},
 	}
 	for _, e := range synth {
 		p := corpusPath(e.rel)
@@ -222,4 +233,124 @@ func buildMalformedMismatchedQQPDF() []byte {
 // no array operand (NOT file/xref truncation; that surface is TestRedteamP2TruncatedXref).
 func buildMalformedTruncatedPDF() []byte {
 	return buildTextPDF("BT /F1 12 Tf (delta) Tj TJ")
+}
+
+// --- Fallback decode-path + rotated/vertical fixtures ------------------------
+// All byte-deterministic. Each font omits /ToUnicode (except unmapped-glyph,
+// whose /ToUnicode deliberately under-covers its codespace) so getEncoder takes
+// the /Encoding branch and the matching document-scoped warning fires. The
+// decoded text is the golden authority (GetPlainText); positions are irrelevant.
+
+// encodingPagePDF assembles a one-page, one-font, one-content-stream PDF whose
+// font object body is fontBody (raw, e.g. with a custom /Encoding). Shared shape
+// for the decode-path fixtures so each generator states only what differs.
+func encodingPagePDF(content, fontBody string) []byte {
+	return buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R" +
+			" /Resources << /Font << /F1 5 0 R >> >> >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content),
+		fontBody,
+	})
+}
+
+// buildPredefinedIdentityPDF: /Encoding /Identity-H, no /ToUnicode → byteEncoder
+// over pdfDocEncoding; fires WarningMissingToUnicode (Identity CMap, no ToUnicode).
+func buildPredefinedIdentityPDF() []byte {
+	return encodingPagePDF(
+		"BT /F1 12 Tf (identity) Tj ET",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Synthetic /Encoding /Identity-H >>",
+	)
+}
+
+// buildCharsetShiftJISPDF: /Encoding /90ms-RKSJ-H, no /ToUnicode → multibyte
+// charset fallback; fires WarningFallbackEncoding. Content bytes 0x82 0xA0 decode
+// to あ via Shift-JIS.
+func buildCharsetShiftJISPDF() []byte {
+	return encodingPagePDF(
+		"BT /F1 12 Tf (\x82\xa0) Tj ET",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Synthetic /Encoding /90ms-RKSJ-H >>",
+	)
+}
+
+// buildUCS2BEPDF: /Encoding /UniGB-UCS2-H, no /ToUnicode → ucs2BEEncoder; fires
+// WarningFallbackEncoding. Content bytes 0x4E 0x2D (ASCII "N-") decode to 中 as a
+// single UCS-2 BE code unit.
+func buildUCS2BEPDF() []byte {
+	return encodingPagePDF(
+		"BT /F1 12 Tf (N-) Tj ET",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Synthetic /Encoding /UniGB-UCS2-H >>",
+	)
+}
+
+// buildDifferencesPartialPDF: /Encoding dict with a /Differences entry whose glyph
+// name is absent from the AGL table → applyDifferences counts 1 lost mapping and
+// fires WarningMissingGlyphMapping. Content "differ" decodes via the WinAnsi base
+// table (the lost entry is counted, NOT rendered as U+FFFD).
+func buildDifferencesPartialPDF() []byte {
+	return encodingPagePDF(
+		"BT /F1 12 Tf (differ) Tj ET",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Synthetic /Encoding"+
+			" << /Type /Encoding /BaseEncoding /WinAnsiEncoding"+
+			" /Differences [65 /A 66 /nonexistentglyph] >> >>",
+	)
+}
+
+// buildUnknownEncodingPDF: /Encoding names an encoding absent from cmapEncoderTable
+// → encoderForCMapName default (pdfDocEncoding); fires WarningUnsupportedEncoding.
+func buildUnknownEncodingPDF() []byte {
+	return encodingPagePDF(
+		"BT /F1 12 Tf (unknown) Tj ET",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Synthetic /Encoding /NonexistentEncoding >>",
+	)
+}
+
+// unmappedToUnicodeCMap is a minimal /ToUnicode program that defines a 1-byte
+// codespace <00>..<FF> but maps ONLY <41> ('A'). Any other in-range byte matches
+// the codespace yet has no bfchar/bfrange, so cmap.decodeOne returns U+FFFD.
+const unmappedToUnicodeCMap = "/CIDInit /ProcSet findresource begin\n" +
+	"12 dict begin\nbegincmap\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n" +
+	"1 begincodespacerange\n<00> <FF>\nendcodespacerange\n" +
+	"1 beginbfchar\n<41> <0041>\nendbfchar\n" +
+	"endcmap\nend\nend"
+
+// buildUnmappedGlyphPDF: a font with a /ToUnicode CMap that under-covers its
+// codespace. Content "AB" → 'A' maps to A; 'B' is in-codespace but unmapped →
+// U+FFFD in the output. Silent today (no unmapped-glyph counter); the gap the
+// fallback encoding framework closes. NOTE: highest byte-level risk (embedded
+// CMap stream) — build/test FIRST.
+func buildUnmappedGlyphPDF() []byte {
+	content := "BT /F1 12 Tf (AB) Tj ET"
+	return buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R" +
+			" /Resources << /Font << /F1 5 0 R >> >> >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Synthetic /ToUnicode 6 0 R >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream",
+			len(unmappedToUnicodeCMap), unmappedToUnicodeCMap),
+	})
+}
+
+// buildRotated90PDF: a 90°-rotated text run (Tm = [0 1 -1 0 ...]). FontSize =
+// Trm[0][0] = 0 today, yet GetPlainText returns the text → SignalText, no warning.
+// Locks the "looks healthy" state the rotated-text risk warning will flag. No golden.
+func buildRotated90PDF() []byte {
+	return encodingPagePDF(
+		"BT /F1 12 Tf 0 1 -1 0 72 400 Tm (Rotated) Tj ET",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+	)
+}
+
+// buildVerticalCMapPDF: /Encoding /UniJIS-UCS2-V (a vertical -V CMap). WMode is
+// never read (cmap.go), so the glyph decodes and advances horizontally; today
+// SignalText + WarningFallbackEncoding (ucs2), no vertical warning. Locks the gap
+// the vertical-writing-mode risk warning closes. No golden.
+func buildVerticalCMapPDF() []byte {
+	return encodingPagePDF(
+		"BT /F1 12 Tf (N-) Tj ET",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Synthetic /Encoding /UniJIS-UCS2-V >>",
+	)
 }
