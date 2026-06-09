@@ -119,3 +119,16 @@ a rotated or vertical page looks healthy today (`text` signal; FontSize collapse
 encoding framework adds the rotated-text / vertical-writing-mode risk warnings these
 fixtures will then trigger; they also satisfy the fixture half of the rotated/vertical
 geometry gate.
+
+## Lines() reading-order characterization (committed FR + UDHR fixtures)
+
+`corpus_lines_test.go` runs `Page.Lines()` over the multicolumn Federal Register
+fixtures (`multicolumn/fr-*.pdf`) and the CJK UDHR fixtures (`cjk/udhr-{ja,zh-hans,
+ko}.pdf`) and locks today's reading-order behaviour: a character-conservation
+invariant (`Lines()` drops/invents no glyph vs `Content()`), plus sentinels for the
+current column interleaving (tokens from physically separate columns co-occur in one
+`Line.S`) and CJK intra-line spacing (zh-hans/ko split per glyph/syllable into
+space-joined lines; ja stays contiguous). These are characterization tests — **no
+fixtures or goldens are added** (the locked values live inline in the test, keyed by
+fixture path). The reading-order stabilisation work updates the sentinels when it
+intentionally changes line grouping; until then they document the gap.
