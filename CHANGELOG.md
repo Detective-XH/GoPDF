@@ -30,6 +30,15 @@ These changes are merged into `master` but not yet tagged in a numbered release.
 
 ### Performance
 
+- CJK and other `/ToUnicode`-CMap text extraction is now substantially faster. The
+  CMap glyph lookup previously scanned every mapping entry for every decoded
+  character (`O(characters × entries)`), which dominated extraction time on large
+  CJK fonts; it now uses a sorted binary search. On a 22-page Traditional Chinese
+  document extraction is ~1.9× faster (45–48% less wall-clock time), and a CMap
+  expressed mostly as character ranges can be over 20× faster. Allocated memory is
+  effectively unchanged, and extracted output is byte-for-byte identical for every
+  input — including malformed CMaps with overlapping ranges, which keep their
+  previous decoding.
 - Text extraction now allocates less, most visibly on CJK and other
   `/ToUnicode`-CMap documents. The lexer interns the fixed set of content-stream
   operators and structural delimiters (`[`, `]`, `<<`, `>>`, and the operator

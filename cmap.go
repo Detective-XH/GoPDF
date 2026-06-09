@@ -4,7 +4,10 @@
 
 package pdf
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 type byteRange struct {
 	low  string
@@ -23,25 +26,110 @@ type bfrange struct {
 }
 
 type cmap struct {
-	space   [4][]byteRange // codespace range
-	bfrange []bfrange
-	bfchar  []bfchar
+	space         [4][]byteRange // codespace range
+	bfrange       [4][]bfrange   // indexed by source-code length-1, like space
+	bfrangeSorted [4]bool        // bucket is disjoint+sorted → binary-searchable
+	bfchar        []bfchar
 }
 
-// lookupBfchar searches m.bfchar for an entry of length n matching text.
-func (m *cmap) lookupBfchar(text string, n int) ([]rune, bool) {
-	for _, bfchar := range m.bfchar {
-		if len(bfchar.orig) == n && bfchar.orig == text {
-			return []rune(utf16Decode(bfchar.repl)), true
+// buildIndex sorts m.bfchar by orig and indexes each m.bfrange length-bucket, so
+// lookupBfchar and lookupBfrange can binary-search instead of linear-scanning
+// every entry per glyph — the scan that dominated CJK extraction time. Runs once
+// at the end of readCmap (single-threaded); m.bfchar and m.bfrange are read-only
+// during Decode, so concurrent calls stay safe. A stable sort keeps the
+// first-defined entry first among equal keys, matching the previous linear scan's
+// first-match result.
+func (m *cmap) buildIndex() {
+	sort.SliceStable(m.bfchar, func(i, j int) bool {
+		return m.bfchar[i].orig < m.bfchar[j].orig
+	})
+	for n := range m.bfrange {
+		m.indexBfrangeBucket(n)
+	}
+}
+
+// indexBfrangeBucket prepares bucket n for lookup. Disjoint ranges are sorted by
+// lo and flagged binary-searchable; overlapping ranges (malformed, non-conformant
+// CMaps) are left in declaration order so lookupBfrange linear-scans them and
+// returns the first-declared match — preserving the pre-index behaviour exactly.
+// A largest-lo binary search would otherwise pick a different range, or miss a
+// code that a wider earlier range covered, silently corrupting output. The
+// disjoint check needs a sorted view, so it sorts a copy and keeps that copy as
+// the bucket when disjoint (no extra steady-state memory); the rare overlapping
+// bucket discards the copy and keeps the original order.
+func (m *cmap) indexBfrangeBucket(n int) {
+	br := m.bfrange[n]
+	if len(br) < 2 {
+		m.bfrangeSorted[n] = true // 0 or 1 entry: trivially binary-searchable
+		return
+	}
+	sorted := make([]bfrange, len(br))
+	copy(sorted, br)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].lo < sorted[j].lo
+	})
+	if bfrangeDisjoint(sorted) {
+		m.bfrange[n] = sorted
+		m.bfrangeSorted[n] = true
+	}
+}
+
+// bfrangeDisjoint reports whether the lo-sorted ranges never overlap. It tracks a
+// running maximum hi so a later range nested inside an earlier wide one still
+// counts as overlapping. Equal-length lo/hi within a bucket make the string
+// comparisons a plain byte ordering.
+func bfrangeDisjoint(sorted []bfrange) bool {
+	maxHi := sorted[0].hi
+	for i := 1; i < len(sorted); i++ {
+		if sorted[i].lo <= maxHi {
+			return false
 		}
+		if sorted[i].hi > maxHi {
+			maxHi = sorted[i].hi
+		}
+	}
+	return true
+}
+
+// lookupBfchar returns the decoded runes for the bfchar whose orig equals text
+// (the n-byte codespace prefix), via binary search over the sorted entries.
+func (m *cmap) lookupBfchar(text string) ([]rune, bool) {
+	bf := m.bfchar
+	i := sort.Search(len(bf), func(i int) bool { return bf[i].orig >= text })
+	if i < len(bf) && bf[i].orig == text {
+		return []rune(utf16Decode(bf[i].repl)), true
 	}
 	return nil, false
 }
 
-// lookupBfrange searches m.bfrange for an entry of length n whose range contains text.
+// lookupBfrange finds the n-byte bfrange entry whose [lo,hi] range contains text.
+// Bucketing by length makes the old len(lo)==n filter structural. A disjoint
+// bucket is binary-searched (largest lo <= text is then the only candidate); an
+// overlapping bucket falls back to a declaration-order linear scan so the
+// first-declared match wins, exactly as before indexing.
 func (m *cmap) lookupBfrange(text string, n int) ([]rune, bool) {
-	for _, entry := range m.bfrange {
-		if len(entry.lo) == n && entry.lo <= text && text <= entry.hi {
+	if n < 1 || n > 4 {
+		return nil, false
+	}
+	br := m.bfrange[n-1]
+	if !m.bfrangeSorted[n-1] {
+		return lookupBfrangeLinear(br, text)
+	}
+	i := sort.Search(len(br), func(i int) bool { return br[i].lo > text })
+	if i == 0 {
+		return nil, false
+	}
+	if entry := br[i-1]; text <= entry.hi {
+		return decodeBfrange(entry, text)
+	}
+	return nil, false
+}
+
+// lookupBfrangeLinear scans an overlapping (unsorted) bucket in declaration order
+// and returns the first range containing text, matching the pre-index behaviour.
+func lookupBfrangeLinear(br []bfrange, text string) ([]rune, bool) {
+	for _, entry := range br {
+		if entry.lo <= text && text <= entry.hi {
 			return decodeBfrange(entry, text)
 		}
 	}
@@ -87,7 +175,7 @@ func (m *cmap) decodeOne(raw string) ([]rune, int) {
 		for _, space := range m.space[n-1] {
 			if space.low <= raw[:n] && raw[:n] <= space.high {
 				text := raw[:n]
-				if runes, ok := m.lookupBfchar(text, n); ok {
+				if runes, ok := m.lookupBfchar(text); ok {
 					return runes, n
 				}
 				if runes, ok := m.lookupBfrange(text, n); ok {
@@ -165,7 +253,12 @@ func (s *cmapInterp) handleEndBfrange(stk *Stack) {
 	}
 	for i := 0; i < s.n; i++ {
 		dst, srcHi, srcLo := stk.Pop(), stk.Pop().RawString(), stk.Pop().RawString()
-		s.m.bfrange = append(s.m.bfrange, bfrange{srcLo, srcHi, dst})
+		// Bucket by source-code length (1..4) so lookupBfrange binary-searches
+		// only the matching-length entries. Lengths outside 1..4 could never
+		// match decodeOne's n=1..4 probes, so dropping them preserves behaviour.
+		if n := len(srcLo); n >= 1 && n <= 4 {
+			s.m.bfrange[n-1] = append(s.m.bfrange[n-1], bfrange{srcLo, srcHi, dst})
+		}
 	}
 }
 
@@ -227,5 +320,6 @@ func readCmap(toUnicode Value) *cmap {
 	if !s.ok {
 		return nil
 	}
+	s.m.buildIndex()
 	return &s.m
 }

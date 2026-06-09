@@ -142,7 +142,8 @@ func TestCmapDecodeBfrangeArray(t *testing.T) {
 	)
 	m := &cmap{}
 	m.space[0] = []byteRange{{lo, hi}}
-	m.bfrange = []bfrange{{lo: lo, hi: hi, dst: dstArr}}
+	m.bfrange[0] = []bfrange{{lo: lo, hi: hi, dst: dstArr}}
+	m.buildIndex()
 
 	tests := []struct {
 		in   string
@@ -180,6 +181,7 @@ func TestCmapLongestPrefix(t *testing.T) {
 		{orig: "\x41", repl: runeToUTF16BE('a')},
 		{orig: "\x81\x41", repl: runeToUTF16BE('Z')},
 	}
+	m.buildIndex()
 
 	// Single-byte input in the 1-byte range should yield 'a'.
 	if got := m.Decode("\x41"); got != "a" {
@@ -201,9 +203,10 @@ func TestCmapLookupBfchar(t *testing.T) {
 		{orig: "\x41", repl: runeToUTF16BE('A')},
 		{orig: "\x42", repl: runeToUTF16BE('B')},
 	}
+	m.buildIndex()
 
 	t.Run("hit", func(t *testing.T) {
-		runes, ok := m.lookupBfchar("\x41", 1)
+		runes, ok := m.lookupBfchar("\x41")
 		if !ok {
 			t.Fatal("lookupBfchar: expected hit for \\x41")
 		}
@@ -213,8 +216,8 @@ func TestCmapLookupBfchar(t *testing.T) {
 	})
 
 	t.Run("miss_wrong_length", func(t *testing.T) {
-		// Asking for n=2 when entry is n=1 → miss. // error path
-		_, ok := m.lookupBfchar("\x41", 2)
+		// A multi-byte text cannot match a 1-byte key. // error path
+		_, ok := m.lookupBfchar("\x41\x42")
 		if ok {
 			t.Error("lookupBfchar: expected miss for wrong length, got hit")
 		}
@@ -222,7 +225,7 @@ func TestCmapLookupBfchar(t *testing.T) {
 
 	t.Run("miss_no_entry", func(t *testing.T) {
 		// error path
-		_, ok := m.lookupBfchar("\x99", 1)
+		_, ok := m.lookupBfchar("\x99")
 		if ok {
 			t.Error("lookupBfchar: expected miss for unknown byte")
 		}
@@ -239,7 +242,8 @@ func TestCmapLookupBfrange(t *testing.T) {
 	// Destination is a UTF-16BE string for space (0x0020).
 	dst := cmapTestStrVal(runeToUTF16BE(0x0020))
 	m := &cmap{}
-	m.bfrange = []bfrange{{lo: lo, hi: hi, dst: dst}}
+	m.bfrange[0] = []bfrange{{lo: lo, hi: hi, dst: dst}}
+	m.buildIndex()
 
 	t.Run("hit_lo", func(t *testing.T) {
 		runes, ok := m.lookupBfrange("\x20", 1)
@@ -285,6 +289,141 @@ func TestCmapLookupBfrange(t *testing.T) {
 			t.Error("lookupBfrange: expected miss for 2-byte when range is 1-byte")
 		}
 	})
+}
+
+// ---------------------------------------------------------------------------
+// TestCmapLookupBfrangeMultiEntry — binary search across several ranges in one
+// length bucket plus a second bucket. Entries are inserted out of sorted order
+// so a passing run proves buildIndex sorts each bucket and the search picks the
+// range actually containing text (not merely the first-defined one).
+// ---------------------------------------------------------------------------
+
+func TestCmapLookupBfrangeMultiEntry(t *testing.T) {
+	m := &cmap{}
+	m.bfrange[0] = []bfrange{
+		{lo: "\x50", hi: "\x5f", dst: cmapTestStrVal(runeToUTF16BE('0'))},
+		{lo: "\x10", hi: "\x1f", dst: cmapTestStrVal(runeToUTF16BE('A'))},
+		{lo: "\x30", hi: "\x3f", dst: cmapTestStrVal(runeToUTF16BE('a'))},
+	}
+	m.bfrange[1] = []bfrange{
+		{lo: "\x81\x40", hi: "\x81\x4f", dst: cmapTestStrVal(runeToUTF16BE('Z'))},
+	}
+	m.buildIndex()
+
+	// Both buckets are disjoint, so they must take the binary-search path.
+	if !m.bfrangeSorted[0] || !m.bfrangeSorted[1] {
+		t.Fatalf("disjoint buckets should be binary-searchable: sorted=%v", m.bfrangeSorted)
+	}
+
+	cases := []struct {
+		text string
+		n    int
+		want rune
+		ok   bool
+	}{
+		{"\x10", 1, 'A', true},     // lo of the first range (by value)
+		{"\x15", 1, 'F', true},     // 'A'+5, mid-range offset
+		{"\x30", 1, 'a', true},     // lo of the middle range
+		{"\x5f", 1, '?', true},     // '0'+15 = 0x3f, hi of the last range
+		{"\x81\x40", 2, 'Z', true}, // separate 2-byte bucket
+		{"\x0f", 1, 0, false},      // below all ranges
+		{"\x20", 1, 0, false},      // gap between ranges
+		{"\x60", 1, 0, false},      // above all 1-byte ranges
+		{"\x81\x50", 2, 0, false},  // above the 2-byte range
+	}
+	for _, c := range cases {
+		runes, ok := m.lookupBfrange(c.text, c.n)
+		if ok != c.ok {
+			t.Errorf("lookupBfrange(%q, %d): ok=%v, want %v", c.text, c.n, ok, c.ok)
+			continue
+		}
+		if ok && (len(runes) == 0 || runes[0] != c.want) {
+			t.Errorf("lookupBfrange(%q, %d): got %v, want %q", c.text, c.n, runes, c.want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestCmapLookupBfrangeOverlap — a directly-constructed overlapping bucket must
+// be flagged unsorted and linear-scanned so the first matching slice entry wins,
+// exactly as the old flat-slice scan did. A largest-lo binary search would pick
+// the wrong entry for codes both cover, and MISS entirely for codes only the
+// wider entry covers (silent �). This builds the bucket in [A,B] order directly
+// (the parse-path ordering is covered separately in the end-to-end test, where
+// the PostScript stack reverses it).
+// ---------------------------------------------------------------------------
+
+func TestCmapLookupBfrangeOverlap(t *testing.T) {
+	// A is first in the slice and is the wider range [0x10,0x90]→U+10xx; B nests
+	// inside it [0x20,0x30]→U+20xx. First-in-slice (A) and largest-lo (B) disagree
+	// wherever both cover a code, so A-wins pins the linear first-match behaviour.
+	a := bfrange{lo: "\x10", hi: "\x90", dst: cmapTestStrVal("\x10\x00")} // base U+1000
+	b := bfrange{lo: "\x20", hi: "\x30", dst: cmapTestStrVal("\x20\x00")} // base U+2000
+	m := &cmap{}
+	m.bfrange[0] = []bfrange{a, b}
+	m.buildIndex()
+
+	if m.bfrangeSorted[0] {
+		t.Fatal("buildIndex must flag an overlapping bucket as unsorted (linear scan)")
+	}
+
+	cases := []struct {
+		text string
+		want rune
+	}{
+		{"\x25", 0x1015}, // in both A and B → first-in-slice A wins, not B's U+2005
+		{"\x28", 0x1018}, // in both → A wins
+		{"\x50", 0x1040}, // only A covers it → largest-lo would MISS, linear hits A
+		{"\x10", 0x1000}, // A's lo boundary
+	}
+	for _, c := range cases {
+		runes, ok := m.lookupBfrange(c.text, 1)
+		if !ok {
+			t.Errorf("lookupBfrange(%q): expected hit via first-declared range A", c.text)
+			continue
+		}
+		if len(runes) != 1 || runes[0] != c.want {
+			t.Errorf("lookupBfrange(%q): got %v, want U+%04X", c.text, runes, c.want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestCmapDecodeBfrangeOverlapEndToEnd — overlapping bfrange driven through
+// readCmap→Decode, proving the linear fallback is byte-identical to the
+// pre-index behaviour on the real parse path. The PostScript operand stack
+// reverses order, so handleEndBfrange appends the stream's *second* range first;
+// for codes both ranges cover, that range wins. The want values below were
+// confirmed against f0727bd (the flat-slice linear scan): U+2005, U+2008, U+1040.
+// ---------------------------------------------------------------------------
+
+func TestCmapDecodeBfrangeOverlapEndToEnd(t *testing.T) {
+	// 1-byte codespace; stream order: R1 [0x10,0x90]→U+1000, then R2 [0x20,0x30]→
+	// U+2000. Stack reversal makes the parsed bucket [R2, R1], so R2 wins overlaps.
+	body := standardCmapHeader +
+		"1 begincodespacerange\n<00> <FF>\nendcodespacerange\n" +
+		"2 beginbfrange\n<10> <90> <1000>\n<20> <30> <2000>\nendbfrange\n" +
+		standardCmapFooter
+	m := readCmap(makeCmapStream(body))
+	if m == nil {
+		t.Fatal("readCmap returned nil for overlapping bfrange stream")
+	}
+	if m.bfrangeSorted[0] {
+		t.Fatal("parsed overlapping bucket should be flagged unsorted (linear scan)")
+	}
+	cases := []struct {
+		in   string
+		want rune
+	}{
+		{"\x25", 0x2005}, // both cover → first-in-bucket R2 wins (matches old)
+		{"\x28", 0x2008}, // both cover → R2 wins
+		{"\x50", 0x1040}, // only R1 covers → largest-lo would miss, linear hits R1
+	}
+	for _, c := range cases {
+		if got := m.Decode(c.in); got != string(c.want) {
+			t.Errorf("Decode(%q): got %q (%U), want U+%04X", c.in, got, []rune(got), c.want)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
