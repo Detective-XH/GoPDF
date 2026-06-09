@@ -247,8 +247,9 @@ if p.ExtractionSignal() == pdf.SignalText {
 ```
 
 Document-scoped confidence metadata: `ds.Warnings` carries font and encoding
-issues that reduce confidence. An ecosystem adapter would surface the page
-signal under the cross-tool `extraction_confidence` metadata key.
+issues that reduce confidence. An ecosystem adapter surfaces the page signal
+under the cross-tool `extraction_confidence` metadata key — realised in
+`examples/langchaingo_loader` (see [Ecosystem adapters](#ecosystem-adapters-langchaingo--rag-loaders)).
 
 ### Decode-quality ratios
 
@@ -429,4 +430,41 @@ for pageNum, p := range r.Pages() {
 	fmt.Printf("page %d mediaBox=%+v cropBox=%+v\n",
 		pageNum, p.MediaBox(), p.CropBox())
 }
+```
+
+## Ecosystem adapters (langchaingo / RAG loaders)
+
+`examples/langchaingo_loader` is a runnable adapter for Go RAG pipelines. It emits
+one document per page, each carrying the page's plain text and a stable,
+LangChain/LlamaIndex-aligned metadata key set. It depends only on GoPDF: the
+`Document` type is defined locally and carries the fields this loader populates —
+`PageContent string` and `Metadata map[string]any`. langchaingo's `schema.Document`
+additionally has a `Score float32` field, set during retrieval rather than by a
+loader, so switching this example to `schema.Document` is an import swap that leaves
+`Score` at its zero value.
+
+Per-page metadata keys:
+
+| Key | Type | Source |
+|---|---|---|
+| `page` | int | 0-based page index |
+| `page_label` | string | 1-based page number — a fallback: GoPDF exposes no PDF page-label tree, so this is **not** the document's own printed label |
+| `total_pages` | int | `Reader.NumPage()` |
+| `title`, `author`, `subject`, `creator`, `producer` | string | `Reader.Info()` (empty string when absent) |
+| `creationdate`, `moddate` | string | `Reader.Info()` dates as RFC3339 (empty string when absent) |
+| `extraction_confidence` | string | the page's extraction signal (`text` / `image_only` / `empty` / `degraded`) — a routing signal, not a 0–1 score |
+
+Every key is always present; a missing document property is an empty string, so
+downstream consumers see a uniform schema across pages and documents.
+
+```go
+docs, err := loadDocuments("input.pdf")
+// docs[i].PageContent  -> page i's plain text
+// docs[i].Metadata     -> the keys above; route on extraction_confidence
+```
+
+Run it:
+
+```bash
+go run ./examples/langchaingo_loader
 ```

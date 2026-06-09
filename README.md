@@ -60,6 +60,23 @@ word-boundary handling, malformed-parser panics, AES-encrypted PDFs, and missing
 regression coverage. It is now an independent project, aimed at being a dependable,
 pure-Go upstream for PDF extraction and ingestion pipelines.
 
+### Lineage and drop-in compatibility
+
+GoPDF stays API-compatible with the call sites the lineage readers expose — the set
+a `langchaingo` PDF loader uses (`NewReader`, `NewReaderEncrypted`, `NumPage`,
+`Page`, `Page.Fonts`, `Page.Font`, `Page.GetPlainText`) is signature-identical and
+frozen in [API-STABILITY.md](API-STABILITY.md), so adopting GoPDF from the older
+readers is an import-path swap. Meanwhile the lineage packages have gone quiet and
+GoPDF has closed extraction gaps still open upstream:
+
+| | GoPDF | ledongthuc/pdf | dslipak/pdf |
+|---|---|---|---|
+| Maintenance | active | ~2–3 merges/yr | stalled since Jan 2024 |
+| Form XObject text | extracted | open issue [#67](https://github.com/ledongthuc/pdf/issues/67) | — |
+| CJK predefined CMaps (`UniGB-UCS2-H` …) | decoded | open issue [#55](https://github.com/ledongthuc/pdf/issues/55) | — |
+
+`— = not evaluated.`
+
 ## Features
 
 ### Text and layout extraction
@@ -115,13 +132,14 @@ go get github.com/Detective-XH/gopdf
 See `examples/` for runnable programs and [EXAMPLES.md](EXAMPLES.md) for API
 cookbook snippets covering words, image metadata, extraction summaries,
 diagnostics, XMP, fonts, annotations, named destinations, link aggregation,
-form fields, attachments, and encrypted PDFs.
+form fields, attachments, encrypted PDFs, and a langchaingo-style RAG loader.
 
 Runnable examples:
 
 ```bash
 go run ./examples/read_plain_text
 go run ./examples/read_text_with_styles
+go run ./examples/langchaingo_loader
 ```
 
 Quick start:

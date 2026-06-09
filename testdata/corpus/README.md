@@ -59,7 +59,10 @@ fallback-encoding work.
 - Synthetic fixtures (plaintext, styled) are added by `TestCorpusRegenerate -update` and
   use byte-exact comparison.
 - `cyrillic/` is a forward-compat baseline for planned Cyrillic legacy-encoding
-  fallback work and hard-PDF corpus expansion.
+  fallback work and hard-PDF corpus expansion. Research notes — the (negative-result)
+  search for a real PDF that declares a legacy Cyrillic encoding by name without
+  `/ToUnicode`, with a self-contained reproduction recipe:
+  [`cyrillic/LEGACY-ENCODING-SEARCH.md`](cyrillic/LEGACY-ENCODING-SEARCH.md).
 - `tables/` and `multicolumn/` are the accuracy and false-positive surfaces for the
   table-detection spike; `hard/` holds negative fixtures (no goldens) that document
   current extraction gaps for future fallback-encoding work.
