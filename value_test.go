@@ -218,6 +218,92 @@ func TestValueFloat64Coerce(t *testing.T) {
 	}
 }
 
+// TestValueKeys pins the nil-vs-empty contract documented in Value.Keys():
+// a non-dict/non-stream Value returns nil; an empty dict returns a non-nil
+// empty slice; a non-empty dict returns keys in sorted order.
+func TestValueKeys(t *testing.T) {
+	// Case 1: non-dict Value (Integer kind) → Keys() returns nil.
+	nonDict := makeIntValue(42)
+	if got := nonDict.Keys(); got != nil {
+		t.Errorf("non-dict Keys() = %v, want nil", got)
+	}
+
+	// Case 2: empty dict Value → Keys() returns non-nil empty slice.
+	emptyDict := filterMakeDict(map[string]any{})
+	if emptyDict.Kind() != Dict {
+		t.Fatalf("filterMakeDict({}) has Kind %v, want Dict", emptyDict.Kind())
+	}
+	gotEmpty := emptyDict.Keys()
+	if gotEmpty == nil {
+		t.Error("empty dict Keys() = nil, want non-nil empty slice")
+	}
+	if len(gotEmpty) != 0 {
+		t.Errorf("empty dict Keys() = %v, want len 0", gotEmpty)
+	}
+
+	// Case 3: dict with two keys → Keys() returns them sorted.
+	twoKeys := filterMakeDict(map[string]any{"B": int64(2), "A": int64(1)})
+	gotTwo := twoKeys.Keys()
+	want := []string{"A", "B"}
+	if len(gotTwo) != len(want) {
+		t.Fatalf("two-key dict Keys() = %v, want %v", gotTwo, want)
+	}
+	for i, k := range want {
+		if gotTwo[i] != k {
+			t.Errorf("Keys()[%d] = %q, want %q", i, gotTwo[i], k)
+		}
+	}
+}
+
+// TestValueInt64 pins the contract documented in Value.Int64():
+// Integer-kind Values return their exact int64; any non-Integer kind returns 0.
+func TestValueInt64(t *testing.T) {
+	tests := []struct {
+		name string
+		v    Value
+		want int64
+	}{
+		{
+			name: "positive integer",
+			v:    makeIntValue(99),
+			want: 99,
+		},
+		{
+			name: "negative integer",
+			v:    makeIntValue(-7),
+			want: -7,
+		},
+		{
+			name: "zero integer",
+			v:    makeIntValue(0),
+			want: 0,
+		},
+		{
+			name: "real (float64) kind returns 0",
+			v:    Value{nil, objptr{}, float64(3.14)},
+			want: 0,
+		},
+		{
+			name: "string kind returns 0",
+			v:    Value{nil, objptr{}, "hello"},
+			want: 0,
+		},
+		{
+			name: "null kind returns 0",
+			v:    Value{nil, objptr{}, nil},
+			want: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.v.Int64()
+			if got != tt.want {
+				t.Errorf("Int64() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestValueText checks that Text() correctly handles PDFDocEncoding strings
 // and UTF-16 BOM-prefixed strings, and returns the raw string when neither
 // encoding applies.

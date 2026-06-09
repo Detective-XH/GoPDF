@@ -28,7 +28,7 @@ func FuzzOpenAndExtract(f *testing.F) {
 			}
 			_ = r.NumPage()
 			p := r.Page(1)
-			//nolint:errcheck // we only care that extraction terminates without panic/hang
+			//nolint:errcheck // Page.GetPlainText(nil fonts): nil map is valid; we only require extraction to terminate without panic.
 			_, _ = p.GetPlainText(nil)
 			//nolint:errcheck // same: Words must not panic or hang on malformed input
 			_, _ = p.Words()

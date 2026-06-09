@@ -27,29 +27,6 @@ func makeCmapStream(body string) Value {
 	return Value{r, objptr{}, s}
 }
 
-// makeDictValue builds a Value of Kind Dict from a Go map.
-// Values in the map must be raw object types (string, name, int64, array, dict).
-// A non-nil minimal Reader is attached so that Key() can call r.resolve without
-// panicking; for plain (non-indirect) entries resolve returns the value as-is.
-func makeDictValue(m map[string]any) Value {
-	r := &Reader{f: bytes.NewReader(nil), end: 0}
-	d := make(dict)
-	for k, v := range m {
-		d[name(k)] = v
-	}
-	return Value{r, objptr{}, d}
-}
-
-// makeArrayValue builds a Value of Kind Array from the provided objects.
-func makeArrayValue(elems ...any) Value {
-	r := &Reader{f: bytes.NewReader(nil), end: 0}
-	a := make(array, len(elems))
-	for i, e := range elems {
-		a[i] = e
-	}
-	return Value{r, objptr{}, a}
-}
-
 // cmapTestStrVal returns a Value of Kind String whose RawString() is s.
 func cmapTestStrVal(s string) Value {
 	return Value{nil, objptr{}, s}
@@ -158,7 +135,7 @@ func TestCmapDecodeBfrangeArray(t *testing.T) {
 	lo := "\x30"
 	hi := "\x32"
 	// UTF-16BE strings for 'X', 'Y', 'Z'
-	dstArr := makeArrayValue(
+	dstArr := filterMakeArray(
 		runeToUTF16BE('X'),
 		runeToUTF16BE('Y'),
 		runeToUTF16BE('Z'),
@@ -375,7 +352,7 @@ func TestCmapMalformed(t *testing.T) {
 
 func TestCmapNewDictEncoder(t *testing.T) {
 	t.Run("WinAnsiEncoding_no_differences", func(t *testing.T) {
-		enc := makeDictValue(map[string]any{
+		enc := filterMakeDict(map[string]any{
 			"BaseEncoding": name("WinAnsiEncoding"),
 		})
 		de, _ := newDictEncoder(enc)
@@ -390,7 +367,7 @@ func TestCmapNewDictEncoder(t *testing.T) {
 	})
 
 	t.Run("MacRomanEncoding_no_differences", func(t *testing.T) {
-		enc := makeDictValue(map[string]any{
+		enc := filterMakeDict(map[string]any{
 			"BaseEncoding": name("MacRomanEncoding"),
 		})
 		de, _ := newDictEncoder(enc)
@@ -406,7 +383,7 @@ func TestCmapNewDictEncoder(t *testing.T) {
 
 	t.Run("default_encoding_no_differences", func(t *testing.T) {
 		// No BaseEncoding key → falls back to pdfDocEncoding.
-		enc := makeDictValue(map[string]any{})
+		enc := filterMakeDict(map[string]any{})
 		de, _ := newDictEncoder(enc)
 		if de == nil {
 			t.Fatal("newDictEncoder returned nil")
@@ -574,7 +551,7 @@ func TestCmapDecodeBfrangeArrayNonStringDst(t *testing.T) {
 	defer func() { DebugOn = prev }()
 
 	// Array containing a name element (not a String) at index 0.
-	dstArr := makeArrayValue(name("NotAString"))
+	dstArr := filterMakeArray(name("NotAString"))
 	entry := bfrange{lo: "\x30", hi: "\x32", dst: dstArr}
 
 	result, ok := decodeBfrange(entry, "\x30") // offset 0 -> Index(0) = name element

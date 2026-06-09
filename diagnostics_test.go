@@ -411,7 +411,7 @@ func TestWarningsAdversarialSizes(t *testing.T) {
 		if len(ws) != 1 {
 			t.Fatalf("want 1 warning, got %d", len(ws))
 		}
-		if len(ws[0].Detail) > 3*maxWarningDetailLen {
+		if len(ws[0].Detail) > maxWarningDetailLen+len("...") {
 			t.Errorf("Detail not clamped: %d bytes", len(ws[0].Detail))
 		}
 	})
@@ -431,7 +431,7 @@ func TestWarningsAdversarialSizes(t *testing.T) {
 		if len(ws) != 1 {
 			t.Fatalf("want 1 warning, got %d", len(ws))
 		}
-		if len(ws[0].Detail) > 3*maxWarningDetailLen {
+		if len(ws[0].Detail) > maxWarningDetailLen+len("...") {
 			t.Errorf("Detail not clamped: %d bytes (%q...)", len(ws[0].Detail), ws[0].Detail[:80])
 		}
 		if !strings.HasSuffix(ws[0].Detail, "+...") {

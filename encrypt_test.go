@@ -464,7 +464,12 @@ func TestDecryptStreamIdentity(t *testing.T) {
 // --- decryptStream (RC4) -----------------------------------------------------
 
 // TestEncryptDecryptStreamRC4 confirms that decryptStream with mode=modeRC4
-// returns a non-nil reader and that reading from it does not panic.
+// returns a non-nil reader, that reading from it does not panic, and that the
+// cipher produces the correct output length. It also verifies symmetric
+// round-trip recovery: because RC4 is symmetric, decrypting the ciphertext
+// again with the same per-object key must recover the original plaintext.
+// A length-only check cannot catch an identity-passthrough regression; the
+// round-trip can.
 func TestEncryptDecryptStreamRC4(t *testing.T) {
 	key := make([]byte, 5) // minimum valid RC4 key length
 	content := []byte("hello world stream content")
@@ -480,6 +485,17 @@ func TestEncryptDecryptStreamRC4(t *testing.T) {
 	}
 	if len(out) != len(content) {
 		t.Errorf("RC4 stream: got %d bytes, want %d", len(out), len(content))
+	}
+
+	// RC4 is symmetric: decrypting the ciphertext again with the same per-object
+	// key must recover the plaintext. A length-only check cannot catch an
+	// identity-passthrough regression; the round-trip can.
+	roundtrip, err := io.ReadAll(decryptStream(key, modeRC4, objptr{}, bytes.NewReader(out)))
+	if err != nil {
+		t.Fatalf("RC4 round-trip: read error: %v", err)
+	}
+	if !bytes.Equal(roundtrip, content) {
+		t.Errorf("RC4 round-trip: got %q, want %q", roundtrip, content)
 	}
 }
 
@@ -514,9 +530,8 @@ func TestEncryptParseEncryptBodyValid(t *testing.T) {
 	if len(U) != 32 {
 		t.Errorf("valid body: want U len 32, got %d", len(U))
 	}
-	if P == 0 && int64(-4) != 0 {
-		// P is uint32(-4) which is 0xFFFFFFFC — just check it's non-zero
-		_ = P
+	if P != 0xFFFFFFFC {
+		t.Errorf("valid body: want P 0xFFFFFFFC, got 0x%08X", P)
 	}
 	if len(ID) == 0 {
 		t.Error("valid body: want non-empty ID")

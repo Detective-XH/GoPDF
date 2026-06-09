@@ -63,13 +63,10 @@ func TestTJKerningLargeGap(t *testing.T) {
 		t.Errorf("Content().Text: \"World\" not found in %q (characters dropped)", joined)
 	}
 
-	// The discriminating check: a -300 kern is a word gap; the output must
-	// contain whitespace between the two words.
-	between := strings.TrimPrefix(joined, "Hello")
-	between = strings.TrimSuffix(strings.TrimSuffix(between, "\n"), "World")
-	hasGap := strings.ContainsAny(between, " \t\n") || !strings.Contains(joined, "HelloWorld")
-	if !hasGap {
-		t.Errorf("Content().Text: large kern (-300) did not produce whitespace between words; got %q (want gap between \"Hello\" and \"World\")", joined)
+	// The discriminating check: a -300 kern is a word gap; the words must not
+	// fuse into a single run.
+	if strings.Contains(joined, "HelloWorld") {
+		t.Errorf("TJ large gap: -300 kern should separate the words; got fused %q", joined)
 	}
 
 	// ---- GetStyledTexts check ----

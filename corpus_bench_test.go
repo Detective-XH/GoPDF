@@ -26,6 +26,7 @@ func benchReader(b *testing.B) *Reader {
 	return r
 }
 
+// Throughput baseline only (no ReportAllocs); for alloc tracking see BenchmarkCJKColdOpenExtract.
 func BenchmarkGetPlainText(b *testing.B) {
 	r := benchReader(b)
 	b.ResetTimer()
@@ -42,6 +43,7 @@ func BenchmarkGetPlainText(b *testing.B) {
 // the ToUnicode-CMap decode path that dominates CJK extraction cost.
 const cjkBenchFixture = "cjk/irs-p850-zh-hant.pdf"
 
+// Throughput baseline only (no ReportAllocs); for alloc tracking see BenchmarkCJKColdOpenExtract.
 func BenchmarkCJKGetPlainText(b *testing.B) {
 	data, err := os.ReadFile(corpusPath(cjkBenchFixture))
 	if err != nil {

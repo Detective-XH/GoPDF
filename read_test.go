@@ -50,16 +50,21 @@ func TestReadDictMaxDepth(t *testing.T) {
 	b := newBuffer(&payload, 0)
 	b.allowEOF = true
 	panicked := false
+	var panicMsg string
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				panicked = true
+				panicMsg = r.(error).Error()
 			}
 		}()
 		b.readObject()
 	}()
 	if !panicked {
 		t.Fatal("expected panic from deeply nested dicts, but readObject returned normally")
+	}
+	if !strings.Contains(panicMsg, "maximum depth") {
+		t.Fatalf("expected 'maximum depth' in panic message, got: %s", panicMsg)
 	}
 }
 
@@ -76,16 +81,21 @@ func TestReadArrayMaxDepth(t *testing.T) {
 	b := newBuffer(&payload, 0)
 	b.allowEOF = true
 	panicked := false
+	var panicMsg string
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				panicked = true
+				panicMsg = r.(error).Error()
 			}
 		}()
 		b.readObject()
 	}()
 	if !panicked {
 		t.Fatal("expected panic from deeply nested arrays, but readObject returned normally")
+	}
+	if !strings.Contains(panicMsg, "maximum depth") {
+		t.Fatalf("expected 'maximum depth' in panic message, got: %s", panicMsg)
 	}
 }
 

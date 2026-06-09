@@ -92,17 +92,21 @@ func TestColumnGuttersDeterministic(t *testing.T) {
 }
 
 func TestSplitWordsByGutters(t *testing.T) {
-	// No gutters: one segment.
-	ws := band([2]float64{10, 30}, [2]float64{45, 30})
-	if got := splitWordsByGutters(ws, nil, 10); len(got) != 1 {
-		t.Fatalf("nil gutters must give 1 segment, got %d", len(got))
-	}
-	// A genuine two-column row (wide gap straddling the gutter) splits in two.
-	ws = band([2]float64{10, 30}, [2]float64{210, 30})
-	segs := splitWordsByGutters(ws, []float64{200}, 10)
-	if len(segs) != 2 || len(segs[0]) != 1 || len(segs[1]) != 1 {
-		t.Fatalf("two-column row must split into two single-word segments, got %v", segs)
-	}
+	t.Run("nil_gutters", func(t *testing.T) {
+		// No gutters: one segment.
+		ws := band([2]float64{10, 30}, [2]float64{45, 30})
+		if got := splitWordsByGutters(ws, nil, 10); len(got) != 1 {
+			t.Fatalf("nil gutters must give 1 segment, got %d", len(got))
+		}
+	})
+	t.Run("two_column_split", func(t *testing.T) {
+		// A genuine two-column row (wide gap straddling the gutter) splits in two.
+		ws := band([2]float64{10, 30}, [2]float64{210, 30})
+		segs := splitWordsByGutters(ws, []float64{200}, 10)
+		if len(segs) != 2 || len(segs[0]) != 1 || len(segs[1]) != 1 {
+			t.Fatalf("two-column row must split into two single-word segments, got %v", segs)
+		}
+	})
 }
 
 func TestSplitWordsByGuttersFullWidth(t *testing.T) {

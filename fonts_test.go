@@ -275,11 +275,19 @@ func TestFontsUsesHardenedPagesIterator(t *testing.T) {
 	if len(fonts) != 2 {
 		t.Fatalf("Fonts() returned %d entries, want 2", len(fonts))
 	}
-	if fonts[0].Name != "Helvetica" || len(fonts[0].Pages) != 1 || fonts[0].Pages[0] != 1 {
-		t.Errorf("Fonts()[0] = %+v, want Helvetica on page 1", fonts[0])
+	byName := make(map[string]FontInfo)
+	for _, fi := range fonts {
+		byName[fi.Name] = fi
 	}
-	if fonts[1].Name != "TimesRoman" || len(fonts[1].Pages) != 1 || fonts[1].Pages[0] != 2 {
-		t.Errorf("Fonts()[1] = %+v, want TimesRoman on page 2", fonts[1])
+	if fi, ok := byName["Helvetica"]; !ok {
+		t.Errorf("font Helvetica missing from Fonts() result")
+	} else if len(fi.Pages) != 1 || fi.Pages[0] != 1 {
+		t.Errorf("Helvetica Pages = %v, want [1]", fi.Pages)
+	}
+	if fi, ok := byName["TimesRoman"]; !ok {
+		t.Errorf("font TimesRoman missing from Fonts() result")
+	} else if len(fi.Pages) != 1 || fi.Pages[0] != 2 {
+		t.Errorf("TimesRoman Pages = %v, want [2]", fi.Pages)
 	}
 
 	ws := r.Warnings()
