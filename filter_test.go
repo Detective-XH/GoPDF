@@ -305,6 +305,80 @@ func TestASCII85DecodeZShorthand(t *testing.T) {
 	}
 }
 
+// TestASCII85DecodeWhitespace verifies that whitespace-wrapped ASCII85 (the
+// conventional column wrapping found in real PDFs) decodes cleanly. alphaReader
+// zeroes interleaved whitespace and the stdlib decoder skips 0x00 exactly as it
+// skips whitespace. This is a deliberate guard against "fixing" alphaReader to
+// strip-and-compact: a claimed whitespace→0x00 corruption was REFUTED, and this
+// test fails if that no-op behaviour is ever broken.
+func TestASCII85DecodeWhitespace(t *testing.T) {
+	original := []byte("The quick brown fox jumps over the lazy dog, twice over.")
+
+	var encBuf bytes.Buffer
+	enc := &simpleASCII85Encoder{w: &encBuf}
+	_, _ = enc.Write(original)
+	_ = enc.Close()
+
+	// Interleave newlines, spaces, and tabs through the encoded stream; ASCII85
+	// whitespace is ignored anywhere, so this must not change the decoded bytes.
+	var wrapped bytes.Buffer
+	for i, b := range encBuf.Bytes() {
+		if i > 0 && i%8 == 0 {
+			wrapped.WriteByte('\n')
+		}
+		wrapped.WriteByte(b)
+		if i%5 == 0 {
+			wrapped.WriteByte(' ')
+		}
+	}
+	wrapped.WriteString("\t\r\n~>")
+
+	rd, err := applyFilter(bytes.NewReader(wrapped.Bytes()), "ASCII85Decode", Value{})
+	if err != nil {
+		t.Fatalf("applyFilter ASCII85Decode: %v", err)
+	}
+	got, err := io.ReadAll(rd)
+	if err != nil {
+		t.Fatalf("ReadAll ASCII85Decode: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Errorf("ASCII85 whitespace-wrapped: got %q, want %q", got, original)
+	}
+}
+
+// TestASCII85DecodeStripsNonASCII85 verifies that bytes outside the ASCII85
+// alphabet interleaved into the stream are dropped (zeroed by alphaReader, then
+// skipped by the stdlib decoder) and the surrounding data still decodes.
+func TestASCII85DecodeStripsNonASCII85(t *testing.T) {
+	original := []byte("strip me clean")
+
+	var encBuf bytes.Buffer
+	enc := &simpleASCII85Encoder{w: &encBuf}
+	_, _ = enc.Write(original)
+	_ = enc.Close()
+
+	// Splice a high byte and a NUL into the middle of the encoded stream.
+	raw := encBuf.Bytes()
+	mid := len(raw) / 2
+	var dirty bytes.Buffer
+	dirty.Write(raw[:mid])
+	dirty.Write([]byte{0xFF, 0x00})
+	dirty.Write(raw[mid:])
+	dirty.WriteString("~>")
+
+	rd, err := applyFilter(bytes.NewReader(dirty.Bytes()), "ASCII85Decode", Value{})
+	if err != nil {
+		t.Fatalf("applyFilter ASCII85Decode: %v", err)
+	}
+	got, err := io.ReadAll(rd)
+	if err != nil {
+		t.Fatalf("ReadAll ASCII85Decode: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Errorf("ASCII85 non-alphabet strip: got %q, want %q", got, original)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // TestFilterChain
 // ---------------------------------------------------------------------------
