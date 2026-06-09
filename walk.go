@@ -30,7 +30,7 @@ func (s *walkState) handleWalkFont(op string, args []Value) {
 		s.tl = args[0].Float64()
 	case "Tf":
 		if len(args) != 2 {
-			panic("bad TL")
+			panic("bad Tf")
 		}
 		if font, ok := s.fonts[args[0].Name()]; ok {
 			s.enc, _ = font.cachedEncoder() // legacy column/row path: no decode-path counting

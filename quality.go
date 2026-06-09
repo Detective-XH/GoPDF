@@ -257,6 +257,9 @@ type DocumentSummary struct {
 // signals up to the document level. See DocumentSummary (the type) for the
 // determinism/concurrency contract and null-page-slot handling.
 //
+// Experimental: this API is additive-evolving; see the DocumentSummary type
+// for the stability contract.
+//
 // It runs the extraction interpreter once per page; on a large document this is
 // ingestion-time work, not a hot-loop call.
 func (r *Reader) DocumentSummary() DocumentSummary {
@@ -296,11 +299,5 @@ func (r *Reader) DocumentSummary() DocumentSummary {
 // warning snapshot, preserving order. Returns nil when none, so an all-clean
 // document yields a nil DocumentSummary.Warnings rather than an empty slice.
 func docScopedWarnings(ws []ExtractionWarning) []ExtractionWarning {
-	var out []ExtractionWarning
-	for _, w := range ws {
-		if w.Page == 0 {
-			out = append(out, w)
-		}
-	}
-	return out
+	return filterWarnings(ws, func(w ExtractionWarning) bool { return w.Page == 0 })
 }

@@ -22,7 +22,8 @@ type Attachment struct {
 // without an embedded-file stream (/EF) are skipped: they reference external
 // files rather than embedding data. Page-level /FileAttachment annotations
 // are not scanned (deferred — see ROADMAP-V0-8-0). Safe for concurrent use:
-// each call walks the immutable name tree with per-call locals only.
+// each call walks the immutable name tree with per-call locals only and does
+// not mutate Reader state.
 func (r *Reader) Attachments() ([]Attachment, error) {
 	tree := r.Trailer().Key("Root").Key("Names").Key("EmbeddedFiles")
 	if tree.IsNull() {

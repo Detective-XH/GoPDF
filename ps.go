@@ -22,10 +22,13 @@ type Stack struct {
 	stack []Value
 }
 
+// Len returns the number of values currently on the stack.
 func (stk *Stack) Len() int {
 	return len(stk.stack)
 }
 
+// Push pushes v onto the stack. If the stack has reached its capacity limit
+// (maxPSValueStack), v is silently dropped.
 func (stk *Stack) Push(v Value) {
 	if len(stk.stack) >= maxPSValueStack {
 		return
@@ -33,6 +36,8 @@ func (stk *Stack) Push(v Value) {
 	stk.stack = append(stk.stack, v)
 }
 
+// Pop removes and returns the top value. If the stack is empty, Pop returns a
+// null Value (Kind() == Null).
 func (stk *Stack) Pop() Value {
 	n := len(stk.stack)
 	if n == 0 {
@@ -239,8 +244,8 @@ func dispatchKeyword(kw keyword, stk *Stack, dicts *[]dict, b *buffer, do func(s
 // in PDF files, such as cmap files that describe the mapping from font code
 // points to Unicode code points.
 //
-// A stream can also be represented by an array of streams that has to be handled as a single stream
-// In the case of a simple stream read only once, otherwise get the length of the stream to handle it properly
+// If strm.Kind() == Array, its element streams are concatenated and interpreted
+// as a single program.
 //
 // There is no support for executable blocks, among other limitations.
 func Interpret(strm Value, do func(stk *Stack, op string)) {

@@ -45,7 +45,7 @@ func (s *plainTextState) writeDecoded(decoded string) {
 
 func (s *plainTextState) handlePlainTf(args []Value) {
 	if len(args) != 2 {
-		panic("bad TL")
+		panic("bad Tf")
 	}
 	if font, ok := s.fonts[args[0].Name()]; ok {
 		s.enc, s.encSource = font.cachedEncoder()
@@ -147,6 +147,7 @@ func (s *plainTextState) interpretPlain(stk *Stack, op string) {
 // fonts can be passed in (to improve parsing performance) or left nil. A
 // passed-in map is treated read-only: its Font values are copied internally
 // before encoders are cached, so the same map is safe to share across calls.
+// GetPlainText is safe to call concurrently on the same Page and does not mutate Page or Reader state.
 func (p Page) GetPlainText(fonts map[string]*Font) (result string, err error) {
 	result, _, err = p.plainTextAndCounters(fonts)
 	return result, err

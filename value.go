@@ -93,7 +93,7 @@ func (v Value) Bool() bool {
 }
 
 // Int64 returns v's int64 value.
-// If v.Kind() != Int64, Int64 returns 0.
+// If v.Kind() != Integer, Int64 returns 0.
 func (v Value) Int64() int64 {
 	x, ok := v.data.(int64)
 	if !ok {
@@ -103,7 +103,7 @@ func (v Value) Int64() int64 {
 }
 
 // Float64 returns v's float64 value, converting from integer if necessary.
-// If v.Kind() != Float64 and v.Kind() != Int64, Float64 returns 0.
+// If v.Kind() != Real and v.Kind() != Integer, Float64 returns 0.
 func (v Value) Float64() float64 {
 	x, ok := v.data.(float64)
 	if !ok {
@@ -192,7 +192,9 @@ func (v Value) Key(key string) Value {
 
 // Keys returns a sorted list of the keys in the dictionary v.
 // If v is a stream, Keys applies to the stream's header dictionary.
-// If v.Kind() != Dict and v.Kind() != Stream, Keys returns nil.
+// If v.Kind() != Dict and v.Kind() != Stream, Keys returns nil. An empty
+// dictionary returns an empty, non-nil slice; use Kind to distinguish a
+// non-dictionary value from an empty dictionary.
 func (v Value) Keys() []string {
 	x, ok := v.data.(dict)
 	if !ok {

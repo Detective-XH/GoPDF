@@ -8,6 +8,14 @@ import (
 	"strings"
 )
 
+// The package walks PDF content streams with four parallel interpreters, each a
+// distinct sink over the same operator grammar. They are intentionally separate,
+// not duplication to merge (see the dead-code audit KEEP-AS-IS disposition):
+//   - contentState  (content.go)   positioned Text/Rect with full graphics state
+//   - plainTextState (plaintext.go) flat UTF-8 for GetPlainText
+//   - walkState      (walk.go)      deprecated column/row extraction
+//   - imageScanState (images.go)    image-draw metadata
+//
 // contentState holds the mutable interpreter state for the Content() operator loop.
 // The text encoder lives in g.enc (part of the graphics state) so q/Q save and
 // restore it together with the current font; see gstate.
@@ -159,7 +167,7 @@ func (s *contentState) handleTextMatrix(op string, args []Value) {
 // handleTf handles the Tf (set text font and size) operator.
 func (s *contentState) handleTf(args []Value) {
 	if len(args) != 2 {
-		panic("bad TL")
+		panic("bad Tf")
 	}
 	f := s.font(args[0].Name())
 	s.g.Tf = *f
@@ -343,9 +351,10 @@ func popArgs(stk *Stack) []Value {
 
 // handleDo executes the Do operator, walking Form XObjects up to the depth limit.
 func (s *contentState) handleDo(args []Value) {
-	if s.depth < xobjMaxDepth && len(args) > 0 {
-		s.interpretXObject(args[0].Name())
+	if s.depth >= xobjMaxDepth || len(args) == 0 {
+		return
 	}
+	s.interpretXObject(args[0].Name())
 }
 
 // interpret is the per-operator callback passed to Interpret.  It collects
@@ -372,6 +381,7 @@ func (s *contentState) interpret(stk *Stack, op string) {
 // All Text.S values in the returned Content are verbatim UTF-8 extracted from the
 // PDF; no HTML, shell, or other escaping is applied. Callers must escape at their
 // output sink (e.g. html.EscapeString before writing to an HTML template).
+// For a page with no Contents stream, Content returns a zero Content whose Text and Rect slices are nil.
 // If the content stream causes a panic (e.g. malformed operator arguments),
 // the defer/recover returns whatever text and rectangles were collected before
 // the crash rather than propagating the panic to the caller.
