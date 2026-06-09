@@ -55,6 +55,21 @@ func (b *buffer) skipSpaceAndComments() (byte, bool) {
 	return c, false
 }
 
+// Pre-boxed delimiter tokens. Like internedToken (operators), these fixed
+// structural keywords recur densely — `[`/`]` flank every glyph run in a CJK
+// TJ array — so returning a shared, pre-boxed token skips the per-occurrence
+// string(byte) copy and interface-boxing allocation. They are compared by value
+// everywhere (object.go/ps.go switches, e.g. tok == keyword("]")), so sharing
+// one backing value is transparent; read-only after init, so concurrent lexing
+// stays safe.
+var (
+	singleCharDelim = map[byte]token{
+		'[': keyword("["), ']': keyword("]"), '{': keyword("{"), '}': keyword("}"),
+	}
+	tokDictOpen  token = keyword("<<")
+	tokDictClose token = keyword(">>")
+)
+
 // readAngleBracket dispatches '<' or '>' to the appropriate handler.
 func (b *buffer) readAngleBracket(c byte) token {
 	if c == '<' {
@@ -67,7 +82,7 @@ func (b *buffer) readAngleBracket(c byte) token {
 // keyword; anything else is a hex string.
 func (b *buffer) readAngleBracketOpen() token {
 	if b.readByte() == '<' {
-		return keyword("<<")
+		return tokDictOpen
 	}
 	b.unreadByte()
 	return b.readHexString()
@@ -76,7 +91,7 @@ func (b *buffer) readAngleBracketOpen() token {
 // readAngleBracketClose handles the '>' case: '>>' becomes the dict-close keyword.
 func (b *buffer) readAngleBracketClose() token {
 	if b.readByte() == '>' {
-		return keyword(">>")
+		return tokDictClose
 	}
 	b.unreadByte()
 	b.errorf("unexpected delimiter %#q", rune('>'))
@@ -101,7 +116,7 @@ func (b *buffer) readToken() token {
 	case '(':
 		return b.readLiteralString()
 	case '[', ']', '{', '}':
-		return keyword(string(c))
+		return singleCharDelim[c]
 	case '/':
 		return b.readName()
 	default:
@@ -249,6 +264,44 @@ func (b *buffer) readName() token {
 	return name(string(tmp))
 }
 
+// internedToken maps the fixed PDF content-stream operator set (ISO 32000-1
+// Annex A) to pre-boxed token values. These operators recur densely — CJK text
+// extraction lexes hundreds of thousands of them per document — so returning a
+// shared, pre-boxed token skips both the string copy and the per-token
+// interface-boxing allocation that `return keyword(s)` otherwise incurs (each
+// the dominant allocation site in the lexer, per pprof on the CJK corpus). The
+// table holds only operators whose readKeyword slow path is `return keyword(s)`;
+// it excludes "true"/"false" (which return bool) and every numeric literal, so
+// the fast path is behaviour-identical to the slow path. Tokens are compared by
+// value everywhere (type assertions and value switches — no identity
+// assumptions), so sharing one backing value is transparent. Built once at init
+// and only read afterwards, so concurrent lexing stays safe.
+var internedToken = func() map[string]token {
+	ops := []string{
+		"w", "J", "j", "M", "d", "ri", "i", "gs", // general graphics state
+		"q", "Q", "cm", // special graphics state
+		"m", "l", "c", "v", "y", "h", "re", // path construction
+		"S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "n", // path painting
+		"W", "W*", // clipping
+		"BT", "ET", // text objects
+		"Tc", "Tw", "Tz", "TL", "Tf", "Tr", "Ts", // text state
+		"Td", "TD", "Tm", "T*", // text positioning
+		"Tj", "TJ", "'", "\"", // text showing
+		"d0", "d1", // type 3 fonts
+		"CS", "cs", "SC", "SCN", "sc", "scn", "G", "g", "RG", "rg", "K", "k", // color
+		"sh",             // shading
+		"BI", "ID", "EI", // inline images
+		"Do",                            // XObjects
+		"MP", "DP", "BMC", "BDC", "EMC", // marked content
+		"BX", "EX", // compatibility
+	}
+	m := make(map[string]token, len(ops))
+	for _, op := range ops {
+		m[op] = keyword(op)
+	}
+	return m
+}()
+
 func (b *buffer) readKeyword() token {
 	tmp := b.tmp[:0]
 	for {
@@ -260,6 +313,14 @@ func (b *buffer) readKeyword() token {
 		tmp = append(tmp, c)
 	}
 	b.tmp = tmp
+	// Fast path: a content-stream operator recurs densely; return its shared
+	// pre-boxed token to skip the string copy and the interface-boxing alloc.
+	// The map index over string(tmp) does not allocate (compiler special case),
+	// and the table excludes true/false/numerics, so this is behaviour-identical
+	// to the slow path below.
+	if t, ok := internedToken[string(tmp)]; ok {
+		return t
+	}
 	s := string(tmp)
 	switch s {
 	case "true":

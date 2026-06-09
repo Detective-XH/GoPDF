@@ -444,3 +444,56 @@ func FuzzLex(f *testing.F) {
 		_ = buf.readToken() //nolint:errcheck
 	})
 }
+
+// TestInternedTokenTransparency verifies readKeyword's operator fast path
+// returns exactly the value the slow path (keyword(s)) would: interning shares
+// one backing token, so it must never change a token's kind or content.
+func TestInternedTokenTransparency(t *testing.T) {
+	for op := range internedToken {
+		buf := newTestBuffer([]byte(op + " "))
+		tok := buf.readToken()
+		kw, ok := tok.(keyword)
+		if !ok {
+			t.Fatalf("interned %q lexed to %T, want keyword", op, tok)
+		}
+		if string(kw) != op {
+			t.Fatalf("interned %q lexed to keyword(%q)", op, string(kw))
+		}
+	}
+}
+
+// TestInternedTokenInvariant guards the table's safety precondition: it must
+// hold no keyword that readKeyword resolves to a non-keyword type. "true"/
+// "false" return bool and any numeric literal returns int64/float64; interning
+// one would silently change the token type, so fail loudly if one slips in.
+func TestInternedTokenInvariant(t *testing.T) {
+	for op := range internedToken {
+		switch op {
+		case "true", "false":
+			t.Fatalf("interned table must not contain %q (readKeyword returns bool)", op)
+		}
+		if isInteger(op) || isReal(op) {
+			t.Fatalf("interned table contains numeric %q (would shadow int64/float64)", op)
+		}
+	}
+}
+
+// TestDelimiterTokenTransparency verifies the pre-boxed structural delimiters
+// lex to exactly the keyword value callers compare against (e.g. object.go's
+// tok == keyword("]")): sharing one backing token must not change the value.
+func TestDelimiterTokenTransparency(t *testing.T) {
+	cases := map[string]keyword{
+		"[": "[", "]": "]", "{": "{", "}": "}", "<<": "<<", ">>": ">>",
+	}
+	for in, want := range cases {
+		buf := newTestBuffer([]byte(in + " "))
+		tok := buf.readToken()
+		kw, ok := tok.(keyword)
+		if !ok {
+			t.Fatalf("delimiter %q lexed to %T, want keyword", in, tok)
+		}
+		if kw != want {
+			t.Fatalf("delimiter %q lexed to keyword(%q), want %q", in, string(kw), string(want))
+		}
+	}
+}
