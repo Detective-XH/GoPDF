@@ -180,6 +180,41 @@ Document-scoped confidence metadata: `ds.Warnings` carries font and encoding
 issues that reduce confidence. An ecosystem adapter would surface the page
 signal under the cross-tool `extraction_confidence` metadata key.
 
+### Decode-quality ratios
+
+`DecodeRatios` (on each `PageSignal` and rolled up on `DocumentSummary`) reports
+what fraction of a page's decoded glyphs came through a lower-confidence decode
+path, so a pipeline can re-route text that is *present but unreliable* — text the
+signal alone would call `SignalText`. The fields are stable facts, not a score:
+you choose the thresholds. `Glyphs` is the shared denominator; each ratio is in
+`[0,1]`. Only text-classified pages contribute glyphs; the document rollup is the
+weighted ratio (glyph-count weighted), not a mean of per-page ratios.
+
+```go
+ds := r.DocumentSummary()
+
+// Document-level: what share of the whole document decoded unreliably?
+dr := ds.DecodeRatios
+fmt.Printf("doc glyphs=%d missing_tounicode=%.1f%% fallback=%.1f%% unmapped=%.1f%%\n",
+	dr.Glyphs, dr.MissingToUnicodeRatio*100, dr.FallbackRatio*100, dr.UnmappedRatio*100)
+
+// Per-page: send a text page with mostly approximate Unicode to OCR anyway.
+// The three ratios are not disjoint: a U+FFFD glyph is also counted in its
+// decode-source bucket, so when that is missing-/ToUnicode or fallback the same
+// glyph lands in two ratios. Threshold each one independently — never sum them.
+for _, ps := range ds.Pages {
+	dr := ps.DecodeRatios
+	if ps.Signal == pdf.SignalText && dr.Glyphs > 0 &&
+		(dr.MissingToUnicodeRatio > 0.5 || dr.FallbackRatio > 0.5 || dr.UnmappedRatio > 0.2) {
+		fmt.Printf("page %d: text present but low-confidence decode — route to OCR\n", ps.Page)
+	}
+}
+```
+
+A page whose entire text decodes through an unknown `/Encoding` shows all three
+ratios at 0 (that path is not one of the three named ratios); it is never silent,
+though — it always fires the document-scoped `unsupported_encoding` warning.
+
 ## Diagnostics
 
 Warnings are deterministic and deduplicated. They are intended for pipeline

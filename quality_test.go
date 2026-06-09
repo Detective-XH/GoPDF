@@ -260,6 +260,79 @@ func TestExtractionSignalDistinct(t *testing.T) {
 	}
 }
 
+// TestDecodeRatiosRollupIsWeighted locks that the document rollup is the weighted
+// ratio (sum-of-numerators / sum-of-denominators), NOT the mean of per-page ratios:
+// a 1-glyph all-fallback page and a 3-glyph all-simple page roll up to 1/4 = 0.25,
+// never mean(1.0, 0.0) = 0.5. It uses the same functions production uses
+// (decodeRatiosFrom + merge), with no byte-level fixture risk.
+func TestDecodeRatiosRollupIsWeighted(t *testing.T) {
+	var p1, p2 decodeCounters
+	p1.glyphs[encSourceFallback] = 1
+	p2.glyphs[encSourceSimple] = 3
+	if got := decodeRatiosFrom(p1); got.Glyphs != 1 || got.FallbackRatio != 1 {
+		t.Errorf("p1 = %+v, want Glyphs:1 FallbackRatio:1", got)
+	}
+	if got := decodeRatiosFrom(p2); got.Glyphs != 3 || got.FallbackRatio != 0 {
+		t.Errorf("p2 = %+v, want Glyphs:3 FallbackRatio:0", got)
+	}
+	var total decodeCounters
+	total.merge(p1)
+	total.merge(p2)
+	if roll := decodeRatiosFrom(total); roll.Glyphs != 4 || roll.FallbackRatio != 0.25 {
+		t.Errorf("rollup = %+v, want Glyphs:4 FallbackRatio:0.25 (weighted, not mean 0.5)", roll)
+	}
+}
+
+// TestDocumentSummaryDecodeRatios proves DocumentSummary wires the per-page ratio
+// and the single-page rollup end to end on a real fallback fixture, and that a
+// NONZERO ratio is deterministic across two passes (the all-simple determinism
+// test cannot exercise a nonzero ratio).
+func TestDocumentSummaryDecodeRatios(t *testing.T) {
+	r := openCorpus(t, "encoding/charset-shiftjis.pdf")
+	ds := r.DocumentSummary()
+	if len(ds.Pages) != 1 {
+		t.Fatalf("len(Pages) = %d, want 1", len(ds.Pages))
+	}
+	got := ds.Pages[0].DecodeRatios
+	if got.Glyphs != 1 || got.FallbackRatio != 1 {
+		t.Errorf("page DecodeRatios = %+v, want Glyphs:1 FallbackRatio:1", got)
+	}
+	if ds.DecodeRatios != got { // one text page → rollup equals that page
+		t.Errorf("rollup %+v != single page %+v", ds.DecodeRatios, got)
+	}
+	if ds2 := r.DocumentSummary(); !reflect.DeepEqual(ds, ds2) {
+		t.Errorf("nonzero-ratio DocumentSummary not deterministic:\n%+v\n%+v", ds, ds2)
+	}
+}
+
+// TestDocumentSummaryDecodeRatiosCleanCorpus locks the multi-page rollup invariant
+// on the 22-page IRS fixture: the rollup denominator equals the sum of per-page
+// denominators (content-independent), every ratio is in [0,1], and a clean
+// /ToUnicode document carries no bad-path glyphs.
+func TestDocumentSummaryDecodeRatiosCleanCorpus(t *testing.T) {
+	r := openCorpus(t, "cjk/irs-p850-zh-hant.pdf")
+	ds := r.DocumentSummary()
+	sum := 0
+	for _, ps := range ds.Pages {
+		sum += ps.DecodeRatios.Glyphs
+		for _, rr := range []float64{ps.DecodeRatios.MissingToUnicodeRatio,
+			ps.DecodeRatios.FallbackRatio, ps.DecodeRatios.UnmappedRatio} {
+			if rr < 0 || rr > 1 {
+				t.Errorf("page %d ratio out of [0,1]: %+v", ps.Page, ps.DecodeRatios)
+			}
+		}
+	}
+	if ds.DecodeRatios.Glyphs != sum {
+		t.Errorf("rollup Glyphs %d != sum of per-page %d", ds.DecodeRatios.Glyphs, sum)
+	}
+	if ds.DecodeRatios.Glyphs == 0 {
+		t.Fatal("expected nonzero decoded glyphs on a 22-page text fixture")
+	}
+	if ds.DecodeRatios.MissingToUnicodeRatio != 0 || ds.DecodeRatios.FallbackRatio != 0 || ds.DecodeRatios.UnmappedRatio != 0 {
+		t.Errorf("clean /ToUnicode corpus has bad-path ratios: %+v", ds.DecodeRatios)
+	}
+}
+
 // openCorpus opens a corpus fixture by relative path.
 func openCorpus(t *testing.T, rel string) *Reader {
 	t.Helper()

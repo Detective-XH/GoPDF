@@ -9,6 +9,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Decode-quality ratios** — `Reader.DocumentSummary()` now reports `DecodeRatios`,
+  per-page (on each `PageSignal`) and rolled up across the document. Each measures
+  what fraction of a page's decoded glyphs came through a lower-confidence decode
+  path — text with no usable `/ToUnicode` (`MissingToUnicodeRatio`), a predefined-CMap
+  charset approximation (`FallbackRatio`), or glyphs that could not be mapped at all
+  (`UnmappedRatio`, the U+FFFD share) — over the shared `Glyphs` denominator. They let
+  an ingestion pipeline re-route text that is *present but unreliable*: text the
+  routing signal alone would classify as clean. The fields are stable facts, not a
+  score — you set your own thresholds — and the three ratios overlap (a U+FFFD glyph
+  is also counted in its decode-source bucket), so they are thresholded independently,
+  never summed. The document rollup is glyph-count weighted, not a mean of per-page
+  ratios, and only text-bearing pages contribute. The values are computed from the
+  same extraction pass at no extra cost, never read the warning store, and are fully
+  deterministic and concurrency-safe. The `ExtractionSignal` enum is unchanged.
+  EXAMPLES.md, API-STABILITY.md, and README document the new struct and fields.
+
 - **Image-only / scanned-page classifier v2** — three new OCR-routing signals,
   all without decoding image streams. `Page.ExtractionSummary()` now reports
   `ImageCoverage`, the fraction of the page area covered by drawn image bounding
