@@ -110,6 +110,58 @@ The older `Page.GetTextByRow()` / `Page.GetTextByColumn()` methods are
 font metadata or feed the decode-path quality signals. Use `Page.Lines()`
 (column-aware) and `Page.Words()` instead. The legacy methods remain functional.
 
+## Ligatures and Unicode normalization
+
+GoPDF returns decoded text **verbatim** — it performs no Unicode normalization on
+any extraction path (`GetPlainText`, `GetStyledTexts`, `Words`, `Lines`). Whatever
+Unicode a PDF's encoding declares is exactly what you get back.
+
+The case that surprises most pipelines is typographic ligatures. When a producer
+encodes "fi"/"fl" as single glyphs, they commonly arrive as the Unicode
+compatibility codepoints **U+FB01 "ﬁ"** and **U+FB02 "ﬂ"** rather than the ASCII
+pairs `f`+`i` / `f`+`l`. GoPDF passes them through whichever decode path applies,
+never normalizing them away. A `/ToUnicode` CMap or a `/Differences` array (which
+resolves the `fi`/`fl`/`ff`/`ffi`/`ffl` glyph names through the Adobe Glyph List)
+can carry all five Latin f-ligatures — U+FB00 "ﬀ", U+FB01 "ﬁ", U+FB02 "ﬂ",
+U+FB03 "ﬃ", U+FB04 "ﬄ". The built-in MacRoman and PDFDoc byte encodings carry only
+`ﬁ`/`ﬂ` (U+FB01/U+FB02) in fixed slots; WinAnsiEncoding carries no ligatures at all.
+
+Left as-is, a substring search for `"find"` misses `"ﬁnd"`, and a tokenizer may
+treat `ﬁ` as a single token. Search and RAG pipelines usually want to fold
+ligatures to their ASCII expansions. GoPDF does not do this for you, and exposes no
+normalization option — fold caller-side, choosing how aggressive to be.
+
+**Targeted fold (recommended for most pipelines)** — a `strings.NewReplacer`
+covering just the Latin ligatures. It is deterministic and leaves every other
+character (fractions, symbols, digits) untouched:
+
+```go
+var ligatureFolder = strings.NewReplacer(
+	"ﬀ", "ff",
+	"ﬁ", "fi",
+	"ﬂ", "fl",
+	"ﬃ", "ffi",
+	"ﬄ", "ffl",
+)
+
+clean := ligatureFolder.Replace(text)
+```
+
+**Blanket NFKC** — `golang.org/x/text/unicode/norm` folds *all* Unicode
+compatibility forms in one pass, ligatures included:
+
+```go
+import "golang.org/x/text/unicode/norm"
+
+clean := norm.NFKC.String(text)
+```
+
+NFKC is heavier-handed: besides ligatures it also rewrites characters you may want
+to keep — `½` (U+00BD) becomes `1⁄2` (with U+2044 fraction slash), superscript `²`
+becomes `2`, and full-width forms collapse to ASCII. That is wrong for financial or
+scientific text where `½` or `²` carry meaning. Prefer the targeted replacer unless
+you genuinely want aggressive normalization everywhere.
+
 ## Image Draw Metadata
 
 `Page.Images()` reports draw operations, not distinct resources. It does not
