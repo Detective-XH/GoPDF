@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+These changes are merged into `master` but not yet tagged in a numbered release.
+
+### Fixed
+
+- ASCII85-encoded streams that use the `z` all-zero-group shorthand now decode
+  correctly. The shorthand was previously stripped before decoding, silently dropping
+  the four zero bytes it represents, so affected streams lost data. A malformed
+  mid-stream `z` now surfaces a decode error instead of being silently dropped.
+
+### Changed
+
+- Corrected and clarified godoc for several public APIs: `Value.Int64`/`Float64` now
+  name the actual kind constants (`Integer`/`Real`); `Value.Keys` documents that an
+  empty dictionary returns a non-nil empty slice (versus `nil` for a non-dictionary);
+  `IsSameSentence` no longer claims a sentence-ending-punctuation check it does not
+  perform; `Stack.Len`/`Push`/`Pop` document their silent-drop-at-capacity and
+  null-on-empty behaviour; and `Content`, `GetPlainText`, `Outline`, `Attachments`, and
+  `Reader.DocumentSummary` document their empty-return, concurrency, and stability
+  contracts. Content-stream panic messages for malformed `Tf`/`cm` operators were
+  corrected to name the operator that actually failed.
+
 ## v0.7.3 — 2026-06-09
 
 ### Added
