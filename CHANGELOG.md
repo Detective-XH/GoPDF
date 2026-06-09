@@ -9,6 +9,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- A langchaingo-style PDF document loader example (`examples/langchaingo_loader`): a
+  runnable adapter for Go RAG and ingestion pipelines that emits one document per
+  page, each carrying the page's plain text and a stable, LangChain/LlamaIndex-aligned
+  metadata key set — `page` (0-based), `page_label`, `total_pages`, lowercase document
+  properties (`title`, `author`, `subject`, `creator`, `producer`, and
+  `creationdate`/`moddate` as RFC3339), and `extraction_confidence` (the page's
+  extraction signal `text`/`image_only`/`empty`/`degraded` — a routing signal, not a
+  0–1 score). Every key is always present (a missing property is an empty string), and
+  a per-page extraction failure surfaces that page with its `degraded` signal instead
+  of aborting the document, so a pipeline can route just that page to OCR or review.
+  The example's local `Document` type is field-compatible with langchaingo's
+  `schema.Document` for the fields a loader populates, so adoption is an import swap
+  and no dependency is added. The README now carries a lineage comparison table
+  (GoPDF vs the inactive `ledongthuc/pdf` and `dslipak/pdf` readers) and EXAMPLES.md a
+  new "Ecosystem adapters (langchaingo / RAG loaders)" section. Examples and
+  documentation only — no library code, public API, or dependency change.
 - Documented ligature behaviour and caller-side normalization in a new EXAMPLES.md
   section, "Ligatures and Unicode normalization". GoPDF returns text verbatim and
   applies no Unicode normalization on any extraction path
