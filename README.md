@@ -17,6 +17,44 @@ every degraded extraction comes with a diagnostic you can act on.
 
 **Requires Go 1.25+** (`go.mod` directive).
 
+## Quick start
+
+```go
+package main
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+
+	"github.com/Detective-XH/gopdf"
+)
+
+func main() {
+	f, r, err := pdf.Open(os.Args[1])
+	if err != nil {
+		panic(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	var buf bytes.Buffer
+	text, err := r.GetPlainText(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	_, _ = buf.ReadFrom(text)
+	fmt.Println(buf.String())
+}
+```
+
+## Contents
+
+[Why GoPDF](#why-gopdf) · [At a glance](#at-a-glance) · [Features](#features) ·
+[Install](#install) · [Examples](#examples) · [API stability](#api-stability) ·
+[Limitations](#limitations) · [Accuracy](#accuracy--test-corpus) ·
+[Releases](#releases--verification)
+
 ## Why GoPDF
 
 - **Built for ingestion, not viewing.** Every API answers an ingestion question —
@@ -142,36 +180,8 @@ go run ./examples/read_text_with_styles
 go run ./examples/langchaingo_loader
 ```
 
-Quick start:
-
-```go
-package main
-
-import (
-	"bytes"
-	"context"
-	"fmt"
-	"os"
-
-	"github.com/Detective-XH/gopdf"
-)
-
-func main() {
-	f, r, err := pdf.Open(os.Args[1])
-	if err != nil {
-		panic(err)
-	}
-	defer func() { _ = f.Close() }()
-
-	var buf bytes.Buffer
-	text, err := r.GetPlainText(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	_, _ = buf.ReadFrom(text)
-	fmt.Println(buf.String())
-}
-```
+The [Quick start](#quick-start) above is the smallest complete program; see
+[EXAMPLES.md](EXAMPLES.md) for the full API cookbook.
 
 ## API stability
 
@@ -215,7 +225,7 @@ GitHub account, so nothing needs to be copied from this README:
 ```bash
 curl -s https://api.github.com/users/Detective-XH/ssh_signing_keys \
   | python3 -c "import json,sys; [print('*', k['key']) for k in json.load(sys.stdin)]" > allowed_signers
-git -c gpg.ssh.allowedSignersFile=./allowed_signers tag -v v0.7.1
+git -c gpg.ssh.allowedSignersFile=./allowed_signers tag -v v0.7.3
 # expect: Good "git" signature for * with ED25519-SK key SHA256:duCP4h22...
 ```
 
