@@ -436,6 +436,9 @@ func FuzzLex(f *testing.F) {
 	f.Add([]byte("(nested (parens) here)"))
 	f.Add([]byte("3.14"))
 	f.Fuzz(func(t *testing.T, b []byte) {
+		// readToken sits below the public recover boundary and panics-as-error on
+		// malformed input by design; only a runtime fault is a real bug here.
+		defer recoverIntentionalParserPanic(t)
 		buf := newBuffer(bytes.NewReader(b), 0)
 		buf.allowEOF = true
 		_ = buf.readToken() //nolint:errcheck
