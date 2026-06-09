@@ -5,14 +5,32 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/Detective-XH/gopdf.svg)](https://pkg.go.dev/github.com/Detective-XH/gopdf)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Detective-XH/gopdf)](https://goreportcard.com/report/github.com/Detective-XH/gopdf)
 
-GoPDF is a pure-Go, extraction-first PDF toolkit built for document-ingestion
-pipelines — indexing, RAG, and agent workflows that need reliable structure
-out of real-world PDFs. It extracts text, words and lines with bounding
-boxes, form fields, attachments, links, metadata, fonts, and image draw
-signals; opens modern encrypted files; survives malformed documents; and
-reports deterministic diagnostics whenever extraction silently degrades.
+> **Deterministic, pure-Go PDF text & structure extraction for LLM/RAG and
+> document-ingestion pipelines** — no CGo, no rendering, no OCR, no network.
+
+GoPDF turns real-world PDFs into clean, inspectable structure — text, words and
+lines with bounding boxes, form fields, attachments, links, metadata, fonts, and
+image-draw signals — and reports, deterministically, *when* a page extracts
+cleanly versus when it should be routed to OCR or flagged for review. It opens
+modern encrypted files, survives malformed documents, and never silently guesses:
+every degraded extraction comes with a diagnostic you can act on.
 
 **Requires Go 1.25+** (`go.mod` directive).
+
+## Why GoPDF
+
+- **Built for ingestion, not viewing.** Every API answers an ingestion question —
+  what is the text, where is it on the page, how confident is the decode, does
+  this page need OCR?
+- **Confidence signals, not just bytes.** `Page.ExtractionSignal()` and
+  `Reader.DocumentSummary()` classify each page (`text` / `image_only` / `empty` /
+  `degraded`) and quantify decode quality, so a pipeline can index, route to OCR,
+  or flag low-confidence pages — without parsing logs.
+- **Survives the real world.** CJK and Cyrillic scripts, RC4 / AES-128 / AES-256
+  encryption, hybrid cross-references, object streams, and malformed PDFs are all
+  handled with bounded, panic-safe, deterministic extraction.
+- **Pure Go, drop-in.** No CGo and no external services — `go get` and ship. Safe
+  for concurrent use after open.
 
 ## At a glance
 
@@ -168,7 +186,7 @@ GitHub account, so nothing needs to be copied from this README:
 ```bash
 curl -s https://api.github.com/users/Detective-XH/ssh_signing_keys \
   | python3 -c "import json,sys; [print('*', k['key']) for k in json.load(sys.stdin)]" > allowed_signers
-git -c gpg.ssh.allowedSignersFile=./allowed_signers tag -v v0.7.0
+git -c gpg.ssh.allowedSignersFile=./allowed_signers tag -v v0.7.1
 # expect: Good "git" signature for * with ED25519-SK key SHA256:duCP4h22...
 ```
 
