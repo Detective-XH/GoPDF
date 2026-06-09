@@ -8,8 +8,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"unicode"
+	"unicode/utf8"
 )
 
 // A Text represents a single piece of text drawn on a page.
@@ -222,10 +224,15 @@ func (x TextHorizontal) Less(i, j int) bool {
 // Word is a sequence of non-whitespace characters with a merged bounding box.
 // X and Y are the bottom-left origin in PDF coordinate space (Y increases upward).
 // W and H are the bounding box width and height in points.
+// Font and FontSize describe the typeface: for a word built from glyphs in more
+// than one font or size the first glyph wins. Font is the empty string when the
+// glyph carried no font name.
 type Word struct {
-	S    string
-	X, Y float64
-	W, H float64
+	S        string
+	X, Y     float64
+	W, H     float64
+	Font     string
+	FontSize float64
 }
 
 // Words returns the words on the page in reading order (left-to-right, top-to-bottom).
@@ -263,8 +270,13 @@ func (p Page) Words() (words []Word, err error) {
 // wordsFromBand's left-to-right precondition and handling sub/superscript Y-shift.
 func bandsByY(texts []Text) [][]Text {
 	sort.SliceStable(texts, func(i, j int) bool {
-		if texts[i].Y != texts[j].Y {
-			return texts[i].Y > texts[j].Y
+		// Quantise Y to a fine grid (far finer than line spacing, coarser than
+		// floating-point noise) so two glyphs meant for the same visual line
+		// cannot be reordered by sub-point baseline jitter; co-linear glyphs and
+		// ties fall through to left-to-right X order. Distinct lines, spaced by
+		// whole points, never share a grid cell.
+		if qi, qj := quantize(texts[i].Y), quantize(texts[j].Y); qi != qj {
+			return qi > qj
 		}
 		return texts[i].X < texts[j].X
 	})
@@ -273,7 +285,10 @@ func bandsByY(texts []Text) [][]Text {
 	var band []Text
 	flush := func() {
 		sort.SliceStable(band, func(i, j int) bool {
-			return band[i].X < band[j].X
+			if quantize(band[i].X) != quantize(band[j].X) {
+				return band[i].X < band[j].X
+			}
+			return band[i].Y > band[j].Y // deterministic tie-break for stacked glyphs
 		})
 		bands = append(bands, band)
 		band = nil
@@ -297,6 +312,14 @@ func bandsByY(texts []Text) [][]Text {
 		flush()
 	}
 	return bands
+}
+
+// quantize snaps a coordinate to a fine grid so floating-point jitter cannot
+// perturb sort order. The grid is far finer than any real line or glyph
+// spacing, so it only ever collapses values that are equal up to rounding.
+func quantize(v float64) float64 {
+	const grid = 0.05 // points
+	return math.Round(v / grid)
 }
 
 // isAllSpace reports whether every rune in s is a Unicode space character.
@@ -339,7 +362,7 @@ func wordsFromBand(band []Text) []Word {
 		}
 
 		if cur == nil {
-			cur = &Word{S: t.S, X: t.X, Y: t.Y, W: t.W, H: t.FontSize}
+			cur = &Word{S: t.S, X: t.X, Y: t.Y, W: t.W, H: t.FontSize, Font: t.Font, FontSize: t.FontSize}
 			continue
 		}
 
@@ -350,7 +373,7 @@ func wordsFromBand(band []Text) []Word {
 		}
 		if gap > threshold {
 			emit()
-			cur = &Word{S: t.S, X: t.X, Y: t.Y, W: t.W, H: t.FontSize}
+			cur = &Word{S: t.S, X: t.X, Y: t.Y, W: t.W, H: t.FontSize, Font: t.Font, FontSize: t.FontSize}
 			continue
 		}
 
@@ -374,23 +397,33 @@ func wordsFromBand(band []Text) []Word {
 // Line is a reading-order group of words that share a visual line.
 // X and Y are the bottom-left origin in PDF coordinate space (Y increases upward).
 // W and H are the bounding box of the entire line in points.
-// S is the words joined by a single space.
+// S is the words joined by a single space, except no space is inserted between
+// two glyphs of a space-less CJK script (Han, Hiragana, Katakana) so a per-glyph
+// run rejoins seamlessly; Korean (Hangul) keeps its inter-word spaces.
 // Words preserves the left-to-right order of the constituent Word values.
-//
-// Lines groups by the same y-band criterion as Page.Words(): two words are on
-// the same line when they share a y-band. Multi-column pages with columns at
-// the same Y will be collapsed into one Line per visual row.
+// Font and FontSize describe the typeface of the line; for a line spanning more
+// than one font or size the first word wins (mirroring Word's first-glyph rule).
 type Line struct {
-	S     string
-	X, Y  float64
-	W, H  float64
-	Words []Word
+	S        string
+	X, Y     float64
+	W, H     float64
+	Font     string
+	FontSize float64
+	Words    []Word
 }
 
-// Lines returns visual text lines on the page in reading order (top-to-bottom,
-// left-to-right). Each Line corresponds to one y-band — the same grouping
-// criterion as Page.Words(). Words within a line are in left-to-right order;
-// lines are top-to-bottom.
+// Lines returns visual text lines on the page. Words are grouped into y-bands
+// (as Page.Words()); a band that a column gutter splits — a wide vertical gap
+// recurring across the page — yields one Line per column instead of gluing the
+// columns into a single Line.S, so a full-width row (a masthead or heading that
+// flows across the gutters) stays whole while a genuine multi-column row breaks
+// apart. Words within a Line are left-to-right.
+//
+// Lines are emitted in y-band order, and within a band left-to-right by column.
+// This is a bounded per-band split, NOT full multi-column reading order: on a
+// multi-column page the columns are still interleaved by row (left col row 1,
+// right col row 1, left col row 2, ...) rather than read down each column in
+// full. Column-major ordering is intentionally out of scope here.
 //
 // Returns (nil, nil) for pages with no extractable text. Panics during content
 // parsing are recovered and returned as errors, matching Words() semantics.
@@ -407,34 +440,70 @@ func (p Page) Lines() (lines []Line, err error) {
 		return nil, nil
 	}
 
+	var rows [][]Word
 	for _, band := range bandsByY(texts) {
-		ws := wordsFromBand(band)
-		if len(ws) == 0 {
-			continue
+		if ws := wordsFromBand(band); len(ws) > 0 {
+			rows = append(rows, ws)
 		}
-		l := Line{
-			S:     ws[0].S,
-			X:     ws[0].X,
-			Y:     ws[0].Y,
-			W:     ws[0].W,
-			H:     ws[0].H,
-			Words: ws,
+	}
+	gutters, colGap := columnGutters(rows)
+	for _, ws := range rows {
+		for _, seg := range splitWordsByGutters(ws, gutters, colGap) {
+			lines = append(lines, lineFromWords(seg))
 		}
-		top := l.Y + l.H
-		for _, w := range ws[1:] {
-			l.S += " " + w.S
-			if end := w.X + w.W; end > l.X+l.W {
-				l.W = end - l.X
-			}
-			if w.Y < l.Y {
-				l.Y = w.Y
-			}
-			if wTop := w.Y + w.H; wTop > top {
-				top = wTop
-			}
-		}
-		l.H = top - l.Y
-		lines = append(lines, l)
 	}
 	return lines, nil
+}
+
+// lineFromWords assembles one Line from a left-to-right run of words. S is the
+// words joined by a single space, except no space is inserted between two
+// adjacent CJK glyphs (Han, Hiragana, Katakana, Hangul), which are set without
+// inter-character spacing — so a per-glyph word split rejoins seamlessly. Font
+// and FontSize come from the first word (first word wins for mixed-font lines).
+func lineFromWords(ws []Word) Line {
+	l := Line{
+		S: ws[0].S, X: ws[0].X, Y: ws[0].Y, W: ws[0].W, H: ws[0].H,
+		Font: ws[0].Font, FontSize: ws[0].FontSize, Words: ws,
+	}
+	top := l.Y + l.H
+	for _, w := range ws[1:] {
+		if joinNeedsSpace(l.S, w.S) {
+			l.S += " "
+		}
+		l.S += w.S
+		if end := w.X + w.W; end > l.X+l.W {
+			l.W = end - l.X
+		}
+		if w.Y < l.Y {
+			l.Y = w.Y
+		}
+		if wTop := w.Y + w.H; wTop > top {
+			top = wTop
+		}
+	}
+	l.H = top - l.Y
+	return l
+}
+
+// joinNeedsSpace reports whether a single space should separate the
+// already-assembled left text from the next word. It is suppressed only when
+// the boundary sits between two glyphs of a space-less CJK script (see
+// isSpacelessCJK), so a run that a per-glyph X-gap split into separate words
+// rejoins seamlessly. Korean (Hangul) is excluded: it uses real inter-word
+// spaces, so suppressing them would destroy word boundaries.
+func joinNeedsSpace(left, right string) bool {
+	lr, _ := utf8.DecodeLastRuneInString(left)
+	rr, _ := utf8.DecodeRuneInString(right)
+	return !isSpacelessCJK(lr) || !isSpacelessCJK(rr)
+}
+
+// isSpacelessCJK reports whether r belongs to a CJK script written without
+// inter-word spaces — Han (Chinese / Japanese kanji), Hiragana, or Katakana.
+// Hangul is deliberately NOT included: Korean separates words with spaces, so a
+// space between two Hangul syllables is a genuine word boundary that must be
+// preserved, not a per-glyph layout gap to be closed.
+func isSpacelessCJK(r rune) bool {
+	return unicode.Is(unicode.Han, r) ||
+		unicode.Is(unicode.Hiragana, r) ||
+		unicode.Is(unicode.Katakana, r)
 }

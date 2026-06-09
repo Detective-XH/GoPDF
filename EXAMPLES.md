@@ -72,10 +72,14 @@ if err != nil {
 }
 
 for _, w := range words {
-	fmt.Printf("word=%q x=%.1f y=%.1f w=%.1f h=%.1f\n",
-		w.S, w.X, w.Y, w.W, w.H)
+	fmt.Printf("word=%q font=%q size=%.1f x=%.1f y=%.1f w=%.1f h=%.1f\n",
+		w.S, w.Font, w.FontSize, w.X, w.Y, w.W, w.H)
 }
 ```
+
+`Word.Font`/`Word.FontSize` carry the font name and point size of the word's
+first glyph; for a word mixing fonts or sizes the first glyph wins, and `Font`
+is empty when the glyph carried no font name.
 
 ## Lines
 
@@ -87,10 +91,19 @@ if err != nil {
 }
 
 for _, l := range lines {
-	fmt.Printf("line=%q x=%.1f y=%.1f w=%.1f h=%.1f words=%d\n",
-		l.S, l.X, l.Y, l.W, l.H, len(l.Words))
+	fmt.Printf("line=%q font=%q size=%.1f x=%.1f y=%.1f w=%.1f h=%.1f words=%d\n",
+		l.S, l.Font, l.FontSize, l.X, l.Y, l.W, l.H, len(l.Words))
 }
 ```
+
+`Line.Font`/`Line.FontSize` come from the line's first word (same first-wins
+rule). `Line.S` joins the words with single spaces, except between two glyphs of
+a space-less CJK script (Han, Hiragana, Katakana), where no space is inserted so
+a per-glyph run rejoins seamlessly; Korean (Hangul) keeps its inter-word spaces.
+On a multi-column page a line is split per column where a recurring column gutter
+separates the words, so columns no longer glue into one line — but lines are
+still emitted in top-to-bottom band order (columns interleaved by row), not full
+column-major reading order.
 
 ## Image Draw Metadata
 

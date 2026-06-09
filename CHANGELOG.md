@@ -9,6 +9,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Per-word/per-line fonts, and multi-column + CJK line reading** —
+  `Page.Words()` and `Page.Lines()` now report the font name and size of each
+  word and line (`Word.Font`/`Word.FontSize`, `Line.Font`/`Line.FontSize`; for a
+  word or line that mixes fonts or sizes the first glyph/word wins). `Page.Lines()`
+  no longer glues side-by-side columns into one line: on a multi-column page a
+  line is split per column wherever a recurring column gutter separates the text,
+  while a full-width masthead or heading that flows across the page stays a single
+  line. Within a line, runs of a space-less CJK script (Chinese, and Japanese
+  kana/kanji) rejoin without the spurious per-glyph spaces a page can introduce
+  (`联 合 国 大 会` → `联合国大会`), while Korean keeps its real inter-word spaces.
+  Line grouping is deterministic across runs and platforms. Reading order is a
+  bounded per-column split, not full column-major ordering (columns are still
+  interleaved row by row); `Page.Words()` and `Page.Texts()` are unchanged.
+  EXAMPLES.md and API-STABILITY.md document the new fields.
+
 - **Decode-quality ratios** — `Reader.DocumentSummary()` now reports `DecodeRatios`,
   per-page (on each `PageSignal`) and rolled up across the document. Each measures
   what fraction of a page's decoded glyphs came through a lower-confidence decode
