@@ -100,7 +100,7 @@ Planned, pre-announced additions (additive only — nothing existing changes):
 
 | Symbol | Planned additions |
 |--------|-------------------|
-| `PageExtractionSummary` | decode-path ratio fields (the `ImageCoverage` image-coverage ratio has shipped) |
+| `PageExtractionSummary` | further per-page fields (the `ImageCoverage` image-coverage ratio has shipped; decode-path quality ratios shipped on `PageSignal`/`DocumentSummary` as `DecodeRatios`) |
 | `ExtractionWarningCode` | new warning codes (the enum is additive by design; match known codes, pass unknown ones through). Shipped: page-scoped `sparse_text` (page furniture, no body text) |
 | `ImageRef` | image metadata fields (e.g. color space, inline-image dimensions) |
 | `Word`, `Line` | font name/size fields (per-word font info), aligning with the cross-ecosystem norm |
@@ -110,8 +110,9 @@ Planned, pre-announced additions (additive only — nothing existing changes):
 
 - `type ExtractionSignal string` — routing signal enum. Values: `SignalText` ("text"), `SignalImageOnly` ("image_only"), `SignalEmpty` ("empty"), `SignalDegraded` ("degraded"). The value set is additive (callers MUST tolerate unknown values, treating them as "needs review").
 - `Page.ExtractionSignal() ExtractionSignal` — classifies the page's extraction readiness for ingestion routing. Deterministic, safe for concurrent use.
-- `type PageSignal struct { Page int; Signal ExtractionSignal; ImageCount int }` — one page's routing classification with image-draw count.
-- `type DocumentSummary struct { TotalPages int; Pages []PageSignal; TextPages int; ImageOnlyPages int; EmptyPages int; DegradedPages int; Warnings []ExtractionWarning }` — document-level extraction summary with per-signal tallies. Fields are additive (decode-path and coverage ratio fields planned).
+- `type PageSignal struct { Page int; Signal ExtractionSignal; ImageCount int; DecodeRatios DecodeRatios }` — one page's routing classification with image-draw count and decode-path quality ratios.
+- `type DocumentSummary struct { TotalPages int; Pages []PageSignal; TextPages int; ImageOnlyPages int; EmptyPages int; DegradedPages int; Warnings []ExtractionWarning; DecodeRatios DecodeRatios }` — document-level extraction summary with per-signal tallies and a weighted decode-ratio rollup. Fields are additive.
+- `type DecodeRatios struct { Glyphs int; MissingToUnicodeRatio float64; FallbackRatio float64; UnmappedRatio float64 }` — the fraction of decoded glyphs that came through a lower-confidence decode path (missing `/ToUnicode`, charset fallback, or U+FFFD-unmapped), over the shared `Glyphs` denominator. Stable facts, not a score; deterministic and concurrency-safe (never reads the warning store). Fields are additive.
 - `Reader.DocumentSummary() DocumentSummary` — classifies every page and aggregates signals to document level.
 
 Consumers should treat these structs as growable: decode JSON leniently and

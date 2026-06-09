@@ -308,3 +308,63 @@ func TestRotatedTextWarningCorpusWide(t *testing.T) {
 		})
 	}
 }
+
+// TestDecodeRatiosAgreement locks the quality-ratio acceptance: the per-page decode
+// ratios derived from the content (Words) sink and the plain-text (GetPlainText)
+// sink are identical on every committed encoding/ fixture. The agreement is BOUNDED
+// to those fixtures because the underlying counter agreement is bounded (single
+// resolved font, no q/Q-scoped font change, synthesised separators excluded) — they
+// all satisfy it. Exact pins catch a symmetric error that equality alone cannot:
+// charset-shiftjis is one fallback glyph (FallbackRatio 1.0), and unmapped-glyph
+// carries at least one U+FFFD (UnmappedRatio > 0).
+func TestDecodeRatiosAgreement(t *testing.T) {
+	for _, e := range corpusManifest {
+		if e.Feature != "signal-decode-path" {
+			continue
+		}
+		t.Run(e.Path, func(t *testing.T) {
+			content := loadCorpus(t, e).Page(1).decodeCountersFromContent()
+			plain, err := loadCorpus(t, e).Page(1).decodeCountersFromPlainText()
+			if err != nil {
+				t.Fatalf("decodeCountersFromPlainText: %v", err)
+			}
+			if decodeRatiosFrom(content) != decodeRatiosFrom(plain) {
+				t.Errorf("ratio mismatch: content %+v, plain %+v",
+					decodeRatiosFrom(content), decodeRatiosFrom(plain))
+			}
+			switch e.Path {
+			case "encoding/charset-shiftjis.pdf":
+				if dr := decodeRatiosFrom(content); dr.Glyphs != 1 || dr.FallbackRatio != 1 {
+					t.Errorf("charset-shiftjis ratios = %+v, want Glyphs:1 FallbackRatio:1", dr)
+				}
+			case "encoding/unmapped-glyph.pdf":
+				if dr := decodeRatiosFrom(content); dr.UnmappedRatio <= 0 {
+					t.Errorf("unmapped-glyph UnmappedRatio = %v, want > 0", dr.UnmappedRatio)
+				}
+			}
+		})
+	}
+}
+
+// TestDecodeRatioDenominatorExcludesUnset guards the ratio denominator: the
+// no-font encSourceUnset bucket (bucket 0) must stay empty on every real corpus
+// page. decodeRatiosFrom sums ALL encSource buckets for its denominator, so a run
+// that ever recorded glyphs under encSourceUnset (a show op before Tf, an
+// unresolved font emitting runes) would silently inflate the denominator and
+// deflate every ratio. Empirically zero corpus-wide today; this locks it.
+func TestDecodeRatioDenominatorExcludesUnset(t *testing.T) {
+	for _, e := range corpusManifest {
+		if e.Password != "" {
+			continue // encrypted fixtures need a password to open; covered elsewhere
+		}
+		t.Run(e.Path, func(t *testing.T) {
+			r := loadCorpus(t, e)
+			for i := 1; i <= r.NumPage(); i++ {
+				if c := r.Page(i).decodeCountersFromContent(); c.glyphs[encSourceUnset] != 0 {
+					t.Errorf("page %d: encSourceUnset glyphs = %d, want 0 (inflates ratio denominator)",
+						i, c.glyphs[encSourceUnset])
+				}
+			}
+		})
+	}
+}
