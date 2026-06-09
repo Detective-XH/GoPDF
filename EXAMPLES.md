@@ -105,6 +105,11 @@ separates the words, so columns no longer glue into one line — but lines are
 still emitted in top-to-bottom band order (columns interleaved by row), not full
 column-major reading order.
 
+The older `Page.GetTextByRow()` / `Page.GetTextByColumn()` methods are
+**deprecated**: they run a separate text interpreter that does not carry per-word
+font metadata or feed the decode-path quality signals. Use `Page.Lines()`
+(column-aware) and `Page.Words()` instead. The legacy methods remain functional.
+
 ## Image Draw Metadata
 
 `Page.Images()` reports draw operations, not distinct resources. It does not
