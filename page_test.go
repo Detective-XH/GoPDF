@@ -696,14 +696,16 @@ func TestGetStyledTextsXObjectForm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenBytes: %v", err)
 	}
-	// contentState appends one Text per glyph; join all S fields to check full word.
-	texts := r.Page(1).Content().Text
+	sentences, err := r.GetStyledTexts(context.Background())
+	if err != nil {
+		t.Fatalf("GetStyledTexts: %v", err)
+	}
 	var got strings.Builder
-	for _, tx := range texts {
-		got.WriteString(tx.S)
+	for _, s := range sentences {
+		got.WriteString(s.S)
 	}
 	if !strings.Contains(got.String(), "world") {
-		t.Errorf("Content().Text joined = %q; want it to contain %q", got.String(), "world")
+		t.Errorf("GetStyledTexts joined = %q; want it to contain %q", got.String(), "world")
 	}
 }
 

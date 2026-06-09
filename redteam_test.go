@@ -351,10 +351,16 @@ func TestContentBareQNoPanic(t *testing.T) {
 		t.Fatalf("P7: OpenBytes: %v", err)
 	}
 	c := r.Page(1).Content()
-	// "before" = 6 chars, "after" = 5 chars; guard lets parsing continue past Q.
-	const wantAtLeast = 7 // more than len("before") proves "after" was reached
-	if len(c.Text) < wantAtLeast {
-		t.Fatalf("P7: got %d text elements, want >= %d; bare Q may have stopped parsing early", len(c.Text), wantAtLeast)
+	var joined strings.Builder
+	for _, tx := range c.Text {
+		joined.WriteString(tx.S)
+	}
+	got := joined.String()
+	if !strings.Contains(got, "before") {
+		t.Errorf("P7: bare Q dropped pre-Q text; want \"before\" in %q", got)
+	}
+	if !strings.Contains(got, "after") {
+		t.Errorf("P7: bare Q stopped parsing; want \"after\" in %q", got)
 	}
 }
 
@@ -373,6 +379,11 @@ func TestContentMalformedArgNoPanic(t *testing.T) {
 	assertNoPanic(t, func() {
 		_ = page.Content()
 	})
+	// The malformed "1 Td" carries no show operator, so recovery must yield no
+	// spurious text — not merely "no panic".
+	if c := page.Content(); len(c.Text) != 0 {
+		t.Errorf("P8: malformed Td should yield no text elements, got %d", len(c.Text))
+	}
 }
 
 // P9a — PS dict-stack DoS: CMap stream containing 2×maxPSDictStack "begin" operators.

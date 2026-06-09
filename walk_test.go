@@ -494,6 +494,13 @@ func TestWalkTjSpaceThresholdPositiveKern(t *testing.T) {
 	if !strings.Contains(got, "World") {
 		t.Errorf("positive kern: 'World' not found in %q", got)
 	}
+	// A positive kern moves text LEFT (only a kern <= -tjSpaceThreshold injects a
+	// synthetic space). With the synthetic font's zero-width glyphs the +200 shift
+	// reorders the words by X to "WorldHello", but they must stay adjacent with no
+	// space between them — so accept either order, reject any synthetic separator.
+	if !strings.Contains(got, "HelloWorld") && !strings.Contains(got, "WorldHello") {
+		t.Errorf("TJ positive kern (+200) must keep words adjacent with no synthetic space; got %q", got)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -535,8 +542,9 @@ func TestWalkHandleShowQuote(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestWalkHandleShowDoubleQuote verifies the " operator's bad-arg-count panic.
-// Due to a walk.go bug (no args-trimming before fallthrough), the only reachable
-// path is the wrong-arg-count check at lines 47-48.
+// The " operator's string-emit path is not reachable through handleWalkShow
+// because args are not trimmed before the fallthrough — a known gap, so this
+// test only exercises the wrong-arg-count guard.
 func TestWalkHandleShowDoubleQuote(t *testing.T) {
 	s := &walkState{
 		enc:       &nopEncoder{},
@@ -552,7 +560,7 @@ func TestWalkHandleShowDoubleQuote(t *testing.T) {
 				panicked = true
 			}
 		}()
-		// 0 args — triggers "bad \" operator" panic (lines 47-48).
+		// 0 args — triggers "bad \" operator" panic (wrong-arg-count guard).
 		s.handleWalkShow("\"", []Value{})
 	}()
 	if !panicked {

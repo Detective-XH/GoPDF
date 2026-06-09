@@ -12,10 +12,12 @@ import (
 	"testing"
 )
 
-// collectRowText concatenates the S fields of every Text entry in all rows,
-// inserting a single space between adjacent Text entries within the same row
-// so that individually-emitted words remain distinguishable even when the
-// synthetic space was emitted as a separate Text element.
+// collectRowText concatenates the S fields of every Text entry across all rows,
+// in order, with NO separator. The separator-free join is load-bearing for the
+// TJ-kern tests: "Hello" and "World" are separate TJ operands and so always land
+// in separate Text entries, so the join contains "HelloWorld" exactly when no
+// space was emitted between them — i.e. a missing word-gap space surfaces as a
+// fused run in the join (it could never surface at the per-entry level).
 func collectRowText(rows Rows) string {
 	var b strings.Builder
 	for _, row := range rows {
@@ -26,7 +28,8 @@ func collectRowText(rows Rows) string {
 	return b.String()
 }
 
-// collectColumnText does the same for Columns.
+// collectColumnText is the Columns counterpart of collectRowText: the same
+// separator-free concatenation, in column-position order.
 func collectColumnText(cols Columns) string {
 	var b strings.Builder
 	for _, col := range cols {
@@ -67,16 +70,18 @@ func TestGetTextByRowTJKerning(t *testing.T) {
 		t.Errorf("GetTextByRow: \"World\" not found in %q (characters dropped)", joined)
 	}
 
-	// A -300 kern is a word gap; the two words must not fuse into a single run.
-	// Accept either an explicit space in the concatenated output or two separate
-	// Text entries (which means "HelloWorld" as a flat string is absent).
-	hasGap := !strings.Contains(joined, "HelloWorld") ||
-		strings.Contains(joined, "Hello World")
-	if !hasGap {
-		t.Errorf("GetTextByRow: large kern (-300) did not produce separation; got %q (want gap between \"Hello\" and \"World\")", joined)
+	// A -300 kern is a word gap. collectRowText joins entries with NO separator,
+	// so "HelloWorld" is absent from the join ONLY if an actual space was emitted
+	// between the words — exactly the synthetic space the -300 kern must inject.
+	// (Contrast TestGetTextByRowTJSmallKern: a -10 kern emits no space, so ITS
+	// join is "HelloWorld". The two words are always separate Text entries, so the
+	// missing-space regression is only visible in the flattened join, not per
+	// entry.)
+	if strings.Contains(joined, "HelloWorld") {
+		t.Errorf("GetTextByRow: large kern (-300) did not inject a word-gap space; got fused %q", joined)
 	}
 
-	// Additionally verify that both words land in the same row (same Y position).
+	// Both words must still be present (no characters dropped).
 	if len(rows) == 0 {
 		t.Fatal("GetTextByRow: no rows returned")
 	}
@@ -124,6 +129,12 @@ func TestGetTextByColumnTJKerning(t *testing.T) {
 	}
 	if !strings.Contains(joined, "World") {
 		t.Errorf("GetTextByColumn: \"World\" not found in %q (characters dropped)", joined)
+	}
+	// Mirror TestGetTextByRowTJKerning: with the separator-free join, absence of
+	// "HelloWorld" means the -300 kern injected the word-gap space (a -10 kern
+	// would leave the words fused in the join).
+	if strings.Contains(joined, "HelloWorld") {
+		t.Errorf("GetTextByColumn: large kern (-300) did not inject a word-gap space; got fused %q", joined)
 	}
 }
 

@@ -39,8 +39,8 @@ func TestNameToRuneSpot(t *testing.T) {
 }
 
 func TestNameToRuneCount(t *testing.T) {
-	if n := len(nameToRune); n < 300 {
-		t.Errorf("len(nameToRune) = %d; want >= 300", n)
+	if n := len(nameToRune); n < 4000 {
+		t.Errorf("len(nameToRune) = %d; want >= 4000", n)
 	}
 }
 

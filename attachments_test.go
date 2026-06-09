@@ -22,11 +22,12 @@ import (
 	"testing"
 )
 
-// openAttachmentFixture opens testdata/attachments/<name> via NewReader.
-func openAttachmentFixture(t *testing.T, name string) *Reader {
+// openAttachmentFixture opens a fixture file at the given path (relative to the
+// repo root, e.g. "testdata/attachments/one-attachment.pdf") via NewReader.
+func openAttachmentFixture(t *testing.T, path string) *Reader {
 	t.Helper()
 	//nolint:gosec // G304: fixture is a fixed testdata path, not user input
-	f, err := os.Open("testdata/attachments/" + name)
+	f, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
 	}
@@ -60,7 +61,7 @@ func readAttachment(t *testing.T, a Attachment) string {
 // TestAttachmentsBasic verifies Name, MimeType, and Size on the single-file
 // qpdf fixture.
 func TestAttachmentsBasic(t *testing.T) {
-	r := openAttachmentFixture(t, "one-attachment.pdf")
+	r := openAttachmentFixture(t, "testdata/attachments/one-attachment.pdf")
 	atts, err := r.Attachments()
 	if err != nil {
 		t.Fatalf("Attachments: %v", err)
@@ -83,7 +84,7 @@ func TestAttachmentsBasic(t *testing.T) {
 // TestAttachmentsData verifies the decoded bytes round-trip (the qpdf stream
 // is FlateDecode-compressed; Value.Reader() must decode it).
 func TestAttachmentsData(t *testing.T) {
-	r := openAttachmentFixture(t, "one-attachment.pdf")
+	r := openAttachmentFixture(t, "testdata/attachments/one-attachment.pdf")
 	atts, err := r.Attachments()
 	if err != nil {
 		t.Fatalf("Attachments: %v", err)
@@ -102,7 +103,7 @@ func TestAttachmentsData(t *testing.T) {
 
 // TestAttachmentsMulti verifies multiple /Names entries in tree order.
 func TestAttachmentsMulti(t *testing.T) {
-	r := openAttachmentFixture(t, "two-attachments.pdf")
+	r := openAttachmentFixture(t, "testdata/attachments/two-attachments.pdf")
 	atts, err := r.Attachments()
 	if err != nil {
 		t.Fatalf("Attachments: %v", err)
@@ -121,20 +122,7 @@ func TestAttachmentsMulti(t *testing.T) {
 
 // TestAttachmentsEmpty verifies (nil, nil) for a PDF without embedded files.
 func TestAttachmentsEmpty(t *testing.T) {
-	//nolint:gosec // G304: fixture is a fixed testdata path, not user input
-	f, err := os.Open("testdata/corpus/plaintext/hello-ascii.pdf")
-	if err != nil {
-		t.Fatalf("open fixture: %v", err)
-	}
-	t.Cleanup(func() { _ = f.Close() })
-	fi, err := f.Stat()
-	if err != nil {
-		t.Fatalf("stat fixture: %v", err)
-	}
-	r, err := NewReader(f, fi.Size())
-	if err != nil {
-		t.Fatalf("NewReader: %v", err)
-	}
+	r := openAttachmentFixture(t, "testdata/corpus/plaintext/hello-ascii.pdf")
 	atts, err := r.Attachments()
 	if err != nil {
 		t.Fatalf("Attachments: %v", err)

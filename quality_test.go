@@ -122,14 +122,7 @@ func TestDocumentSummaryNullSlots(t *testing.T) {
 // all-text fixture: cjk/irs-p850-zh-hant.pdf is 22 pages, every page text. This
 // also locks the GetPlainText-vs-Words text-authority agreement on real content.
 func TestDocumentSummaryCleanCorpus(t *testing.T) {
-	data, err := os.ReadFile(corpusPath("cjk/irs-p850-zh-hant.pdf"))
-	if err != nil {
-		t.Fatalf("read fixture: %v", err)
-	}
-	r, err := OpenBytes(data)
-	if err != nil {
-		t.Fatalf("OpenBytes: %v", err)
-	}
+	r := openCorpus(t, "cjk/irs-p850-zh-hant.pdf")
 	ds := r.DocumentSummary()
 	if ds.TotalPages != 22 || len(ds.Pages) != 22 {
 		t.Fatalf("TotalPages=%d len(Pages)=%d, want 22/22", ds.TotalPages, len(ds.Pages))
@@ -248,12 +241,13 @@ func TestExtractionSignalDistinct(t *testing.T) {
 	}
 	seen := map[ExtractionSignal]bool{}
 	for _, c := range cases {
+		got := c.open(t).Page(1).ExtractionSignal()
 		t.Run(c.name, func(t *testing.T) {
-			if got := c.open(t).Page(1).ExtractionSignal(); got != c.want {
+			if got != c.want {
 				t.Errorf("signal = %q, want %q", got, c.want)
 			}
 		})
-		seen[c.want] = true
+		seen[got] = true
 	}
 	if len(seen) != 4 {
 		t.Errorf("expected 4 distinct signal values, exercised %d", len(seen))

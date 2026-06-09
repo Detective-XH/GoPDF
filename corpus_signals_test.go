@@ -14,8 +14,7 @@ type signalExpect struct {
 	wordCountMin  int              // minimum Words() on page 1; 0 = no lower bound
 	imageCount    int              // expected countDrawnImages; -1 = do not assert
 	imageOnlyWarn bool             // expect WarningImageOnlyPage on page 1
-	wantErr       bool             // ExtractionSummary returns an error (panic propagated past Words)
-	gpErr         bool             // Reader.GetPlainText returns an error (independent of wantErr)
+	gpErr         bool             // Reader.GetPlainText returns an error (independent of ExtractionSummary)
 	signal        ExtractionSignal // expected Page.ExtractionSignal on page 1
 	coverage      float64          // expected ImageCoverage on page 1, asserted with tolerance when assertCov
 	assertCov     bool             // whether to assert coverage (a literal 0 is meaningful, so this gates it)
@@ -26,15 +25,13 @@ type signalExpect struct {
 // keyed by fixture Path. Consumed by TestCorpusSignalFixtures AND the anchored
 // arm in TestCorpusNoGoldenFixtures (DRY).
 //
-// gpErr keys on Reader.GetPlainText; wantErr keys on ExtractionSummary. The two are
-// independent and DIVERGE for malformed-truncated: GetPlainText surfaces the
-// TJ-without-array panic as an error (gpErr:true, Golden:"" in the manifest), yet
+// gpErr keys on Reader.GetPlainText. For malformed-truncated: GetPlainText surfaces
+// the TJ-without-array panic as an error (gpErr:true, Golden:"" in the manifest), yet
 // ExtractionSummary's Words() pass is shielded by Content()'s recover and reports a
-// clean-looking HasText=true from "delta" (wantErr:false). Asserting gpErr is what
-// makes this fixture's defining behavior non-vacuous — ExtractionSummary alone cannot
-// tell it apart from a clean page, so without gpErr the malformed anchor would pass
-// equally for well-formed content and silently lose coverage if the panic-recover
-// path ever changed.
+// clean-looking HasText=true. Asserting gpErr is what makes this fixture's defining
+// behavior non-vacuous — ExtractionSummary alone cannot tell it apart from a clean
+// page, so without gpErr the malformed anchor would pass equally for well-formed
+// content and silently lose coverage if the panic-recover path ever changed.
 //
 // signal is keyed on Page.ExtractionSignal, whose text authority is
 // the STRICT GetPlainText path. It therefore tracks gpErr, not HasText:
@@ -74,12 +71,6 @@ func assertPageSignal(t *testing.T, r *Reader, exp signalExpect) {
 	s2, err2 := r.Page(1).ExtractionSummary()
 	if (err1 == nil) != (err2 == nil) {
 		t.Fatalf("ExtractionSummary error determinism: err1=%v err2=%v", err1, err2)
-	}
-	if exp.wantErr {
-		if err1 == nil {
-			t.Fatalf("ExtractionSummary: want error (panic-recovered), got nil; summary=%+v", s1)
-		}
-		return // a failed stream yields no reliable signal fields
 	}
 	if err1 != nil {
 		t.Fatalf("ExtractionSummary: unexpected error: %v", err1)
