@@ -39,7 +39,7 @@ every degraded extraction comes with a diagnostic you can act on.
 | Plain text (context/cancellation aware) | `Reader.GetPlainText` |
 | Styled text runs (font, size, position) | `Reader.GetStyledTexts` / `Page.Texts` |
 | Words / visual lines with bounding boxes | `Page.Words` / `Page.Lines` |
-| Rows / columns of text | `Page.GetTextByRow` / `Page.GetTextByColumn` |
+| Rows / columns of text (legacy, deprecated) | `Page.Lines` / `Page.Words` (`Page.GetTextByRow` / `Page.GetTextByColumn` are deprecated) |
 | Form field values (AcroForms, read-only) | `Reader.Fields` |
 | Embedded file attachments | `Reader.Attachments` |
 | Link annotations / document-wide links | `Page.Annotations` / `Reader.Links` |

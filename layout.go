@@ -46,17 +46,27 @@ type Content struct {
 	Rect []Rect
 }
 
-// Column represents the contents of a column
+// Column represents the contents of a column.
+//
+// Deprecated: backing type for the deprecated Page.GetTextByColumn; prefer Page.Lines / Page.Words.
 type Column struct {
 	Position int64
 	Content  TextVertical
 }
 
-// Columns is a list of column
+// Columns is a list of column.
+//
+// Deprecated: returned by the deprecated Page.GetTextByColumn; prefer Page.Lines / Page.Words.
 type Columns []*Column
 
 // GetTextByColumn returns the page's all text grouped by column.
 // Returned Text.S values are verbatim UTF-8; see Text.S for the escaping contract.
+//
+// Deprecated: prefer Page.Lines, which groups text into column-aware visual lines
+// through the shared extraction interpreter, so it carries per-word font metadata and
+// feeds the decode-path quality signals this legacy path does not. Page.Words gives the
+// per-word reading order. GetTextByColumn remains functional and is not scheduled for
+// removal before a v2 module path.
 func (p Page) GetTextByColumn() (Columns, error) {
 	result := Columns{}
 	var err error
@@ -120,17 +130,27 @@ func (p Page) GetTextByColumn() (Columns, error) {
 	return result, err
 }
 
-// Row represents the contents of a row
+// Row represents the contents of a row.
+//
+// Deprecated: backing type for the deprecated Page.GetTextByRow; prefer Page.Lines / Page.Words.
 type Row struct {
 	Position int64
 	Content  TextHorizontal
 }
 
-// Rows is a list of rows
+// Rows is a list of rows.
+//
+// Deprecated: returned by the deprecated Page.GetTextByRow; prefer Page.Lines / Page.Words.
 type Rows []*Row
 
 // GetTextByRow returns the page's all text grouped by rows.
 // Returned Text.S values are verbatim UTF-8; see Text.S for the escaping contract.
+//
+// Deprecated: prefer Page.Lines for column-aware visual lines (with per-word font
+// metadata and the decode-path quality signals this legacy path does not feed) and
+// Page.Words for per-word reading order; both run the shared extraction interpreter
+// this method bypasses. GetTextByRow remains functional and is not scheduled for
+// removal before a v2 module path.
 func (p Page) GetTextByRow() (Rows, error) {
 	result := Rows{}
 	var err error

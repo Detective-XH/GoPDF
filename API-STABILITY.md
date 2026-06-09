@@ -120,17 +120,24 @@ construct values with keyed literals.
 
 ## Deprecation-review tier
 
+Reviewed and resolved in v0.7.2 (deprecation review closed): the legacy column/row
+layout path is **deprecated** in favour of `Page.Lines()` (column-aware visual lines)
+and `Page.Words()` (per-word reading order). It is a separate text interpreter that does
+not feed the decode-path quality signals, so it is excluded from the v1.0 freeze.
+
 | Symbol | Status |
 |--------|--------|
-| `Page.GetTextByColumn() (Columns, error)` | Legacy layout path; under review. Prefer `Page.Words()` / `Page.Lines()`. |
-| `Page.GetTextByRow() (Rows, error)` | Same. |
-| `Column`, `Columns`, `Row`, `Rows` | Types backing the above. |
+| `Page.GetTextByColumn() (Columns, error)` | Deprecated — use `Page.Lines()` / `Page.Words()`. |
+| `Page.GetTextByRow() (Rows, error)` | Deprecated — same. |
+| `Column`, `Columns`, `Row`, `Rows` | Deprecated — types backing the above. |
 
-These remain functional but are excluded from the freeze; a future minor
-release may mark them `// Deprecated:` pointing at their replacements.
+These carry `// Deprecated:` markers and remain functional. They will not gain new
+features and are not scheduled for removal before a `/v2` module path (removal would be
+a breaking change under Go module semver).
 
 ## v1.0 milestone
 
 v1.0.0 — the full-surface freeze — is planned after the extraction-quality and
-structure milestones complete and the deprecation review above is resolved.
-Until then this tiered contract is the compatibility promise.
+structure milestones complete. The legacy column/row deprecation review is **resolved**
+(deprecated, see above); the v1.0 freeze will exclude the deprecated symbols. Until then
+this tiered contract is the compatibility promise.

@@ -58,6 +58,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `ExtractionSignal` enum is unchanged. EXAMPLES.md, API-STABILITY.md, and README
   document the new field and warning.
 
+### Deprecated
+
+- The legacy `Page.GetTextByRow()` / `Page.GetTextByColumn()` methods (and their
+  `Row`, `Rows`, `Column`, `Columns` result types) are now marked deprecated. Use
+  `Page.Lines()` for column-aware visual lines and `Page.Words()` for per-word reading
+  order instead — both carry per-word font name and size and feed the extraction
+  quality signals (`Page.ExtractionSignal()` and the `DocumentSummary` decode ratios)
+  that the legacy methods, built on a separate text interpreter, do not. The deprecated
+  methods remain fully functional and are not scheduled for removal before a future
+  `/v2` module path; only their godoc and the API-stability contract changed.
+
 ### Tests
 
 - **`Page.Lines()` reading-order characterization** — `Page.Lines()` now has
