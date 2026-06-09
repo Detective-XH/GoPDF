@@ -277,11 +277,7 @@ func (b *buffer) readDict() object {
 		}
 		n, ok := tok.(name)
 		if !ok {
-			if DebugOn {
-				fmt.Printf("DEBUG: %T(%v)\n. Skip dict", tok, tok)
-			}
 			b.errorf("unexpected non-name key %T(%v) parsing dictionary", tok, tok)
-			continue
 		}
 		x[n] = b.readObject()
 	}

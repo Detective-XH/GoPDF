@@ -8,13 +8,15 @@ package pdf
 // of a document.
 type Outline struct {
 	Title string    // title for this element
-	Page  int       // 1-based page number; 0 if destination cannot be resolved
+	Page  int       // 1-based page number; 0 if the destination cannot be resolved, including named (string) destinations, which are not resolved for outlines
 	Child []Outline // child elements
 }
 
 // Outline returns the document outline.
 // The Outline returned is the root of the outline tree and typically has no Title itself.
 // That is, the children of the returned root are the top-level entries in the outline.
+// Safe for concurrent use: each call builds its own transient page map and does
+// not mutate Reader state.
 func (r *Reader) Outline() Outline {
 	pages := r.buildPageMap()
 	return buildOutline(r.Trailer().Key("Root").Key("Outlines"), pages, 0)

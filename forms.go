@@ -117,8 +117,9 @@ func (w *formWalker) walk(node Value, prefix string, seen map[uint32]bool, depth
 	}
 	if internal {
 		for i := 0; i < kids.Len(); i++ {
-			if !kids.Index(i).Key("T").IsNull() {
-				w.walk(kids.Index(i), name, seen, depth+1)
+			kid := kids.Index(i)
+			if !kid.Key("T").IsNull() {
+				w.walk(kid, name, seen, depth+1)
 			}
 		}
 		return

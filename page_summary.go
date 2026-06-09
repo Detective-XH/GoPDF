@@ -253,15 +253,21 @@ func inMarginBand(y, bottom, top, margin float64) bool {
 	return y <= bottom+margin || y >= top-margin
 }
 
-// pageWarnings filters the Reader's warning snapshot to the entries
-// attributed to page n. The snapshot is already sorted by (Page, Code,
-// Detail), so the filtered slice keeps that order. Returns nil when none.
-func pageWarnings(r *Reader, n int) []ExtractionWarning {
+// filterWarnings returns the warnings in ws for which keep reports true, or nil
+// if none match (preserving the nil-on-empty contract its callers depend on).
+func filterWarnings(ws []ExtractionWarning, keep func(ExtractionWarning) bool) []ExtractionWarning {
 	var out []ExtractionWarning
-	for _, w := range r.Warnings() {
-		if w.Page == n {
+	for _, w := range ws {
+		if keep(w) {
 			out = append(out, w)
 		}
 	}
 	return out
+}
+
+// pageWarnings filters the Reader's warning snapshot to the entries
+// attributed to page n. The snapshot is already sorted by (Page, Code,
+// Detail), so the filtered slice keeps that order. Returns nil when none.
+func pageWarnings(r *Reader, n int) []ExtractionWarning {
+	return filterWarnings(r.Warnings(), func(w ExtractionWarning) bool { return w.Page == n })
 }

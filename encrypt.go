@@ -1,6 +1,6 @@
 package pdf
 
-import "fmt"
+import "errors"
 
 // tryDecrypt handles the optional encryption step.  It tries the empty
 // password first, then each password returned by pw in turn.  It returns nil
@@ -63,4 +63,4 @@ func (r *Reader) initEncrypt(password string) error {
 	return nil
 }
 
-var ErrInvalidPassword = fmt.Errorf("encrypted PDF: invalid password")
+var ErrInvalidPassword = errors.New("encrypted PDF: invalid password")

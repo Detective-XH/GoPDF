@@ -118,7 +118,7 @@ func (s *imageScanState) handleGraphics(op string, args []Value) {
 	switch op {
 	case "cm":
 		if len(args) != 6 {
-			panic("bad g.Tm")
+			panic("bad cm: expected 6 args")
 		}
 		s.ctm = matrixFrom6Args(args).mul(s.ctm)
 	case "q":

@@ -196,9 +196,9 @@ var standardEncodingDiff = map[byte]string{
 	0x60: "quoteleft",  // U+2018 ‘  (PDFDocEncoding: U+0060 `)
 }
 
-// isSameSentence checks if the current text segment likely belongs to the same sentence
-// as the last text segment based on font, size, vertical position, and lack of
-// sentence-ending punctuation in the last segment.
+// IsSameSentence reports whether current likely belongs to the same sentence as
+// last, based on identical font, font size within 0.1pt, baseline Y within 5pt,
+// and a non-empty last segment. It does not inspect sentence-ending punctuation.
 func IsSameSentence(last, current Text) bool {
 	return last.Font == current.Font &&
 		math.Abs(last.FontSize-current.FontSize) < 0.1 &&
