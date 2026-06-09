@@ -34,6 +34,9 @@ func checkASCII85(r byte) byte {
 	if r >= '!' && r <= 'u' { // 33 <= ascii85 <=117
 		return r
 	}
+	if r == 'z' { // all-zero-group shorthand (ISO 32000-1 §7.4.3); the stdlib
+		return r // ascii85 decoder expands it to four zero bytes, so pass it through
+	}
 	if r == '~' {
 		return 1 // for marking possible end of data
 	}

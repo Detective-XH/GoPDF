@@ -271,6 +271,7 @@ func TestASCII85CheckByte(t *testing.T) {
 		{'!', '!', "lower boundary of valid range"},
 		{'u', 'u', "upper boundary of valid range"},
 		{'A', 'A', "mid-range valid ASCII85 char"},
+		{'z', 'z', "all-zero-group shorthand passes through"},
 		{'~', 1, "tilde returns sentinel 1"},
 		{' ', 0, "space is out-of-range, returns 0"},
 		{0x00, 0, "NUL byte is out-of-range"},
@@ -282,6 +283,25 @@ func TestASCII85CheckByte(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("checkASCII85(%q) = %d, want %d (%s)", tc.input, got, tc.want, tc.label)
 		}
+	}
+}
+
+// TestASCII85DecodeZShorthand verifies the 'z' all-zero-group shorthand decodes
+// to four zero bytes through the full applyFilter pipeline. Regression guard:
+// checkASCII85 previously mapped 'z' to 0, so alphaReader stripped it and the
+// four zero bytes were silently dropped before the stdlib decoder could expand it.
+func TestASCII85DecodeZShorthand(t *testing.T) {
+	rd, err := applyFilter(bytes.NewReader([]byte("z~>")), "ASCII85Decode", Value{})
+	if err != nil {
+		t.Fatalf("applyFilter ASCII85Decode: %v", err)
+	}
+	got, err := io.ReadAll(rd)
+	if err != nil {
+		t.Fatalf("ReadAll ASCII85Decode: %v", err)
+	}
+	want := []byte{0, 0, 0, 0}
+	if !bytes.Equal(got, want) {
+		t.Errorf("ASCII85 z-shorthand: got %v, want %v", got, want)
 	}
 }
 
