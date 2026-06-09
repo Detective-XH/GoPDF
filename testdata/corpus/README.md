@@ -3,6 +3,10 @@
 Fixtures for evidence-backed extraction tests and benchmarks.
 This is the substrate; each feature PR adds its own fixtures under the convention below.
 
+Some of these files (`cjk/irs-p850-zh-hant.pdf`, `cjk/udhr-ja.pdf`,
+`tables/nist-hb44-appc-2026.pdf`) also serve as inputs for the GoPDF-vs-Python
+performance comparison — see [`BENCHMARKS.md`](../../BENCHMARKS.md).
+
 ## Convention
 
 - Layout: `testdata/corpus/<category>/<name>.pdf` (+ `<name>.golden.txt` when golden-tested).

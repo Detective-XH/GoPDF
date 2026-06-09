@@ -88,6 +88,21 @@ func main() {
 | Extraction routing signals (text / image / empty / degraded) | `Page.ExtractionSignal` / `Reader.DocumentSummary` |
 | Encrypted PDFs (RC4, AES-128, AES-256) | `NewReaderEncrypted` |
 
+## Performance
+
+GoPDF is tuned for fast, deterministic text extraction. Extracting all text from a
+22-page Traditional Chinese PDF takes ~25 ms (~870 pages/sec) on an Apple M4 Pro
+(`go test -bench=BenchmarkCJKColdOpenExtract`).
+
+In matched-scope benchmarking against common Python extractors on the same
+documents, GoPDF was fastest at both plain-text and positioned-word extraction —
+several times faster than pure-Python `pypdf` / `pdfminer.six` / `pdfplumber`, and
+ahead of the C-backed `pdftotext` and PyMuPDF on this workload — while staying pure
+Go. These are **speed** numbers only: GoPDF does not render pages, decode images, or
+reconstruct tables, and its layout/word-grouping quality is a work in progress and
+not benchmarked. See [BENCHMARKS.md](BENCHMARKS.md) for methodology, full tables,
+and caveats.
+
 ## Background
 
 GoPDF began as a maintained repair fork of [ledongthuc/pdf](https://github.com/ledongthuc/pdf)
@@ -197,6 +212,7 @@ screen-space conversion recipe are documented there too.
 - AcroForms extraction is read-only field values — no form filling or appearance rendering.
 - `Reader.Attachments()` walks the document-level name tree only; page-level `/FileAttachment` annotations are not scanned.
 - No table reconstruction: a spatial table-detection heuristic was evaluated against a real-document corpus and deferred — it does not yet meet the cell-accuracy bar we require for structured output.
+- Layout/word-position extraction (`Page.Words`, `Page.Lines`, `GetStyledTexts`) is available and fast, but its grouping **quality is a work in progress**: it is tuned for speed and determinism and has not been benchmarked for layout fidelity against dedicated layout tools (on CJK it currently segments more aggressively). Validate it on your own documents.
 
 ## Accuracy & test corpus
 
