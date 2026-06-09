@@ -67,7 +67,7 @@ fallback-encoding work.
 ## Synthetic extraction-signal fixtures (`signals/`)
 
 Byte-exact synthetic fixtures (added by `TestCorpusRegenerate -update`) feeding the
-v0.8 extraction-readiness signals — the extraction quality score and the image/scanned
+extraction-readiness signals — the extraction quality score and the image/scanned
 page classifier. They are **not** real documents and carry no provenance/license
 obligations. Image streams are never-decoded `/Length 0` stubs. The signal each fixture
 locks today is asserted by `TestCorpusSignalFixtures` (and `TestCorpusNoGoldenFixtures`
@@ -92,7 +92,7 @@ behavior the quality-score work must reconcile; this slice locks it as the curre
 ## Synthetic decode-path + geometry fixtures (`encoding/`, `geometry/`)
 
 Byte-exact synthetic fixtures (added by `TestCorpusRegenerate -update`) feeding the
-v0.8 fallback encoding framework. Each `encoding/` fixture omits a usable
+fallback encoding framework. Each `encoding/` fixture omits a usable
 `/ToUnicode` so the extractor takes exactly one decode-path class; the `geometry/`
 fixtures exercise rotated and vertical text. They are **not** real documents and carry
 no provenance/license obligations. The page signal and the **document-scoped** encoder

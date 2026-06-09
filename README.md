@@ -170,6 +170,17 @@ screen-space conversion recipe are documented there too.
 - `Reader.Attachments()` walks the document-level name tree only; page-level `/FileAttachment` annotations are not scanned.
 - No table reconstruction: a spatial table-detection heuristic was evaluated against a real-document corpus and deferred — it does not yet meet the cell-accuracy bar we require for structured output.
 
+## Accuracy & test corpus
+
+Extraction quality is validated against a curated corpus of real, public-domain PDFs
+spanning CJK scripts (Simplified Chinese, Traditional Chinese, Japanese, Korean),
+Cyrillic, multi-column layouts, and numeric tables — each with a recorded provenance
+and a verified golden output locked by the test suite. Negative fixtures (`hard/`)
+document current extraction gaps honestly: documents that defeat decoding today are
+committed without goldens so any future improvement is caught as a regression gate,
+not a silent surprise. See [`testdata/corpus/README.md`](testdata/corpus/README.md)
+for the full provenance table and fixture inventory.
+
 ## Releases & Verification
 
 Versions are published as **signed git tags** (mirrored as GitHub Releases —
