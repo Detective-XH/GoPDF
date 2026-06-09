@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Added
+
+- Documented ligature behaviour and caller-side normalization in a new EXAMPLES.md
+  section, "Ligatures and Unicode normalization". GoPDF returns text verbatim and
+  applies no Unicode normalization on any extraction path
+  (`GetPlainText`/`GetStyledTexts`/`Words`/`Lines`), so typographic ligatures arrive
+  as Unicode compatibility codepoints (U+FB01 "ﬁ", U+FB02 "ﬂ", and U+FB00/FB03/FB04)
+  rather than ASCII pairs. The section explains which decode paths carry them
+  (`/ToUnicode` and `/Differences` via the Adobe Glyph List can emit all five; the
+  built-in MacRoman/PDFDoc byte tables carry only fi/fl; WinAnsiEncoding none) and
+  shows two caller-side folds: a targeted `strings.NewReplacer` (recommended — it
+  leaves `½`, `²` untouched) and blanket `golang.org/x/text/unicode/norm` NFKC (with
+  the warning that NFKC also rewrites `½`→`1⁄2`, `²`→`2`, and full-width forms, which
+  is wrong for financial or scientific text). Documentation only — no API or
+  behaviour change.
+
 ## v0.7.2 — 2026-06-09
 
 ### Added
