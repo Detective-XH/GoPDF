@@ -507,6 +507,10 @@ func FuzzCmapDecode(f *testing.F) {
 	f.Add([]byte("/CIDInit /ProcSet findresource begin\nbegincmap\n"))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
+		// readCmap runs Interpret, which drives readToken/readObject below any
+		// recover boundary and panics-as-error on a lexically malformed stream;
+		// only a runtime fault is a real bug here.
+		defer recoverIntentionalParserPanic(t)
 		m := readCmap(makeCmapStream(string(data)))
 		if m != nil {
 			// Exercise Decode on a non-trivial input string.

@@ -480,6 +480,10 @@ func FuzzXrefTable(f *testing.F) {
 	f.Add([]byte("trailer\n"))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
+		// readXrefTableData drives readToken/readObject below the open-path recover
+		// boundary and panics-as-error on malformed input; only a runtime fault is
+		// a real bug here.
+		defer recoverIntentionalParserPanic(t)
 		b := newBuffer(bytes.NewReader(data), 0)
 		b.allowEOF = true
 		//nolint:errcheck
