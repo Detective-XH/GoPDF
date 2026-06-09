@@ -28,6 +28,16 @@ These changes are merged into `master` but not yet tagged in a numbered release.
   contracts. Content-stream panic messages for malformed `Tf`/`cm` operators were
   corrected to name the operator that actually failed.
 
+### Performance
+
+- Text extraction now allocates less, most visibly on CJK and other
+  `/ToUnicode`-CMap documents. The lexer interns the fixed set of content-stream
+  operators and structural delimiters (`[`, `]`, `<<`, `>>`, and the operator
+  keywords), returning a shared token instead of allocating a new one on every
+  occurrence. On a 22-page Traditional Chinese document this cut extraction
+  allocations by ~23% and allocated memory by ~7%, with a small (~2.5%) speedup;
+  extracted output is byte-for-byte unchanged.
+
 ## v0.7.3 — 2026-06-09
 
 ### Added
