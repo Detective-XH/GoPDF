@@ -43,6 +43,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `ExtractionSignal` enum is unchanged. EXAMPLES.md, API-STABILITY.md, and README
   document the new field and warning.
 
+### Tests
+
+- **`Page.Lines()` reading-order characterization** — `Page.Lines()` now has
+  corpus-level test coverage over the real multicolumn (Federal Register) and CJK
+  (UDHR Japanese / Simplified Chinese / Korean) fixtures, where it previously had
+  none. The tests lock today's behaviour so future reading-order work changes it
+  deliberately: a per-page invariant that `Lines()` neither drops nor invents a glyph
+  versus the page content, and sentinels for the current multi-column line merging
+  (text from physically separate columns is currently joined into one visual line) and
+  CJK intra-line spacing (Simplified-Chinese and Korean runs are currently split into
+  space-separated glyphs/syllables; Japanese stays contiguous). No public API or
+  extraction behaviour changed — this is characterization only, documenting known
+  reading-order limitations ahead of the stabilisation work that will address them.
+
 ---
 
 ## v0.7.1 — 2026-06-08
