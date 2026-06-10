@@ -21,7 +21,7 @@ type Attachment struct {
 // Returns (nil, nil) for documents with no embedded files. Filespec entries
 // without an embedded-file stream (/EF) are skipped: they reference external
 // files rather than embedding data. Page-level /FileAttachment annotations
-// are not scanned (deferred — see ROADMAP-V0-8-0). Safe for concurrent use:
+// are not scanned (deferred). Safe for concurrent use:
 // each call walks the immutable name tree with per-call locals only and does
 // not mutate Reader state.
 func (r *Reader) Attachments() ([]Attachment, error) {
