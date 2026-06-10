@@ -5,9 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## Fixed, pending release
-
-These changes are merged into `master` but not yet tagged in a numbered release.
+## v0.7.4 — 2026-06-10
 
 ### Fixed
 

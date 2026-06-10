@@ -241,7 +241,7 @@ GitHub account, so nothing needs to be copied from this README:
 ```bash
 curl -s https://api.github.com/users/Detective-XH/ssh_signing_keys \
   | python3 -c "import json,sys; [print('*', k['key']) for k in json.load(sys.stdin)]" > allowed_signers
-git -c gpg.ssh.allowedSignersFile=./allowed_signers tag -v v0.7.3
+git -c gpg.ssh.allowedSignersFile=./allowed_signers tag -v v0.7.4
 # expect: Good "git" signature for * with ED25519-SK key SHA256:duCP4h22...
 ```
 
