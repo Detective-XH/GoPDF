@@ -264,23 +264,35 @@ type Word struct {
 // string — carry no visual advance and so are treated as non-breaking; a word
 // split across a TJ boundary is therefore not falsely segmented. Bounding boxes
 // are best-effort. Returns (nil, nil) for pages with no extractable text.
-func (p Page) Words() (words []Word, err error) {
+func (p Page) Words() ([]Word, error) {
+	return wordsFromContentRecovered(p.Content())
+}
+
+// wordsFromContent groups an already-interpreted Content's glyphs into words.
+// It may panic on a pathological band; callers needing the page's
+// degrade-to-empty contract use wordsFromContentRecovered.
+func wordsFromContent(c Content) []Word {
+	texts := c.Text
+	if len(texts) == 0 {
+		return nil
+	}
+	var words []Word
+	for _, band := range bandsByY(texts) {
+		words = append(words, wordsFromBand(band)...)
+	}
+	return words
+}
+
+// wordsFromContentRecovered wraps wordsFromContent in the Words() panic contract:
+// a malformed band is recovered into (nil, error) rather than propagating.
+func wordsFromContentRecovered(c Content) (words []Word, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			words = nil
 			err = errors.New(fmt.Sprint(r))
 		}
 	}()
-
-	texts := p.Content().Text
-	if len(texts) == 0 {
-		return nil, nil
-	}
-
-	for _, band := range bandsByY(texts) {
-		words = append(words, wordsFromBand(band)...)
-	}
-	return words, nil
+	return wordsFromContent(c), nil
 }
 
 // bandsByY sorts texts top-to-bottom (Y descending then X ascending) and
@@ -289,6 +301,11 @@ func (p Page) Words() (words []Word, err error) {
 // Each band is re-sorted X-ascending before appending, satisfying
 // wordsFromBand's left-to-right precondition and handling sub/superscript Y-shift.
 func bandsByY(texts []Text) [][]Text {
+	// Sort a copy: the in-place sort below must not mutate the caller's slice
+	// (one page's Content.Text may be shared between the words and lines
+	// derivations). Bands are built by appending Text values into fresh slices,
+	// so they never alias the input.
+	texts = append([]Text(nil), texts...)
 	sort.SliceStable(texts, func(i, j int) bool {
 		// Quantise Y to a fine grid (far finer than line spacing, coarser than
 		// floating-point noise) so two glyphs meant for the same visual line
@@ -447,19 +464,18 @@ type Line struct {
 //
 // Returns (nil, nil) for pages with no extractable text. Panics during content
 // parsing are recovered and returned as errors, matching Words() semantics.
-func (p Page) Lines() (lines []Line, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			lines = nil
-			err = errors.New(fmt.Sprint(r))
-		}
-	}()
+func (p Page) Lines() ([]Line, error) {
+	return linesFromContentRecovered(p.Content())
+}
 
-	texts := p.Content().Text
+// linesFromContent assembles lines (reading order, column-split) from an
+// already-interpreted Content. It may panic on a pathological segment; callers
+// needing the Lines() degrade-to-empty contract use linesFromContentRecovered.
+func linesFromContent(c Content) []Line {
+	texts := c.Text
 	if len(texts) == 0 {
-		return nil, nil
+		return nil
 	}
-
 	var rows [][]Word
 	for _, band := range bandsByY(texts) {
 		if ws := wordsFromBand(band); len(ws) > 0 {
@@ -467,12 +483,25 @@ func (p Page) Lines() (lines []Line, err error) {
 		}
 	}
 	gutters, colGap := columnGutters(rows)
+	var lines []Line
 	for _, ws := range rows {
 		for _, seg := range splitWordsByGutters(ws, gutters, colGap) {
 			lines = append(lines, lineFromWords(seg))
 		}
 	}
-	return lines, nil
+	return lines
+}
+
+// linesFromContentRecovered wraps linesFromContent in the Lines() panic
+// contract: a malformed segment is recovered into (nil, error).
+func linesFromContentRecovered(c Content) (lines []Line, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			lines = nil
+			err = errors.New(fmt.Sprint(r))
+		}
+	}()
+	return linesFromContent(c), nil
 }
 
 // lineFromWords assembles one Line from a left-to-right run of words. S is the
