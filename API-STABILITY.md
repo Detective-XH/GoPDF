@@ -34,7 +34,7 @@ Reader construction and document access:
 - Aggregations: `Reader.Fonts() []FontInfo`, `Reader.Links() ([]LinkRef, error)`,
   `Reader.Fields() ([]FormField, error)`,
   `Reader.Attachments() ([]Attachment, error)`, `Reader.XMP() ([]byte, error)`,
-  `Reader.Warnings() []ExtractionWarning`
+  `Reader.PageLabels() []string`, `Reader.Warnings() []ExtractionWarning`
 
 Page-level extraction primitives:
 

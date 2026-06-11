@@ -449,6 +449,39 @@ for pageNum, p := range r.Pages() {
 }
 ```
 
+## Page labels
+
+`Reader.PageLabels()` returns the document's *printed* page label for every page —
+the "iv", "A-3", or "12" a reader sees on the page — rather than its 1-based
+sequence number. Front matter is routinely numbered in lower roman and the body
+restarts at decimal 1, so for a typical book page 4 of the file prints "iv" and
+page 9 prints "1". For citations in a RAG pipeline this is the difference between
+"see page iv" (what the user can find) and "see page 4" (an index the user never
+sees).
+
+Labels come from the PDF `/PageLabels` number tree (PDF 32000-1 §12.4.2): an
+optional prefix (`/P`), a numbering style (`/S` — decimal, upper/lower roman, or
+upper/lower letters), and a per-range start value (`/St`).
+
+```go
+labels := r.PageLabels()
+if labels == nil {
+	// No /PageLabels tree — fall back to the 1-based page number.
+	fmt.Println("document declares no page labels")
+} else {
+	for i, label := range labels {
+		// labels[i] is the printed label for 1-based page i+1.
+		fmt.Printf("page %d is printed as %q\n", i+1, label)
+	}
+}
+```
+
+Semantics: the result has length `NumPage()` (index N is 1-based page N+1).
+`PageLabels()` returns `nil` when the document declares no `/PageLabels` tree, so
+a caller can cleanly fall back to the page number. A page that the tree leaves
+uncovered gets `""` at its index. The method is best-effort — malformed ranges
+are skipped, never an error — and deterministic and safe for concurrent use.
+
 ## Ecosystem adapters (langchaingo / RAG loaders)
 
 `examples/langchaingo_loader` is a runnable adapter for Go RAG pipelines. It emits
@@ -465,7 +498,7 @@ Per-page metadata keys:
 | Key | Type | Source |
 |---|---|---|
 | `page` | int | 0-based page index |
-| `page_label` | string | 1-based page number — a fallback: GoPDF exposes no PDF page-label tree, so this is **not** the document's own printed label |
+| `page_label` | string | 1-based page number — the loader's current fallback; it does not yet read the document's own printed labels (see [Page labels](#page-labels) for `Reader.PageLabels()`) |
 | `total_pages` | int | `Reader.NumPage()` |
 | `title`, `author`, `subject`, `creator`, `producer` | string | `Reader.Info()` (empty string when absent) |
 | `creationdate`, `moddate` | string | `Reader.Info()` dates as RFC3339 (empty string when absent) |

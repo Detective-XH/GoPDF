@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- `Reader.PageLabels() []string` returns the document's *printed* page label for every page —
+  the "iv", "A-3", or "32" a reader sees on the page rather than its 1-based position — read from
+  the PDF `/PageLabels` number tree (prefix, numbering style, and per-range start value). It
+  returns `nil` when the document declares no page labels, so callers cleanly fall back to the
+  page number; a page left uncovered by the tree gets `""`. Best-effort and deterministic:
+  malformed ranges are skipped rather than raising an error, and hostile inputs (cyclic label
+  trees, an absurd start value) are bounded. The payoff for citation and RAG is referencing
+  "page iv" — what the reader can actually find — instead of "page 4" when front matter is
+  numbered in roman.
 - `NormalizeText(string) string` folds the Latin typographic ligatures U+FB00–U+FB06
   (ﬀﬁﬂﬃﬄﬅﬆ) to their ASCII forms (`ff`, `fi`, `fl`, `ffi`, `ffl`, `st`, `st`), leaving every
   other rune unchanged. It is the targeted, deterministic alternative to blanket Unicode NFKC
