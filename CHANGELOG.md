@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## Pending release
+## v0.7.6 — 2026-06-11
 
 ### Added
 
@@ -26,6 +26,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   experimental and may change in a future minor release, while the Go signatures are stable.
   See [EXAMPLES.md](EXAMPLES.md) and the Experimental tier in
   [API-STABILITY.md](API-STABILITY.md).
+
+### Changed
+
+- The langchaingo loader example now consumes `DebugJSON` for a structured per-page layout
+  sidecar (one layout JSON per page, index-aligned with the per-page text documents, for
+  bbox-aware chunking or citation) and sets `page_label` from the document's real printed
+  labels via `Reader.PageLabels()` (falling back to the 1-based page number when the document
+  declares no page-label tree), matching LangChain's PyPDFLoader.
 
 ## v0.7.5 — 2026-06-11
 
