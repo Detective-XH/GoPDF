@@ -108,7 +108,7 @@ Planned, pre-announced additions (additive only — nothing existing changes):
 | Symbol | Planned additions |
 |--------|-------------------|
 | `PageExtractionSummary` | further per-page fields (the `ImageCoverage` image-coverage ratio has shipped; decode-path quality ratios shipped on `PageSignal`/`DocumentSummary` as `DecodeRatios`) |
-| `ExtractionWarningCode` | new warning codes (the enum is additive by design; match known codes, pass unknown ones through). Shipped: page-scoped `sparse_text` (page furniture, no body text) |
+| `ExtractionWarningCode` | new warning codes (the enum is additive by design; match known codes, pass unknown ones through). Shipped: page-scoped `sparse_text` (page furniture, no body text) and `non_finite_geometry` (a coordinate `DebugJSON` sanitized to zero; page-scoped for page/text geometry, document-scoped with the page in `Detail` for link rects) |
 | `ImageRef` | image metadata fields (e.g. color space, inline-image dimensions) |
 | `Word`, `Line` | font name/size fields (per-word font info), aligning with the cross-ecosystem norm. Shipped: `Font string` + `FontSize float64` on both (first-glyph/first-word wins) |
 | `Text` | height field completing the bounding box; possibly an orientation field later |
