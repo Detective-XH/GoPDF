@@ -206,6 +206,8 @@ type extractionSnapshot struct {
 	fields          string
 	summaries       []string
 	documentSummary string
+	pageDebugJSON   []string
+	debugJSON       string
 	warnings        []ExtractionWarning
 }
 
@@ -230,6 +232,11 @@ func takeSnapshot(r *Reader) extractionSnapshot {
 		// only add duplicates for the same page.
 		sum, serr := p.ExtractionSummary()
 		s.summaries = append(s.summaries, fmt.Sprintf("%+v %v", sum, serr))
+		// Page.DebugJSON publishes the concurrent-use promise. Its page-scoped
+		// warnings are captured mid-pass (same discipline as ExtractionSummary
+		// above), so the per-page snapshot is deterministic under the race.
+		pdb, pdberr := p.DebugJSON()
+		s.pageDebugJSON = append(s.pageDebugJSON, fmt.Sprintf("%s %v", pdb, pdberr))
 	}
 	s.outline = r.Outline()
 	info := r.Info()
@@ -259,6 +266,12 @@ func takeSnapshot(r *Reader) extractionSnapshot {
 	// contract. It captures its own doc-scoped warnings at the end of its full
 	// page pass, so it is timing-independent across the racing goroutines.
 	s.documentSummary = fmt.Sprintf("%+v", r.DocumentSummary())
+	// Reader.DebugJSON publishes the concurrent-use promise. Like DocumentSummary it
+	// runs its own complete page pass and snapshots warnings at the end of that pass,
+	// so its output (including the doc-scoped/orphan envelope warnings) is
+	// timing-independent across the racing goroutines.
+	rdb, rdberr := r.DebugJSON()
+	s.debugJSON = fmt.Sprintf("%s %v", rdb, rdberr)
 	// Captured LAST, after every other surface has run: by this point the
 	// goroutine's own full pass guarantees its complete warning set is
 	// present (other goroutines only add duplicates), so the deduplicated,

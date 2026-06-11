@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Pending release
+
+### Added
+
+- `Page.DebugJSON()` and `Reader.DebugJSON()` return an **experimental** structured JSON
+  snapshot of a page (or the whole document) shaped like PyMuPDF's `get_text("dict")`:
+  page width/height → one text block → lines → word-level spans, each with a baseline
+  `origin` and a bounding box, under a per-page `coord_origin` tag (`TOPLEFT`, top-left and
+  y-down to match the PyMuPDF/RAG ecosystem; `BOTTOMLEFT` for a degenerate page box). The
+  document form adds `fonts`, `links`, and `warnings`. It is a thin, deterministic
+  projection for debugging and ingestion pipelines — not a converter: it emits only the
+  fields GoPDF actually computes (font flags, colour, and writing-mode are omitted rather
+  than reported as a misleading zero) and carries GoPDF's own routing/diagnostic warnings
+  (e.g. `image_only_page`) in-band. Both return `[]byte`; the JSON wire format is
+  experimental and may change in a future minor release, while the Go signatures are stable.
+  See [EXAMPLES.md](EXAMPLES.md) and the Experimental tier in
+  [API-STABILITY.md](API-STABILITY.md).
+
 ## v0.7.5 — 2026-06-11
 
 ### Added

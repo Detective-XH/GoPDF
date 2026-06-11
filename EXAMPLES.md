@@ -482,6 +482,56 @@ a caller can cleanly fall back to the page number. A page that the tree leaves
 uncovered gets `""` at its index. The method is best-effort — malformed ranges
 are skipped, never an error — and deterministic and safe for concurrent use.
 
+## Structured JSON debug export (experimental)
+
+`Page.DebugJSON()` and `Reader.DebugJSON()` serialise the stable extraction
+primitives into a PyMuPDF `get_text("dict")`-shaped JSON snapshot — a thin,
+deterministic projection for debugging and ingestion-pipeline inspection, **not a
+converter**. Both return `[]byte`; unmarshal into your own structs or
+`map[string]any`.
+
+```go
+p := r.Page(1)
+js, err := p.DebugJSON()
+if err != nil {
+	panic(err)
+}
+fmt.Println(string(js))
+// {"width":612,"height":792,"coord_origin":"TOPLEFT",
+//  "blocks":[{"type":0,"bbox":[...],
+//    "lines":[{"bbox":[...],"spans":[
+//      {"size":12,"font":"Helvetica","origin":[x,y],"bbox":[x0,y0,x1,y1],"text":"Hello"}]}]}]}
+
+// Whole-document envelope: pages + fonts + links + warnings.
+doc, err := r.DebugJSON()
+```
+
+What it emits, and what it deliberately does not:
+
+- **Coordinates are top-left, y-down** (PyMuPDF convention), tagged per page with
+  `coord_origin` (`"TOPLEFT"`; a degenerate/missing page box reports `"BOTTOMLEFT"`
+  with native y). Each span's `origin` is the exact text baseline point; `bbox` is
+  baseline-anchored (height ≈ font size, no glyph descenders).
+- **Only fields GoPDF actually computes.** PyMuPDF's `flags` (bold/italic),
+  `color`, and per-line `wmode`/`dir` are **omitted, never zero-filled** — GoPDF
+  does not compute them, and a misleading `0` would imply otherwise. Vertical /
+  rotated content is surfaced through warnings, not faked geometry.
+- **One text block per page.** GoPDF performs no paragraph/block segmentation, so
+  every page is a single `type:0` block; spans are one per word.
+- **Diagnostics travel in-band.** Each page dict carries its page-scoped `warnings`
+  (including the OCR-routing `image_only_page` / `sparse_text` signals);
+  `Reader.DebugJSON`'s envelope carries the document-scoped warnings plus any
+  page-scoped warning whose slot was skipped (e.g. `null_page_slot`). Page dicts and
+  envelope together reproduce `Reader.Warnings()` exactly.
+- **Experimental:** the JSON wire format may change in a future minor release and is
+  not yet covered by the [API stability contract](API-STABILITY.md). The Go
+  signatures (returning `[]byte`) are stable.
+
+Calling `DebugJSON` runs the content interpreter and the page-classification pass,
+so warnings may newly appear on `Reader.Warnings()` as a side effect — the same
+contract as `Page.ExtractionSummary`. For a ready-made RAG metadata projection
+instead of raw geometry, see the adapter below.
+
 ## Ecosystem adapters (langchaingo / RAG loaders)
 
 `examples/langchaingo_loader` is a runnable adapter for Go RAG pipelines. It emits

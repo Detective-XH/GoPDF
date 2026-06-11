@@ -13,9 +13,10 @@ holds until v1.0.0 declares the whole surface frozen under Go module semver
 | **Stable** | No signature changes, no removals, no semantic narrowing. New struct fields and new methods may be ADDED (use keyed struct literals). |
 | **Additive-evolving** | Same as Stable, plus: named upcoming releases WILL add fields/codes here. Listed so additions never surprise. |
 | **Deprecation-review** | Not covered by this contract. May be deprecated in a future minor release after a documented review. |
+| **Experimental** | Not covered by this contract. The Go signature is stable, but the *output / wire format* may change in a minor release. Explicitly marked in godoc. |
 
-Everything exported and not listed under Additive-evolving or Deprecation-review
-is **Stable**.
+Everything exported and not listed under Additive-evolving, Deprecation-review,
+or Experimental is **Stable**.
 
 ## Stable tier
 
@@ -140,6 +141,23 @@ not feed the decode-path quality signals, so it is excluded from the v1.0 freeze
 These carry `// Deprecated:` markers and remain functional. They will not gain new
 features and are not scheduled for removal before a `/v2` module path (removal would be
 a breaking change under Go module semver).
+
+## Experimental tier
+
+Intentionally outside the frozen contract: the Go signatures are stable (additive, no
+removals), but the **JSON output / wire format may change** in a minor release as the
+projection is refined. Each is marked `Experimental` in its godoc.
+
+| Symbol | Status |
+|--------|--------|
+| `Page.DebugJSON() ([]byte, error)` | Experimental — PyMuPDF-dict-shaped JSON of the page's text geometry + page-scoped warnings. Wire format may change. |
+| `Reader.DebugJSON() ([]byte, error)` | Experimental — document envelope (pages + fonts + links + warnings). Wire format may change. |
+
+The returned bytes are not a typed surface: callers unmarshal into their own structs or
+`map[string]any`. Note these emit **top-left, y-down** coordinates (`coord_origin` tagged),
+unlike the bottom-left PDF-native coordinates of the Stable-tier geometry (see Coordinate
+system above) — a deliberate alignment with the PyMuPDF/RAG ecosystem, scoped to this
+experimental export.
 
 ## v1.0 milestone
 
