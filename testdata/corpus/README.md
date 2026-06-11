@@ -38,6 +38,8 @@ fallback-encoding work.
 | `multicolumn/fr-2024-01353.pdf` | English (Latin) | Federal Register 89 FR 4633, doc 2024-01353 (NRC notice), govinfo.gov | US-Gov work, public domain (17 U.S.C. §105) | 6,570 normalized chars / 1 pp; dense 3-column body text, zero tables |
 | `hard/bea-dici0724.pdf` | English (unmappable) | BEA — Direct Investment by Country and Industry, July 2024 release | US-Gov work, public domain (17 U.S.C. §105) | NEGATIVE fixture (no golden): subset fonts lack usable ToUnicode — geometry intact, text extracts as U+FFFD |
 | `hard/irs-p1040-tax-tables-excerpt.pdf` | English (partial) | IRS Publication 1040 Tax Tables, pages 3–4, excerpted with qpdf | US-Gov work, public domain (17 U.S.C. §105) | NEGATIVE fixture (no golden): zero-advance glyph widths (W=0) + partial ToUnicode loss |
+| `forms/irs-f1040-2025.pdf` | English (Latin) | IRS Form 1040 (2025 tax year) | US-Gov work, public domain (17 U.S.C. §105) | Blank AcroForm: `Reader.Fields()` → 199 terminal fields (deep dotted LiveCycle names, maxDepth 6); text layer extracts form labels; carries a rotated text run. See "Real AcroForm fixtures" below |
+| `forms/uscourts-cv071-civil-cover.pdf` | English (Latin) | US District Court, C.D. Cal. — Civil Cover Sheet (form CV-071) | US-Gov work, public domain (17 U.S.C. §105) | Blank AcroForm: `Reader.Fields()` → 165 terminal fields with a real `/Parent` tree + `/DA` chains and Acrobat-derived `/T` label names. See "Real AcroForm fixtures" below |
 
 ### Source URLs
 
@@ -48,6 +50,8 @@ fallback-encoding work.
 - Federal Register notices: `https://www.govinfo.gov/content/pkg/FR-2024-03-28/pdf/2024-06543.pdf`, `https://www.govinfo.gov/content/pkg/FR-2024-01-24/pdf/2024-01353.pdf`
 - BEA Direct Investment release: `https://www.bea.gov/sites/default/files/2024-07/dici0724.pdf`
 - IRS Publication 1040 (full — repo carries a 2-page qpdf excerpt): `https://www.irs.gov/pub/irs-pdf/p1040.pdf`
+- IRS Form 1040 (2025 tax year): `https://www.irs.gov/pub/irs-pdf/f1040.pdf`
+- C.D. Cal. Civil Cover Sheet CV-071: `https://apps.cacd.uscourts.gov/cm-api/dwwwroot/CV-071.pdf`
 - Evaluated and NOT committed (recorded so future acquisition starts from evidence):
   Census Statistical Abstract population tables
   (`https://www2.census.gov/library/publications/2011/compendia/statab/131ed/tables/pop.pdf`,
@@ -70,6 +74,42 @@ fallback-encoding work.
 - `tables/` and `multicolumn/` are the accuracy and false-positive surfaces for the
   table-detection spike; `hard/` holds negative fixtures (no goldens) that document
   current extraction gaps for future fallback-encoding work.
+
+## Real AcroForm fixtures (`forms/`)
+
+Real, public-domain US-Gov forms committed to give `Reader.Fields()` its first
+real-world coverage — until now it was validated only against hand-crafted
+synthetic fixtures (`forms_test.go`), whose field trees encode our own mental
+model. Both forms are **blank** (no entered data). A 4-channel search
+(2026-06-11) for a genuinely *filled* public-domain AcroForm found none: agencies
+publish blank fillables, "completed" samples are flattened (fields stripped),
+real filings are flattened/scanned or XFA, and any form with real entered data
+carries PII and is not redistributable. A blank real form still exercises the
+risk the gate names — real field-tree structure, qualified names, types, page
+attribution, and generator quirks — while the `/V` value-decoding path stays
+covered by the synthetic `forms_test.go` cases.
+
+`uscourts-cv071-civil-cover.pdf` had its document metadata stripped
+(`qpdf --remove-info --remove-metadata`) before commit to remove a personal name
+(the template's author) from the `/Info` `Author` and XMP `dc:creator` fields. The
+AcroForm body, page content, and fonts are unmodified — `Reader.Fields()` output
+and the text layer are byte-identical before and after, so both goldens are
+unaffected. `irs-f1040-2025.pdf` is committed verbatim (its `/Info Author` is an
+IRS org code, not a person).
+
+Each fixture is locked twice: its **text layer** is sentineled by `TestCorpusGolden`
+(the `.golden.txt` carries representative body labels spanning every page — not just
+the page-1 header — so dropping a later page or body text fails it), and its
+**AcroForm field inventory** by `TestCorpusFormFixtures` (`corpus_forms_test.go`) against a
+byte-exact `.fields-golden.txt` (one line per terminal field: page, type,
+qualified name, value, read-only, rect). Regenerate the field goldens with
+`go test -run TestCorpusFormFixtures -update`. No PII: the forms are blank, so the
+goldens carry only template/label field names and empty / `Off` values.
+
+| File | Fields | Structure locked | Golden |
+|------|--------|------------------|--------|
+| `forms/irs-f1040-2025.pdf` | 199 | Adobe LiveCycle flat AcroForm; deep dotted qualified names (`topmostSubform[0].Page1[0].f1_01[0]`, maxDepth 6); mixed Text/CheckBox; carries a rotated text run (registered in `rotatedCorpusFixtures`) | `forms/irs-f1040-2025.golden.txt` (text) + `.fields-golden.txt` (fields) |
+| `forms/uscourts-cv071-civil-cover.pdf` | 165 | Real `/Parent` field tree + `/DA` default-appearance chains; Acrobat-derived `/T` names that are full label strings (a real generator quirk); Text/CheckBox/Radio/Combo mix | `forms/uscourts-cv071-civil-cover.golden.txt` (text) + `.fields-golden.txt` (fields) |
 
 ## Synthetic extraction-signal fixtures (`signals/`)
 

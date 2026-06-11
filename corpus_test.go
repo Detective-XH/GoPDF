@@ -133,6 +133,31 @@ var corpusManifest = []corpusEntry{
 		Source: "IRS Pub 1040 Tax Tables pp. 3-4, qpdf excerpt", License: "US-Gov PD (17 USC 105)",
 		Purpose: "Zero-advance glyph widths (W=0) plus partial ToUnicode loss",
 	},
+	// Real, public-domain AcroForm fixtures (acquired 2026-06-11). Both are BLANK
+	// government forms — Reader.Fields() had only ever met hand-crafted synthetic
+	// fixtures (forms_test.go); these lock it against REAL field-tree structure,
+	// qualified names, types, and generator quirks. The text Golden here sentinels
+	// cross-page body labels in the static label layer (GetPlainText) — not just the
+	// page-1 header — so a regression that drops later pages or body text fails it;
+	// the rotated-run path is gated separately by TestRotatedTextWarningCorpusWide.
+	// The AcroForm field inventory itself is locked
+	// separately by TestCorpusFormFixtures against a .fields-golden.txt. No PII —
+	// the forms carry no entered data, and CV-071's document metadata was stripped
+	// (qpdf --remove-info --remove-metadata) to drop a template author's personal
+	// name from /Info + XMP; the AcroForm body is unmodified and both goldens are
+	// byte-identical before/after (see testdata/corpus/README.md).
+	{
+		Path: "forms/irs-f1040-2025.pdf", Golden: "forms/irs-f1040-2025.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "acroform",
+		Source: "IRS Form 1040 (2025), irs.gov/pub/irs-pdf/f1040.pdf", License: "US-Gov PD (17 USC 105)",
+		Purpose: "Blank IRS LiveCycle form: 199 fields, deep dotted qualified names (maxDepth 6), Adobe Designer quirks",
+	},
+	{
+		Path: "forms/uscourts-cv071-civil-cover.pdf", Golden: "forms/uscourts-cv071-civil-cover.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "acroform",
+		Source: "US District Court C.D. Cal. Civil Cover Sheet CV-071, cacd.uscourts.gov", License: "US-Gov PD (17 USC 105)",
+		Purpose: "Blank court form: real /Parent field tree + /DA chains; Acrobat-derived /T label names",
+	},
 	// Synthetic extraction-readiness signal fixtures.
 	// Consumers: the extraction quality score and the image/scanned-page classifier.
 	// Golden cells reflect the EMPIRICAL classification (probe run at implementation):
