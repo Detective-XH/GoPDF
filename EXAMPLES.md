@@ -110,6 +110,37 @@ The older `Page.GetTextByRow()` / `Page.GetTextByColumn()` methods are
 font metadata or feed the decode-path quality signals. Use `Page.Lines()`
 (column-aware) and `Page.Words()` instead. The legacy methods remain functional.
 
+## Blocks
+
+```go
+p := r.Page(1)
+blocks, err := p.Blocks()
+if err != nil {
+	panic(err)
+}
+
+for _, b := range blocks {
+	fmt.Printf("block font=%q size=%.1f x=%.1f y=%.1f w=%.1f h=%.1f lines=%d\n%s\n",
+		b.Font, b.FontSize, b.X, b.Y, b.W, b.H, len(b.Lines), b.S)
+}
+```
+
+`Page.Blocks()` groups the page's lines into visual blocks read in **column-major**
+order: on a multi-column page each detected column is read top-to-bottom in full
+(unlike `Page.Lines()`, which stays row-major), and within a column consecutive
+lines separated by no more than a block-sized vertical gap merge into one `Block`.
+On a single-column page this degrades to gap-based paragraph grouping. `Block.S`
+joins the constituent lines with `"\n"`; `Block.Lines` preserves them top-to-bottom
+(each `Line` still carries its own `Font`/`FontSize` for heading-vs-body signals);
+`Block.Font`/`FontSize` come from the first line (first-wins). `Block.X/Y/W/H` is the
+bounding box (bottom-left origin, Y increases upward).
+
+> **Experimental:** the grouping heuristic (line-to-block assignment, the gap
+> threshold, and column-major ordering details) may change in a minor release; the Go
+> signature and field set are additive-stable. Blocks are visual groupings only — no
+> paragraph/section semantics, and reading order around a full-width masthead or
+> mid-page heading is best-effort.
+
 ## Ligatures and Unicode normalization
 
 GoPDF returns decoded text **verbatim** — it performs no Unicode normalization on

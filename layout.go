@@ -472,9 +472,20 @@ func (p Page) Lines() ([]Line, error) {
 // already-interpreted Content. It may panic on a pathological segment; callers
 // needing the Lines() degrade-to-empty contract use linesFromContentRecovered.
 func linesFromContent(c Content) []Line {
+	lines, _ := linesAndGutters(c)
+	return lines
+}
+
+// linesAndGutters assembles lines (reading order, column-split) from an
+// already-interpreted Content and also returns the detected column gutters, so a
+// caller can re-derive each line's column (columnOf) without recomputing the band
+// and gutter geometry. It backs both linesFromContent and blocksFromContent. It may
+// panic on a pathological segment; callers wrap it (linesFromContentRecovered /
+// blocksFromContentRecovered) for the degrade-to-empty contract.
+func linesAndGutters(c Content) ([]Line, []float64) {
 	texts := c.Text
 	if len(texts) == 0 {
-		return nil
+		return nil, nil
 	}
 	var rows [][]Word
 	for _, band := range bandsByY(texts) {
@@ -489,7 +500,7 @@ func linesFromContent(c Content) []Line {
 			lines = append(lines, lineFromWords(seg))
 		}
 	}
-	return lines
+	return lines, gutters
 }
 
 // linesFromContentRecovered wraps linesFromContent in the Lines() panic

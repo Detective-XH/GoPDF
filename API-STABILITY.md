@@ -152,12 +152,20 @@ projection is refined. Each is marked `Experimental` in its godoc.
 |--------|--------|
 | `Page.DebugJSON() ([]byte, error)` | Experimental — PyMuPDF-dict-shaped JSON of the page's text geometry + page-scoped warnings. Wire format may change. |
 | `Reader.DebugJSON() ([]byte, error)` | Experimental — document envelope (pages + fonts + links + warnings). Wire format may change. |
+| `Page.Blocks() ([]Block, error)` | Experimental — column-major visual blocks (gap-grouped lines, the RAG chunking unit). The grouping heuristic may change; the Go signature and field set are additive-stable. |
+| `Block` | Experimental — the type returned by `Page.Blocks()`. Field set additive-stable; the line-to-block grouping heuristic may change. |
 
 The returned bytes are not a typed surface: callers unmarshal into their own structs or
 `map[string]any`. Note these emit **top-left, y-down** coordinates (`coord_origin` tagged),
 unlike the bottom-left PDF-native coordinates of the Stable-tier geometry (see Coordinate
 system above) — a deliberate alignment with the PyMuPDF/RAG ecosystem, scoped to this
 experimental export.
+
+> Note: `Page.Blocks()` / `Block` are Experimental for a different reason than the JSON
+> exports above — their Go signature and field set are additive-stable, but the
+> *segmentation heuristic* (which lines group into a block, the gap threshold, and
+> column-major ordering details) may be refined in a minor release. The mutable surface
+> is the grouping, not a serialization format.
 
 ## v1.0 milestone
 

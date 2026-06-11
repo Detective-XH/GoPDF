@@ -207,6 +207,7 @@ type extractionSnapshot struct {
 	summaries       []string
 	documentSummary string
 	pageDebugJSON   []string
+	pageBlocks      []string
 	debugJSON       string
 	warnings        []ExtractionWarning
 }
@@ -237,6 +238,17 @@ func takeSnapshot(r *Reader) extractionSnapshot {
 		// above), so the per-page snapshot is deterministic under the race.
 		pdb, pdberr := p.DebugJSON()
 		s.pageDebugJSON = append(s.pageDebugJSON, fmt.Sprintf("%s %v", pdb, pdberr))
+		// Page.Blocks() is a new public extraction API; enroll it in the
+		// concurrency contract. Capture block ORDER + content (record-separated), not
+		// just count, so a column-major ordering nondeterminism — not only a panic —
+		// fails the DeepEqual against the single-goroutine baseline.
+		bl, blerr := p.Blocks()
+		var bs strings.Builder
+		for _, b := range bl {
+			bs.WriteString(b.S)
+			bs.WriteByte(0x1e)
+		}
+		s.pageBlocks = append(s.pageBlocks, fmt.Sprintf("%s %v", bs.String(), blerr))
 	}
 	s.outline = r.Outline()
 	info := r.Info()
