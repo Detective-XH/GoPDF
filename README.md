@@ -84,8 +84,10 @@ func main() {
 | Named destinations / outline | `Reader.Dest` / `Reader.Outline` |
 | Image draw metadata (no decoding) | `Page.Images` |
 | Fonts / XMP / document info | `Reader.Fonts` / `Reader.XMP` / `Reader.Info` |
+| Printed page labels (roman front matter, offsets) | `Reader.PageLabels` |
 | Page extraction readiness + warnings | `Page.ExtractionSummary` / `Reader.Warnings` |
 | Extraction routing signals (text / image / empty / degraded) | `Page.ExtractionSignal` / `Reader.DocumentSummary` |
+| Structured JSON debug export (PyMuPDF-dict shape, experimental) | `Page.DebugJSON` / `Reader.DebugJSON` |
 | Encrypted PDFs (RC4, AES-128, AES-256) | `NewReaderEncrypted` |
 
 ## Performance
@@ -147,6 +149,7 @@ GoPDF has closed extraction gaps still open upstream:
 - `Page.ExtractionSummary()` reports page-level text/image readiness: `HasText`, `WordCount`, `ImageCount`, `ImageCoverage` (image bbox area / page area — distinguishes a full-bleed scan from a thumbnail), and page-scoped warnings including `sparse_text` (a page whose only text is page furniture, e.g. a page number, so it still routes to OCR).
 - `Reader.Warnings()` returns deterministic diagnostics for silently degraded extraction, including missing or broken `/ToUnicode`, fallback CJK encodings, unknown encodings, unmappable glyphs, and unsupported stream filters.
 - `Page.Images()` reports image draw metadata — page-space bounds, declared dimensions, and declared filters — without decoding image content.
+- `Page.DebugJSON()` and `Reader.DebugJSON()` (experimental) emit a structured JSON snapshot of the extracted text geometry, shaped like PyMuPDF's `get_text("dict")` (page → block → lines → word-spans with bounding boxes and a per-page `coord_origin`), for bbox-aware RAG chunking and citation. It is a thin projection over the stable primitives — only fields GoPDF actually computes — and carries the same in-band diagnostics (`image_only_page`, `non_finite_geometry`). See [EXAMPLES.md](EXAMPLES.md).
 
 ### Metadata and document structure
 
@@ -156,6 +159,7 @@ GoPDF has closed extraction gaps still open upstream:
 - `Reader.Fields()` extracts AcroForm field values (text, checkbox, radio, choice) with page and bounding-box locations.
 - `Reader.Attachments()` lists document-level embedded files (name, MIME type, declared size, decoded data).
 - Outlines expose resolved page numbers.
+- `Reader.PageLabels()` returns each page's *printed* label (roman-numeral front matter, an offset like "32", letter ranges) from the `/PageLabels` tree, so a citation can reference "page iv" rather than the 1-based position.
 - `Page.MediaBox()` and `Page.CropBox()` resolve inherited page dimensions.
 
 ### Compatibility and safety
