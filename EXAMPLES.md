@@ -558,7 +558,7 @@ Per-page metadata keys:
 | Key | Type | Source |
 |---|---|---|
 | `page` | int | 0-based page index |
-| `page_label` | string | 1-based page number — the loader's current fallback; it does not yet read the document's own printed labels (see [Page labels](#page-labels) for `Reader.PageLabels()`) |
+| `page_label` | string | the document's own printed label via [`Reader.PageLabels()`](#page-labels) (roman-numeral front matter, an offset like "32", letter ranges), falling back to the 1-based page number when the document declares no `/PageLabels` tree |
 | `total_pages` | int | `Reader.NumPage()` |
 | `title`, `author`, `subject`, `creator`, `producer` | string | `Reader.Info()` (empty string when absent) |
 | `creationdate`, `moddate` | string | `Reader.Info()` dates as RFC3339 (empty string when absent) |
