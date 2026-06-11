@@ -48,6 +48,12 @@ Page-level extraction primitives:
   `Page.Resources() Value`, `Page.MediaBox()`, `Page.CropBox()`
 - `Page.Content() Content`
 
+Package-level text helpers:
+
+- `NormalizeText(s string) string` — opt-in fold of the Latin typographic ligatures
+  U+FB00–U+FB06 to ASCII; pure, deterministic, concurrency-safe, touches no Reader/Page state.
+  No extraction path calls it (extraction output stays verbatim).
+
 Types backing the above (`Text`, `Word`, `Line`, `Content`, `FontInfo`,
 `LinkRef`, `FormField`, `Attachment`, `Annotation`, `Outline`, `Info`, `Point`,
 `Rect`, `Value`, `Font`, `TextEncoding`) — existing fields and methods are

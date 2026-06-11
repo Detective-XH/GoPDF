@@ -147,6 +147,23 @@ var ligatureFolder = strings.NewReplacer(
 clean := ligatureFolder.Replace(text)
 ```
 
+**Built-in helper** — `pdf.NormalizeText` is that same targeted fold, in the library, so
+you don't hand-roll the replacer. It folds U+FB00–U+FB06 (the five f-ligatures plus the two
+long-s/st ligatures `ﬅ`/`ﬆ`) to their ASCII forms and leaves every other rune untouched. It
+is opt-in (no extraction path ever calls it) and allocates nothing when the input carries no
+ligature:
+
+```go
+clean := pdf.NormalizeText(text)
+```
+
+One ASCII-fold caveat: `ﬅ` (U+FB05, long-s + t) folds to `st`, mapping its long-s (U+017F) to
+plain `s` — so `beﬅ` becomes `best`. That is the search/RAG-friendly fold and, for this one
+codepoint, slightly *more* aggressive than NFKC (which yields `ſt`); a standalone long-s
+elsewhere in the text is never touched. Otherwise `NormalizeText` deliberately does *not* fold
+`½`, superscripts, or full-width forms — the NFKC trade-off below still applies, which is
+exactly why the fold is targeted.
+
 **Blanket NFKC** — `golang.org/x/text/unicode/norm` folds *all* Unicode
 compatibility forms in one pass, ligatures included:
 

@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Added
+
+- `NormalizeText(string) string` folds the Latin typographic ligatures U+FB00–U+FB06
+  (ﬀﬁﬂﬃﬄﬅﬆ) to their ASCII forms (`ff`, `fi`, `fl`, `ffi`, `ffl`, `st`, `st`), leaving every
+  other rune unchanged. It is the targeted, deterministic alternative to blanket Unicode NFKC
+  (which also rewrites `½`, superscripts, and full-width forms — usually wrong for extracted
+  text): extraction output stays verbatim, and callers opt in only where they want ligatures
+  folded for search or RAG. Allocation-free when the input contains no ligature.
+
 ## v0.7.4 — 2026-06-10
 
 ### Fixed
