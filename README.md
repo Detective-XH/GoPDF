@@ -77,6 +77,7 @@ func main() {
 | Plain text (context/cancellation aware) | `Reader.GetPlainText` |
 | Styled text runs (font, size, position) | `Reader.GetStyledTexts` / `Page.Texts` |
 | Words / visual lines with bounding boxes | `Page.Words` / `Page.Lines` |
+| Column-major visual blocks (RAG chunking unit, experimental) | `Page.Blocks` |
 | Rows / columns of text (legacy, deprecated) | `Page.Lines` / `Page.Words` (`Page.GetTextByRow` / `Page.GetTextByColumn` are deprecated) |
 | Form field values (AcroForms, read-only) | `Reader.Fields` |
 | Embedded file attachments | `Reader.Attachments` |
@@ -139,6 +140,7 @@ GoPDF has closed extraction gaps still open upstream:
 - Plain text extraction with context/cancellation support.
 - Styled text extraction with font name, size, and position.
 - Text grouped by row, plus word-level extraction with bounding boxes via `Page.Words()`.
+- `Page.Blocks()` (experimental) groups lines into **column-major** visual blocks — read down each detected column in full — as the chunking unit for RAG pipelines. See [EXAMPLES.md](EXAMPLES.md).
 - Nested **Form XObject** text is included and reported in page-space coordinates.
 - TJ kerning arrays are interpreted as word gaps when spacing indicates a word boundary.
 - Broad script coverage: Latin, **Cyrillic**, and CJK predefined CMaps.
@@ -187,7 +189,7 @@ go get github.com/Detective-XH/gopdf
 ## Examples
 
 See `examples/` for runnable programs and [EXAMPLES.md](EXAMPLES.md) for API
-cookbook snippets covering words, image metadata, extraction summaries,
+cookbook snippets covering words, blocks, image metadata, extraction summaries,
 diagnostics, XMP, fonts, annotations, named destinations, link aggregation,
 form fields, attachments, encrypted PDFs, and a langchaingo-style RAG loader.
 

@@ -130,6 +130,7 @@ func FuzzOpenAndExtract(f *testing.F) {
 			_, _ = p.GetPlainText(nil)
 			//nolint:errcheck // same: Words must not panic or hang on malformed input
 			_, _ = p.Words()
+			_, _ = p.Blocks()
 		})
 	})
 }
