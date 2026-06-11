@@ -97,7 +97,24 @@ type PageExtractionSummary struct {
 // document-scoped warnings (fonts, encodings) may be newly observed as a
 // side effect and appear in Reader.Warnings — never in the returned
 // Warnings field.
-func (p Page) ExtractionSummary() (s PageExtractionSummary, err error) {
+func (p Page) ExtractionSummary() (PageExtractionSummary, error) {
+	if p.V.IsNull() {
+		return PageExtractionSummary{}, nil
+	}
+	// Interpret the content stream once, then summarise from it. A standalone
+	// caller pays one interpret pass (as before); a caller that also needs
+	// Words/Lines on the same page (e.g. DebugJSON) interprets once and reuses the
+	// Content via summaryFromContent, so the page is not interpreted twice.
+	return p.summaryFromContent(p.Content())
+}
+
+// summaryFromContent is ExtractionSummary's body over an already-interpreted
+// Content: the page's words come from c (via wordsFromContentRecovered) instead
+// of a second p.Content() pass. Everything else is identical — image scan FIRST
+// (so ImageCount is populated even when word banding panics), MediaBox for the
+// sparse-text band, and an outer recover that reduces any panic to a Page-only
+// summary plus error. p must be non-null (callers guard p.V.IsNull()).
+func (p Page) summaryFromContent(c Content) (s PageExtractionSummary, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			// Keep the already-attributed page number for failure routing;
@@ -106,9 +123,6 @@ func (p Page) ExtractionSummary() (s PageExtractionSummary, err error) {
 			err = errors.New(fmt.Sprint(rec))
 		}
 	}()
-	if p.V.IsNull() {
-		return PageExtractionSummary{}, nil
-	}
 	r := p.V.r
 	if r != nil {
 		s.Page = r.cachedPageMap()[p.V.ptr.id]
@@ -117,13 +131,13 @@ func (p Page) ExtractionSummary() (s PageExtractionSummary, err error) {
 	// One count-only image scan yields both the draw count and the summed image
 	// area for coverage, retaining no per-image refs - so a tiled or adversarial
 	// content stream that draws an image many times cannot inflate memory here
-	// (Page.Images is the only path that retains refs). Like the previous
-	// countDrawnImages call it uses the scanner without an internal recover, so a
-	// malformed content stream panics through to the deferred handler above.
+	// (Page.Images is the only path that retains refs). It uses the scanner
+	// without an internal recover, so a malformed content stream panics through
+	// to the deferred handler above.
 	_, cnt, areaSum := scanPageImages(p, true)
 	s.ImageCount = cnt
 	s.ImageCoverage = imageCoverage(areaSum, box)
-	words, werr := p.Words()
+	words, werr := wordsFromContentRecovered(c)
 	if werr != nil {
 		// Text extraction failed: report the failure rather than guess.
 		// Page and ImageCount stay populated for routing.

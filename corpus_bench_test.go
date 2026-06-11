@@ -90,6 +90,28 @@ func BenchmarkCJKColdOpenExtract(b *testing.B) {
 	}
 }
 
+// BenchmarkCJKDebugJSON guards the structured-export hot path (the langchaingo
+// sidecar ingestion path). pageModel previously interpreted the content sink
+// twice per page (ExtractionSummary→Words and Lines); it now derives both from
+// one Content, so this number is the regression sentinel for that fix.
+func BenchmarkCJKDebugJSON(b *testing.B) {
+	data, err := os.ReadFile(corpusPath(cjkBenchFixture))
+	if err != nil {
+		b.Fatalf("read cjk fixture: %v", err)
+	}
+	r, err := OpenBytes(data)
+	if err != nil {
+		b.Fatalf("open cjk fixture: %v", err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := r.DebugJSON(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkGetStyledTexts(b *testing.B) {
 	r := benchReader(b)
 	b.ResetTimer()

@@ -162,16 +162,24 @@ func (p Page) pageModel() jsonPage {
 		return jp
 	}
 
+	// Interpret the content stream ONCE; both the routing summary and the line
+	// geometry derive from this single Content, so the page's content stream is
+	// interpreted once rather than once per sink. Each derivation recovers
+	// independently (summaryFromContent / linesFromContentRecovered), so a
+	// malformed page degrades to a partial dict exactly as the two-call version
+	// did — never a panic to the caller.
+	c := p.Content()
+
 	// Classification pass: the SOLE emitter of the page-scoped routing warnings
 	// (image_only_page, sparse_text), recorded into the Reader's warning store.
 	// s.Page is the locatable 1-based page number (0 if unlocatable), set before the
 	// scan and retained even when the summary errors.
-	s, summaryErr := p.ExtractionSummary()
+	s, summaryErr := p.summaryFromContent(c)
 	if summaryErr == nil {
 		jp.Warnings = warningsToJSON(s.Warnings)
 	}
 
-	if lines, err := p.Lines(); err == nil && len(lines) > 0 {
+	if lines, err := linesFromContentRecovered(c); err == nil && len(lines) > 0 {
 		blk := jsonBlock{Type: 0, Lines: make([]jsonLine, 0, len(lines))}
 		var bb [4]float64
 		first := true
