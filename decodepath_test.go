@@ -209,7 +209,9 @@ func TestXObjectPanicCountersConsistent(t *testing.T) {
 // rotatedCorpusFixtures is the EMPIRICAL set of corpus fixtures that contain a
 // genuinely rotated text run (Trm[0][1] != 0 — a non-horizontal baseline), set
 // from an actual full-corpus Content() probe, not a hypothesis. The synthetic
-// rotated-90 plus three real documents with rotated table headers / sidebars; the
+// rotated-90 plus four real documents with rotated table headers / sidebars /
+// form text (the IRS 1040 AcroForm carries a rotated run, confirmed by the probe;
+// the C.D. Cal. civil cover sheet does NOT and is deliberately absent); the
 // synthetic-italic skew documents (cyrillic/udhr-ru, cjk/irs-p850, which slant
 // glyphs but keep a horizontal baseline) are deliberately ABSENT — that exclusion
 // is the whole point of the Trm[0][1] discriminator.
@@ -218,6 +220,7 @@ var rotatedCorpusFixtures = map[string]bool{
 	"tables/nist-hb44-appc-2026.pdf": true,
 	"multicolumn/fr-2024-06543.pdf":  true,
 	"multicolumn/fr-2024-01353.pdf":  true,
+	"forms/irs-f1040-2025.pdf":       true,
 }
 
 // TestStandardEncodingDivergence locks the /BaseEncoding /StandardEncoding fix:
