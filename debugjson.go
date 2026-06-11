@@ -5,7 +5,10 @@
 
 package pdf
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"math"
+)
 
 const (
 	coordOriginTopLeft    = "TOPLEFT"
@@ -70,6 +73,30 @@ type jsonWarning struct {
 	Detail  string `json:"detail,omitempty"`
 }
 
+// safeFloat maps a non-finite coordinate (±Inf or NaN) to 0 so the JSON model
+// always marshals. Adversarial content-stream geometry can overflow the
+// text-matrix multiplication to ±Inf (e.g. a cm-scale and a Td-translate that
+// each parse to a finite ~1e200 real, whose product is +Inf), and an
+// adversarial page box can overflow its width subtraction the same way;
+// json.Marshal rejects Inf/NaN, so without this a single malformed page would
+// fail the whole export. A sanitized 0 is indistinguishable from a legitimate
+// coordinate at the origin — the price of the "DebugJSON always emits valid
+// JSON" guarantee.
+func safeFloat(v float64) float64 {
+	if isNonFinite(v) {
+		return 0
+	}
+	return v
+}
+
+// isNonFinite reports whether v is ±Inf or NaN — the predicate shared by safeFloat
+// (the non-recording sanitizer used for link geometry) and pageModel's recording
+// sanitizer (which also flips a degraded flag), so the non_finite_geometry warning
+// fires for exactly the values that were zeroed.
+func isNonFinite(v float64) bool {
+	return math.IsInf(v, 0) || math.IsNaN(v)
+}
+
 // ---- transform ----
 
 // boxTransform converts GoPDF-native baseline-anchored geometry to top-left, y-down,
@@ -85,26 +112,32 @@ func newBoxTransform(box [4]float64) boxTransform {
 	return boxTransform{llx: llx, ury: ury, flip: urx > llx && ury > lly}
 }
 
-func (t boxTransform) bbox(x, y, w, h float64) [4]float64 {
+// bbox transforms a native baseline box to top-left geometry. sf sanitizes each
+// emitted coordinate (non-finite → 0): pass a recording sanitizer to also flag the
+// page degraded, or safeFloat to sanitize silently (link geometry, unsignalled).
+// Routing every coordinate through sf is what makes degradation detection exact —
+// it catches arithmetic overflow in the transform itself (finite operands whose
+// sum/product is non-finite), which checking the raw inputs would miss.
+func (t boxTransform) bbox(x, y, w, h float64, sf func(float64) float64) [4]float64 {
 	if !t.flip {
-		return [4]float64{x - t.llx, y, x + w - t.llx, y + h}
+		return [4]float64{sf(x - t.llx), sf(y), sf(x + w - t.llx), sf(y + h)}
 	}
-	return [4]float64{x - t.llx, t.ury - (y + h), x + w - t.llx, t.ury - y}
+	return [4]float64{sf(x - t.llx), sf(t.ury - (y + h)), sf(x + w - t.llx), sf(t.ury - y)}
 }
 
-func (t boxTransform) origin(x, y float64) [2]float64 {
+func (t boxTransform) origin(x, y float64, sf func(float64) float64) [2]float64 {
 	if !t.flip {
-		return [2]float64{x - t.llx, y}
+		return [2]float64{sf(x - t.llx), sf(y)}
 	}
-	return [2]float64{x - t.llx, t.ury - y}
+	return [2]float64{sf(x - t.llx), sf(t.ury - y)}
 }
 
 // rectBbox transforms a native PDF Rect (Min bottom-left, Max top-right).
-func (t boxTransform) rectBbox(r Rect) [4]float64 {
+func (t boxTransform) rectBbox(r Rect, sf func(float64) float64) [4]float64 {
 	if !t.flip {
-		return [4]float64{r.Min.X - t.llx, r.Min.Y, r.Max.X - t.llx, r.Max.Y}
+		return [4]float64{sf(r.Min.X - t.llx), sf(r.Min.Y), sf(r.Max.X - t.llx), sf(r.Max.Y)}
 	}
-	return [4]float64{r.Min.X - t.llx, t.ury - r.Max.Y, r.Max.X - t.llx, t.ury - r.Min.Y}
+	return [4]float64{sf(r.Min.X - t.llx), sf(t.ury - r.Max.Y), sf(r.Max.X - t.llx), sf(t.ury - r.Min.Y)}
 }
 
 // ---- per-page model ----
@@ -116,44 +149,72 @@ func (p Page) pageModel() jsonPage {
 	if !t.flip {
 		coordOrigin = coordOriginBottomLeft
 	}
+	// degraded is set by sf below iff it zeroes a non-finite coordinate. Every
+	// sanitized value — page width/height, span size, and every transformed
+	// bbox/origin coordinate — flows through this one sanitizer, so the
+	// non_finite_geometry warning fires for EXACTLY the values that were zeroed,
+	// including arithmetic overflow inside the transform (finite operands whose
+	// sum/product is non-finite, e.g. y+h) that checking the raw inputs would miss.
+	degraded := false
+	sf := func(v float64) float64 {
+		if isNonFinite(v) {
+			degraded = true
+			return 0
+		}
+		return v
+	}
 	jp := jsonPage{
-		Width:       box[2] - box[0],
-		Height:      box[3] - box[1],
+		Width:       sf(box[2] - box[0]),
+		Height:      sf(box[3] - box[1]),
 		CoordOrigin: coordOrigin,
 		Blocks:      []jsonBlock{},
 	}
 	if p.V.IsNull() {
 		return jp
 	}
+
 	// Classification pass: the SOLE emitter of the page-scoped routing warnings
-	// (image_only_page, sparse_text). Best-effort: a degraded page returns an error
-	// and simply carries no summary warnings.
-	if s, err := p.ExtractionSummary(); err == nil {
+	// (image_only_page, sparse_text), recorded into the Reader's warning store.
+	// s.Page is the locatable 1-based page number (0 if unlocatable), set before the
+	// scan and retained even when the summary errors.
+	s, summaryErr := p.ExtractionSummary()
+	if summaryErr == nil {
 		jp.Warnings = warningsToJSON(s.Warnings)
 	}
-	lines, err := p.Lines()
-	if err != nil || len(lines) == 0 {
-		return jp
-	}
-	blk := jsonBlock{Type: 0, Lines: make([]jsonLine, 0, len(lines))}
-	var bb [4]float64
-	first := true
-	for _, ln := range lines {
-		jl := jsonLine{Bbox: t.bbox(ln.X, ln.Y, ln.W, ln.H), Spans: make([]jsonSpan, 0, len(ln.Words))}
-		for _, w := range ln.Words {
-			jl.Spans = append(jl.Spans, jsonSpan{
-				Size:   w.FontSize,
-				Font:   w.Font,
-				Origin: t.origin(w.X, w.Y),
-				Bbox:   t.bbox(w.X, w.Y, w.W, w.H),
-				Text:   w.S,
-			})
+
+	if lines, err := p.Lines(); err == nil && len(lines) > 0 {
+		blk := jsonBlock{Type: 0, Lines: make([]jsonLine, 0, len(lines))}
+		var bb [4]float64
+		first := true
+		for _, ln := range lines {
+			jl := jsonLine{Bbox: t.bbox(ln.X, ln.Y, ln.W, ln.H, sf), Spans: make([]jsonSpan, 0, len(ln.Words))}
+			for _, w := range ln.Words {
+				jl.Spans = append(jl.Spans, jsonSpan{
+					Size:   sf(w.FontSize),
+					Font:   w.Font,
+					Origin: t.origin(w.X, w.Y, sf),
+					Bbox:   t.bbox(w.X, w.Y, w.W, w.H, sf),
+					Text:   w.S,
+				})
+			}
+			blk.Lines = append(blk.Lines, jl)
+			bb = unionBbox(bb, jl.Bbox, &first)
 		}
-		blk.Lines = append(blk.Lines, jl)
-		bb = unionBbox(bb, jl.Bbox, &first)
+		blk.Bbox = bb
+		jp.Blocks = append(jp.Blocks, blk)
 	}
-	blk.Bbox = bb
-	jp.Blocks = append(jp.Blocks, blk)
+
+	// Surface sanitized non-finite geometry as a page-scoped routing warning, mirroring
+	// the image_only_page/sparse_text path: record it in the Reader's warning store (so
+	// Reader.Warnings — and the Reader.DebugJSON envelope/page partition — account for
+	// it), then re-derive jp.Warnings from the store so this page dict carries it too.
+	// Deriving (never hand-building the DTO) keeps the store the single source of truth.
+	if degraded {
+		warnPageScoped(p.V.r, s.Page, WarningNonFiniteGeometry, "")
+		if r := p.V.r; r != nil && s.Page != 0 {
+			jp.Warnings = warningsToJSON(pageWarnings(r, s.Page))
+		}
+	}
 	return jp
 }
 
@@ -193,8 +254,12 @@ func unionBbox(acc, b [4]float64, first *bool) [4]float64 {
 // A null Page returns a valid minimal object ({width,height from the (possibly empty)
 // page box, empty blocks}) and a nil error. DebugJSON is best-effort: a content-parse
 // error from the underlying Lines() pass degrades the page to empty blocks (the page box
-// and any page-scoped warnings still emit) rather than returning an error, so the only
-// non-nil error a readable page can return comes from json.Marshal. Running DebugJSON
+// and any page-scoped warnings still emit) rather than returning an error. Non-finite
+// coordinates (±Inf/NaN) from adversarial content-stream geometry that overflows the
+// text-matrix multiplication are sanitized to 0 — so a readable page never produces a
+// json.Marshal error and DebugJSON always emits valid JSON — and the page additionally
+// carries a non_finite_geometry warning so a zeroed coordinate is distinguishable from
+// a real span at the origin. Running DebugJSON
 // executes the content interpreter AND the page-classification pass
 // (Page.ExtractionSummary), so page-scoped routing warnings (image_only_page,
 // sparse_text) and document-scoped font/encoding warnings may be newly observed on the
@@ -285,6 +350,10 @@ func (r *Reader) buildJSONLinks() ([]jsonLink, error) {
 		return nil, nil
 	}
 	// Per-page transform map so each link box uses its own page's coordinate system.
+	// rectBbox sanitizes non-finite link geometry to 0 like every other box, but a
+	// degraded link is deliberately NOT signalled with non_finite_geometry: that
+	// warning serves the page-span citation use case, and link rects are out of its
+	// scope. A conscious omission, not an oversight.
 	xf := make(map[int]boxTransform)
 	out := make([]jsonLink, 0, len(links))
 	for _, l := range links {
@@ -294,7 +363,7 @@ func (r *Reader) buildJSONLinks() ([]jsonLink, error) {
 			xf[l.FromPage] = t
 		}
 		out = append(out, jsonLink{
-			FromPage: l.FromPage, ToPage: l.ToPage, URI: l.URI, Bbox: t.rectBbox(l.Rect),
+			FromPage: l.FromPage, ToPage: l.ToPage, URI: l.URI, Bbox: t.rectBbox(l.Rect, safeFloat),
 		})
 	}
 	return out, nil

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"testing"
+
+	pdf "github.com/Detective-XH/gopdf"
 )
 
 // wantKeys is the exact metadata key set every Document must carry — the
@@ -67,6 +70,39 @@ func TestLoadDocumentsDegradedPageNotAborted(t *testing.T) {
 	}
 	if d.PageContent != "" {
 		t.Errorf("PageContent = %q, want empty (degraded page)", d.PageContent)
+	}
+}
+
+// TestPageLayouts verifies the structured-layout sidecar aligns one-to-one with the
+// plain-text Documents (the contract a consumer relies on: layouts[i] pairs with
+// docs[i]) and that each entry is non-empty, valid JSON.
+func TestPageLayouts(t *testing.T) {
+	path := filepath.Join("..", "..", "testdata", "corpus", "bench", "synthetic-multipage.pdf")
+
+	docs, err := loadDocuments(path)
+	if err != nil {
+		t.Fatalf("loadDocuments: %v", err)
+	}
+
+	f, r, err := pdf.Open(path)
+	if err != nil {
+		t.Fatalf("pdf.Open: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	layouts := pageLayouts(r)
+
+	// Alignment is the contract — not a magic page count.
+	if len(layouts) != len(docs) {
+		t.Fatalf("pageLayouts/Documents misaligned: %d layouts vs %d docs", len(layouts), len(docs))
+	}
+	for i, layout := range layouts {
+		if len(layout) == 0 {
+			t.Errorf("page %d: layout is empty, want non-empty JSON", i)
+		}
+		if !json.Valid(layout) {
+			t.Errorf("page %d: layout is not valid JSON", i)
+		}
 	}
 }
 

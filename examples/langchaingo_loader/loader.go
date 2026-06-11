@@ -61,9 +61,10 @@ func pageMetadata(ps pdf.PageSignal, totalPages int) map[string]any {
 	return map[string]any{
 		// page is 0-based, matching the LangChain loader convention.
 		"page": ps.Page - 1,
-		// page_label is a FALLBACK: GoPDF exposes no PDF page-label tree, so the
-		// example emits the 1-based page number as a string rather than the
-		// document's own printed label (e.g. roman-numeral front matter).
+		// page_label is a FALLBACK: this example emits the 1-based page number as a
+		// string. GoPDF now exposes the document's own printed labels via
+		// Reader.PageLabels() (e.g. roman-numeral front matter); wiring that in here
+		// is a separate follow-up.
 		"page_label":  strconv.Itoa(ps.Page),
 		"total_pages": totalPages,
 		// extraction_confidence carries the page's extraction signal verbatim
@@ -72,6 +73,23 @@ func pageMetadata(ps pdf.PageSignal, totalPages int) map[string]any {
 		// "needs review".
 		"extraction_confidence": string(ps.Signal),
 	}
+}
+
+// pageLayouts returns one structured-layout JSON document per reachable page, aligned
+// one-to-one with buildDocuments' Documents: layouts[i] is the PyMuPDF-dict-shaped
+// Page.DebugJSON() for the same page as docs[i]. It is the structured sidecar to the
+// plain-text Documents — a RAG pipeline embeds docs[i].PageContent and uses layouts[i]
+// for bbox-aware chunking or citation. Both iterate the Reader's reachable pages (null
+// page slots are skipped identically), so the slices stay index-aligned. A per-page
+// marshal failure yields a nil entry rather than aborting, mirroring buildDocuments'
+// per-page tolerance.
+func pageLayouts(r *pdf.Reader) [][]byte {
+	out := make([][]byte, 0, r.NumPage())
+	for _, p := range r.Pages() {
+		js, _ := p.DebugJSON()
+		out = append(out, js)
+	}
+	return out
 }
 
 // documentProperties maps the /Info dictionary to lowercase metadata keys. Every
