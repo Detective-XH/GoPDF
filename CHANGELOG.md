@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## v0.7.7 — 2026-06-11
+
+### Added
+
+- `Page.Blocks() ([]Block, error)` returns a page's text grouped into **column-major**
+  visual blocks — the chunking unit for RAG/LLM ingestion. On a multi-column page each
+  detected column is read top-to-bottom in full (unlike `Page.Lines()`, which stays
+  row-major with columns interleaved by row), and consecutive lines separated by no more
+  than a block-sized vertical gap merge into one `Block`; a single-column page degrades to
+  gap-based paragraph grouping. The new `Block` type carries `S` (the constituent lines
+  joined by `"\n"`), the bounding box (`X/Y/W/H`, bottom-left origin), the first line's
+  `Font`/`FontSize` (a heading-vs-body signal), and `Lines` (top-to-bottom). A full-width
+  masthead or mid-page heading spanning the gutters is assigned to its left-edge column;
+  reading order around such interruptions is best-effort (visual grouping only — no
+  paragraph or section semantics). Marked **Experimental**: the Go signature and field set
+  are additive-stable, but the segmentation heuristic may be refined in a minor release.
+  Deterministic and safe for concurrent use. See [EXAMPLES.md](EXAMPLES.md).
+
+### Performance
+
+- `Reader.DebugJSON` / `Page.DebugJSON` no longer interpret each page's content stream
+  twice, so structured JSON export is faster and lighter: on a 22-page CJK document
+  `Reader.DebugJSON` drops from **101.4 to 66.0 ms/op (−35 %)** and **100.6 to 78.5 MB/op
+  (−22 %)**. The output is byte-identical.
+
 ## v0.7.6 — 2026-06-11
 
 ### Added
