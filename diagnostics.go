@@ -63,10 +63,13 @@ var warningMessages = map[ExtractionWarningCode]string{
 //
 // Set semantics is the determinism mechanism: extraction operations re-emit
 // the same warnings on every run (encoders are re-selected per page per
-// operation), dedup absorbs the repeats, and the same SET of operations
-// therefore yields the same warning set regardless of page order, repetition,
-// or concurrent interleaving. That is what lets Warnings() join the Reader's
-// blanket concurrency contract.
+// operation), dedup absorbs the repeats, and below the cap the same SET of
+// operations therefore yields the same warning set regardless of page order,
+// repetition, or concurrent interleaving. That order-independence is what lets
+// Warnings() join the Reader's blanket concurrency contract. The one exception
+// is overflow: past maxStoredWarnings the retained subset is bounded and may
+// depend on operation order, flagged by the WarningTruncated sentinel (see
+// Reader.Warnings). Concurrent use stays safe either way.
 //
 // Locking: mu guards the map only; no extraction work ever runs under it.
 type warningStore struct {
