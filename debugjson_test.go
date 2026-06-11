@@ -3,6 +3,7 @@ package pdf
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -515,5 +516,99 @@ func TestReaderDebugJSONNullSlotWarning(t *testing.T) {
 		default:
 			t.Errorf("Reader warning {Page:%d Code:%s} duplicated %d× in DebugJSON output", w.Page, w.Code, count[k])
 		}
+	}
+}
+
+// TestDebugJSONMalformedNumericsSurvive locks the contract that DebugJSON always
+// emits valid JSON, even when adversarial content-stream geometry overflows
+// float64 to a non-finite coordinate. PDF reals have no exponent syntax, so a
+// large magnitude is a long decimal real ("1" + N zeros + ".0"). The overflow
+// magnitude differs by vector, so each literal is sized to actually overflow:
+//   - coord (cm-scale × Td-translate) and fontsize (cm-scale × Tf) are
+//     MULTIPLICATION: 1e200 × 1e200 = +Inf (overflows above ~1.34e154 per factor).
+//   - MediaBox width (box[2] - box[0]) is SUBTRACTION: it needs ~1e308 per end
+//     (1e308 - (-1e308) = 2e308 = +Inf); 1e200 there would stay finite and be a
+//     silent paper gate.
+//   - transform-internal: finite operands whose sum overflows INSIDE bbox — a
+//     hugely-negative page-box llx (-1e308) with a word at X~1e308 makes x-llx =
+//     2e308 = +Inf while every raw word/line field stays finite. It is caught only
+//     because every emitted coordinate flows through the recording sanitizer;
+//     detecting on the raw inputs would miss it.
+//
+// Every literal stays < max float64 (~1.797e308) so the lexer's ParseFloat yields a
+// finite value rather than hitting ErrRange.
+//
+// Each vector was confirmed by probe to produce a sanitized non-finite coordinate, so
+// this guards the fix rather than a no-op. Each case asserts both survival (valid JSON)
+// AND the non_finite_geometry signal, so "valid JSON" cannot regress into "valid JSON,
+// silently fabricated origin coordinates".
+func TestDebugJSONMalformedNumericsSurvive(t *testing.T) {
+	e154 := "1" + strings.Repeat("0", 154) + ".0" // product 1e308, each factor finite
+	e200 := "1" + strings.Repeat("0", 200) + ".0"
+	e308 := "1" + strings.Repeat("0", 308) + ".0"
+	negE308 := "-1" + strings.Repeat("0", 308) + ".0"
+
+	cases := []struct {
+		name     string
+		mediaBox string
+		content  string
+	}{
+		{"coord_overflow", "[0 0 200 100]",
+			fmt.Sprintf("%s 0 0 %s 0 0 cm BT /F1 10 Tf %s %s Td (Hi) Tj ET", e200, e200, e200, e200)},
+		{"fontsize_overflow", "[0 0 200 100]",
+			fmt.Sprintf("%s 0 0 %s 0 0 cm BT /F1 %s Tf 20 80 Td (Hi) Tj ET", e200, e200, e200)},
+		{"mediabox_width_overflow", fmt.Sprintf("[%s 0 %s 100]", negE308, e308),
+			"BT /F1 12 Tf 20 80 Td (Hi) Tj ET"},
+		// Arithmetic overflow INSIDE the transform: every raw word/line field stays
+		// finite, but a hugely-negative llx makes x-llx = 1e308-(-1e308) = +Inf in bbox.
+		// Caught only because every emitted coordinate flows through the recording
+		// sanitizer; raw-input detection would miss it (regression guard for that shortcut).
+		{"transform_arith_overflow", fmt.Sprintf("[%s 0 200 100]", negE308),
+			fmt.Sprintf("%s 0 0 %s 0 0 cm BT /F1 10 Tf %s %s Td (H) Tj ET", e154, e154, e154, e154)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := buildPDFFromObjects([]string{
+				"<< /Type /Catalog /Pages 2 0 R >>",
+				"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+				"<< /Type /Page /Parent 2 0 R /MediaBox " + tc.mediaBox +
+					" /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+				fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(tc.content), tc.content),
+				"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+			})
+			r := mustOpenBytes(t, data)
+
+			// (1) Survive: mustPageDebugJSON asserts nil err + valid JSON internally.
+			// (2) Signal: a sanitized-to-0 coordinate must be flagged, not silent.
+			page := mustPageDebugJSON(t, r.Page(1))
+			if !dbgHasWarningCode(page.Warnings, "non_finite_geometry") {
+				t.Errorf("Page.DebugJSON missing non_finite_geometry warning; got %+v", page.Warnings)
+			}
+
+			// Reader.DebugJSON also survives and carries the page-scoped warning in the
+			// page dict (page-scoped warnings live in their page, not the envelope).
+			doc := mustReaderDebugJSON(t, r)
+			signalled := false
+			for _, pg := range doc.Pages {
+				if dbgHasWarningCode(pg.Warnings, "non_finite_geometry") {
+					signalled = true
+				}
+			}
+			if !signalled {
+				t.Errorf("Reader.DebugJSON page dicts missing non_finite_geometry warning; got %+v", doc.Pages)
+			}
+
+			// And it is observable on the Reader itself — the store the JSON derives from.
+			if !dbgHasReaderWarningCode(r.Warnings(), "non_finite_geometry") {
+				t.Errorf("Reader.Warnings() missing non_finite_geometry")
+			}
+
+			// Partition: a page-scoped warning lives in its page dict, NOT the document
+			// envelope — it must not appear in both (the invariant the null_page_slot
+			// fix established, exercised here for a page that DOES get a dict).
+			if dbgHasWarningCode(doc.Warnings, "non_finite_geometry") {
+				t.Errorf("non_finite_geometry leaked into the envelope; page-scoped warnings belong only in their page dict: %+v", doc.Warnings)
+			}
+		})
 	}
 }

@@ -332,6 +332,13 @@ pages for OCR: `image_only_page` (images drawn, no extractable text),
 `sparse_text` (the only text is page furniture — a page number/folio at the
 margin), and `null_page_slot` (a null page-tree slot was skipped).
 
+A fourth page-scoped code, `non_finite_geometry`, is emitted by `Page.DebugJSON` /
+`Reader.DebugJSON` when a page's extracted geometry held a non-finite coordinate
+(±Inf/NaN — reachable when adversarial content-stream numbers overflow the
+text-matrix multiplication). DebugJSON sanitizes the value to `0` so its JSON stays
+valid and records this warning, so a zeroed coordinate is distinguishable from a
+real span at the page origin.
+
 ## Metadata
 
 Classic `/Info` metadata:

@@ -56,6 +56,7 @@ var warningMessages = map[ExtractionWarningCode]string{
 	WarningRotatedText:         "a text run has a rotated (non-horizontal) baseline; geometry-based layout for it is unreliable",
 	WarningVerticalWritingMode: "a vertical writing-mode CMap was selected; vertical text advances are not honored",
 	WarningSparseText:          "page text is only sparse page furniture (e.g. a page number) at the margin; it may be a scanned page",
+	WarningNonFiniteGeometry:   "page geometry held a non-finite coordinate that DebugJSON sanitized to zero",
 }
 
 // warningStore accumulates deduplicated extraction warnings for one Reader.
@@ -131,8 +132,8 @@ func (w *warningStore) snapshot() []ExtractionWarning {
 type ExtractionWarningCode string
 
 // Extraction warning codes reported by this package. Most warnings are
-// document-scoped (Page == 0); image_only_page and null_page_slot are
-// page-scoped.
+// document-scoped (Page == 0); image_only_page, sparse_text, null_page_slot,
+// and non_finite_geometry are page-scoped.
 const (
 	// WarningMissingToUnicode: a font has no usable /ToUnicode CMap (absent
 	// for an Identity CMap, or present but unparseable), so extracted bytes
@@ -185,6 +186,14 @@ const (
 	// as text-bearing yet is an image-only/scanned-page candidate for OCR
 	// routing. Emitted only by Page.ExtractionSummary; page-scoped (Page > 0).
 	WarningSparseText ExtractionWarningCode = "sparse_text"
+	// WarningNonFiniteGeometry: a page's extracted geometry held a non-finite
+	// coordinate (±Inf or NaN) — reachable when adversarial content-stream numbers
+	// overflow the text-matrix multiplication, or a page box overflows its width
+	// subtraction. DebugJSON sanitizes such values to 0 to keep its JSON valid; this
+	// warning marks that a coordinate was zeroed, so a sanitized 0 is not mistaken
+	// for a real span at the page origin. Emitted only by Page/Reader.DebugJSON;
+	// page-scoped (Page > 0).
+	WarningNonFiniteGeometry ExtractionWarningCode = "non_finite_geometry"
 )
 
 // ExtractionWarning describes one non-fatal issue observed while reading or
