@@ -40,6 +40,7 @@ func loadDocuments(path string) ([]Document, error) {
 func buildDocuments(r *pdf.Reader) []Document {
 	summary := r.DocumentSummary()
 	docProps := documentProperties(r.Info())
+	labels := r.PageLabels() // nil when the document declares no /PageLabels tree
 
 	docs := make([]Document, 0, len(summary.Pages))
 	for _, ps := range summary.Pages {
@@ -49,23 +50,26 @@ func buildDocuments(r *pdf.Reader) []Document {
 		// consumer can send just that page to OCR or review. GetPlainText already
 		// returns "" on such a failure, which is what we surface here.
 		text, _ := r.Page(ps.Page).GetPlainText(nil)
-		meta := pageMetadata(ps, summary.TotalPages)
+		meta := pageMetadata(ps, summary.TotalPages, pageLabel(labels, ps.Page))
 		maps.Copy(meta, docProps)
 		docs = append(docs, Document{PageContent: text, Metadata: meta})
 	}
 	return docs
 }
 
-// pageMetadata builds the per-page metadata keys.
-func pageMetadata(ps pdf.PageSignal, totalPages int) map[string]any {
+// pageMetadata builds the per-page metadata keys. label is the resolved printed page
+// label (see pageLabel) — passed in rather than computed here so the document's
+// PageLabels() slice is read once per load, not once per page.
+func pageMetadata(ps pdf.PageSignal, totalPages int, label string) map[string]any {
 	return map[string]any{
 		// page is 0-based, matching the LangChain loader convention.
 		"page": ps.Page - 1,
-		// page_label is a FALLBACK: this example emits the 1-based page number as a
-		// string. GoPDF now exposes the document's own printed labels via
-		// Reader.PageLabels() (e.g. roman-numeral front matter); wiring that in here
-		// is a separate follow-up.
-		"page_label":  strconv.Itoa(ps.Page),
+		// page_label is the document's OWN printed label (roman-numeral front matter,
+		// an offset like "32", letter ranges) via Reader.PageLabels(), falling back to
+		// the 1-based page number when the document declares no /PageLabels tree. See
+		// pageLabel. This matches LangChain's PyPDFLoader, which sets page_label from
+		// the document's label tree.
+		"page_label":  label,
 		"total_pages": totalPages,
 		// extraction_confidence carries the page's extraction signal verbatim
 		// (text / image_only / empty / degraded). It is a routing signal, not a
@@ -73,6 +77,19 @@ func pageMetadata(ps pdf.PageSignal, totalPages int) map[string]any {
 		// "needs review".
 		"extraction_confidence": string(ps.Signal),
 	}
+}
+
+// pageLabel resolves the printed page label for 1-based page n: the document's own
+// label from Reader.PageLabels() when it has one, else the 1-based page number as a
+// string. The fallback applies when the document declares no /PageLabels tree
+// (labels == nil), when n is out of range, or when the page's label resolves empty
+// (Reader.PageLabels yields "" — an uncovered page, or a label dict with no /S and
+// no /P).
+func pageLabel(labels []string, n int) string {
+	if n >= 1 && n <= len(labels) && labels[n-1] != "" {
+		return labels[n-1]
+	}
+	return strconv.Itoa(n)
 }
 
 // pageLayouts returns one structured-layout JSON document per reachable page, aligned

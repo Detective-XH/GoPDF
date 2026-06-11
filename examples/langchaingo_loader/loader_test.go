@@ -41,8 +41,11 @@ func TestLoadDocumentsMetadataContract(t *testing.T) {
 		if got := d.Metadata["total_pages"]; got != wantPages {
 			t.Errorf("doc %d: total_pages = %v, want %d", i, got, wantPages)
 		}
+		// synthetic-multipage.pdf declares no /PageLabels tree, so page_label falls
+		// back to the 1-based page number (this green run is also the canary for that
+		// no-tree assumption).
 		if got, want := d.Metadata["page_label"], strconv.Itoa(i+1); got != want {
-			t.Errorf("doc %d: page_label = %v, want %q", i, got, want)
+			t.Errorf("doc %d: page_label = %v, want %q (fallback: no /PageLabels)", i, got, want)
 		}
 		if got := d.Metadata["extraction_confidence"]; got != "text" {
 			t.Errorf("doc %d: extraction_confidence = %v, want %q", i, got, "text")
@@ -121,6 +124,57 @@ func assertExactKeys(t *testing.T, doc int, meta map[string]any) {
 	for j := range want {
 		if got[j] != want[j] {
 			t.Fatalf("doc %d: metadata keys = %v, want %v", doc, got, want)
+		}
+	}
+}
+
+// TestLoadDocumentsPageLabelsFromTree verifies the loader surfaces the document's
+// OWN printed page labels (not the 1-based position) when it carries a /PageLabels
+// tree. The IRS Pub 55-B excerpt prints labels "32".."47" (/S /D /St 32), so the
+// printed label is a genuine offset from the 0-based page index — proving page_label
+// is now distinct from page, not a tautology.
+func TestLoadDocumentsPageLabelsFromTree(t *testing.T) {
+	path := filepath.Join("..", "..", "testdata", "corpus", "tables", "irs-p55b-2025-excerpt.pdf")
+	docs, err := loadDocuments(path)
+	if err != nil {
+		t.Fatalf("loadDocuments: %v", err)
+	}
+	want := []string{
+		"32", "33", "34", "35", "36", "37", "38", "39",
+		"40", "41", "42", "43", "44", "45", "46", "47",
+	}
+	if len(docs) != len(want) {
+		t.Fatalf("docs: got %d, want %d", len(docs), len(want))
+	}
+	for i, d := range docs {
+		if got := d.Metadata["page_label"]; got != want[i] {
+			t.Errorf("doc %d: page_label = %v, want %q (printed label, not position)", i, got, want[i])
+		}
+		if got := d.Metadata["page"]; got != i {
+			t.Errorf("doc %d: page = %v, want %d (0-based position, distinct from label)", i, got, i)
+		}
+	}
+}
+
+// TestPageLabelResolution table-tests the pure pageLabel helper across all four
+// branches — the uncovered-empty-string and out-of-range fallbacks are unreachable
+// through the fixture tests (the IRS fixture covers every page; synthetic has no
+// tree), so they are pinned here directly.
+func TestPageLabelResolution(t *testing.T) {
+	cases := []struct {
+		name   string
+		labels []string
+		n      int
+		want   string
+	}{
+		{"nil_tree_falls_back_to_number", nil, 3, "3"},
+		{"covered_uses_printed_label", []string{"i", "ii", "iii"}, 2, "ii"},
+		{"uncovered_empty_falls_back", []string{"", "", "5"}, 1, "1"},
+		{"out_of_range_falls_back", []string{"i"}, 5, "5"},
+	}
+	for _, c := range cases {
+		if got := pageLabel(c.labels, c.n); got != c.want {
+			t.Errorf("%s: pageLabel(%v, %d) = %q, want %q", c.name, c.labels, c.n, got, c.want)
 		}
 	}
 }
