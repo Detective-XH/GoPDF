@@ -332,12 +332,15 @@ pages for OCR: `image_only_page` (images drawn, no extractable text),
 `sparse_text` (the only text is page furniture — a page number/folio at the
 margin), and `null_page_slot` (a null page-tree slot was skipped).
 
-A fourth page-scoped code, `non_finite_geometry`, is emitted by `Page.DebugJSON` /
-`Reader.DebugJSON` when a page's extracted geometry held a non-finite coordinate
-(±Inf/NaN — reachable when adversarial content-stream numbers overflow the
-text-matrix multiplication). DebugJSON sanitizes the value to `0` so its JSON stays
-valid and records this warning, so a zeroed coordinate is distinguishable from a
-real span at the page origin.
+A fourth code, `non_finite_geometry`, is emitted by `Page.DebugJSON` /
+`Reader.DebugJSON` when extracted geometry held a non-finite coordinate (±Inf/NaN —
+reachable when adversarial content-stream numbers overflow the text-matrix
+multiplication, a page box overflows its width subtraction, or a link rectangle
+overflows its per-page transform). DebugJSON sanitizes the value to `0` so its JSON
+stays valid and records this warning, so a zeroed coordinate is distinguishable from
+real geometry at the origin. Page/text geometry is page-scoped (in the page dict);
+link geometry, surfaced only by `Reader.DebugJSON`, is document-scoped (`Page == 0`,
+in the envelope) with the affected page in `Detail` ("link on page N").
 
 ## Metadata
 

@@ -612,3 +612,47 @@ func TestDebugJSONMalformedNumericsSurvive(t *testing.T) {
 		})
 	}
 }
+
+// TestReaderDebugJSONLinkNonFiniteGeometry locks that an overflowing link rectangle
+// is signalled, not silently zeroed. A page box with llx=-1e308 plus a /Rect at
+// X=1e308 overflows rectBbox (Min.X - llx = 2e308 = +Inf); the page has no text, so
+// its own geometry stays finite and the link is the sole non-finite source. A link
+// has no page dict of its own, so its warning is document-scoped — it lands in the
+// envelope, NOT a page dict (the converse partition direction to the text case).
+func TestReaderDebugJSONLinkNonFiniteGeometry(t *testing.T) {
+	e308 := "1" + strings.Repeat("0", 308) + ".0"
+	negE308 := "-1" + strings.Repeat("0", 308) + ".0"
+	data := buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [%s 0 200 100] /Annots [4 0 R] >>", negE308),
+		fmt.Sprintf("<< /Type /Annot /Subtype /Link /Rect [%s 0 %s 50] /A << /S /URI /URI (http://x) >> >>", e308, e308),
+	})
+	r := mustOpenBytes(t, data)
+	doc := mustReaderDebugJSON(t, r)
+
+	// Signalled in the envelope (document-scoped: a link has no page dict of its own),
+	// with the affected page carried in Detail.
+	foundDetail := false
+	for _, w := range doc.Warnings {
+		if w.Code == "non_finite_geometry" && w.Detail == "link on page 1" {
+			foundDetail = true
+		}
+	}
+	if !foundDetail {
+		t.Errorf("envelope missing non_finite_geometry {Detail:\"link on page 1\"} for overflowing link; got %+v", doc.Warnings)
+	}
+
+	// Converse partition: the document-scoped link warning must NOT appear in any page
+	// dict (page dicts carry only their own page-scoped warnings).
+	for i, pg := range doc.Pages {
+		if dbgHasWarningCode(pg.Warnings, "non_finite_geometry") {
+			t.Errorf("page dict %d carries the link's document-scoped non_finite_geometry; it belongs only in the envelope: %+v", i, pg.Warnings)
+		}
+	}
+
+	// The link bbox is still emitted (sanitized to finite), so the JSON stays usable.
+	if len(doc.Links) != 1 {
+		t.Fatalf("links: got %d, want 1", len(doc.Links))
+	}
+}
