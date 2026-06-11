@@ -7,6 +7,7 @@ package pdf
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 )
 
@@ -73,26 +74,14 @@ type jsonWarning struct {
 	Detail  string `json:"detail,omitempty"`
 }
 
-// safeFloat maps a non-finite coordinate (±Inf or NaN) to 0 so the JSON model
-// always marshals. Adversarial content-stream geometry can overflow the
-// text-matrix multiplication to ±Inf (e.g. a cm-scale and a Td-translate that
-// each parse to a finite ~1e200 real, whose product is +Inf), and an
-// adversarial page box can overflow its width subtraction the same way;
-// json.Marshal rejects Inf/NaN, so without this a single malformed page would
-// fail the whole export. A sanitized 0 is indistinguishable from a legitimate
-// coordinate at the origin — the price of the "DebugJSON always emits valid
-// JSON" guarantee.
-func safeFloat(v float64) float64 {
-	if isNonFinite(v) {
-		return 0
-	}
-	return v
-}
-
-// isNonFinite reports whether v is ±Inf or NaN — the predicate shared by safeFloat
-// (the non-recording sanitizer used for link geometry) and pageModel's recording
-// sanitizer (which also flips a degraded flag), so the non_finite_geometry warning
-// fires for exactly the values that were zeroed.
+// isNonFinite reports whether v is ±Inf or NaN. Adversarial content-stream geometry
+// can overflow the text-matrix multiplication to ±Inf (e.g. a cm-scale and a
+// Td-translate that each parse to a finite ~1e200 real, whose product is +Inf), and
+// an adversarial page box can overflow its width subtraction or a link rect its
+// per-page transform. json.Marshal rejects Inf/NaN, so DebugJSON's recording
+// sanitizers (pageModel for page/text geometry, buildJSONLinks for link rects) zero
+// such values — keeping the JSON valid — and flip a degraded flag so the
+// non_finite_geometry warning fires for exactly the coordinates that were zeroed.
 func isNonFinite(v float64) bool {
 	return math.IsInf(v, 0) || math.IsNaN(v)
 }
@@ -350,10 +339,6 @@ func (r *Reader) buildJSONLinks() ([]jsonLink, error) {
 		return nil, nil
 	}
 	// Per-page transform map so each link box uses its own page's coordinate system.
-	// rectBbox sanitizes non-finite link geometry to 0 like every other box, but a
-	// degraded link is deliberately NOT signalled with non_finite_geometry: that
-	// warning serves the page-span citation use case, and link rects are out of its
-	// scope. A conscious omission, not an oversight.
 	xf := make(map[int]boxTransform)
 	out := make([]jsonLink, 0, len(links))
 	for _, l := range links {
@@ -362,8 +347,26 @@ func (r *Reader) buildJSONLinks() ([]jsonLink, error) {
 			t = newBoxTransform(r.Page(l.FromPage).CropBox())
 			xf[l.FromPage] = t
 		}
+		// Recording sanitizer per link: a finite-but-adversarial page box and /Rect can
+		// overflow the per-page transform to ±Inf, which rectBbox zeroes. Signal it like
+		// page/text geometry so a consumer cannot mistake a zeroed link box for a real
+		// one at the origin. A link has no page dict of its own in the output, so the
+		// warning is document-scoped (Page 0) — it lands in the Reader.DebugJSON envelope
+		// — with the affected page carried in Detail.
+		degraded := false
+		sf := func(v float64) float64 {
+			if isNonFinite(v) {
+				degraded = true
+				return 0
+			}
+			return v
+		}
+		bbox := t.rectBbox(l.Rect, sf)
+		if degraded {
+			r.warn(0, WarningNonFiniteGeometry, fmt.Sprintf("link on page %d", l.FromPage))
+		}
 		out = append(out, jsonLink{
-			FromPage: l.FromPage, ToPage: l.ToPage, URI: l.URI, Bbox: t.rectBbox(l.Rect, safeFloat),
+			FromPage: l.FromPage, ToPage: l.ToPage, URI: l.URI, Bbox: bbox,
 		})
 	}
 	return out, nil

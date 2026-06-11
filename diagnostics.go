@@ -56,7 +56,7 @@ var warningMessages = map[ExtractionWarningCode]string{
 	WarningRotatedText:         "a text run has a rotated (non-horizontal) baseline; geometry-based layout for it is unreliable",
 	WarningVerticalWritingMode: "a vertical writing-mode CMap was selected; vertical text advances are not honored",
 	WarningSparseText:          "page text is only sparse page furniture (e.g. a page number) at the margin; it may be a scanned page",
-	WarningNonFiniteGeometry:   "page geometry held a non-finite coordinate that DebugJSON sanitized to zero",
+	WarningNonFiniteGeometry:   "geometry held a non-finite coordinate that DebugJSON sanitized to zero",
 }
 
 // warningStore accumulates deduplicated extraction warnings for one Reader.
@@ -132,8 +132,9 @@ func (w *warningStore) snapshot() []ExtractionWarning {
 type ExtractionWarningCode string
 
 // Extraction warning codes reported by this package. Most warnings are
-// document-scoped (Page == 0); image_only_page, sparse_text, null_page_slot,
-// and non_finite_geometry are page-scoped.
+// document-scoped (Page == 0); image_only_page, sparse_text, and null_page_slot
+// are page-scoped. non_finite_geometry is page-scoped for page/text geometry and
+// document-scoped (page in Detail) for link geometry.
 const (
 	// WarningMissingToUnicode: a font has no usable /ToUnicode CMap (absent
 	// for an Identity CMap, or present but unparseable), so extracted bytes
@@ -186,13 +187,14 @@ const (
 	// as text-bearing yet is an image-only/scanned-page candidate for OCR
 	// routing. Emitted only by Page.ExtractionSummary; page-scoped (Page > 0).
 	WarningSparseText ExtractionWarningCode = "sparse_text"
-	// WarningNonFiniteGeometry: a page's extracted geometry held a non-finite
-	// coordinate (±Inf or NaN) — reachable when adversarial content-stream numbers
-	// overflow the text-matrix multiplication, or a page box overflows its width
-	// subtraction. DebugJSON sanitizes such values to 0 to keep its JSON valid; this
-	// warning marks that a coordinate was zeroed, so a sanitized 0 is not mistaken
-	// for a real span at the page origin. Emitted only by Page/Reader.DebugJSON;
-	// page-scoped (Page > 0).
+	// WarningNonFiniteGeometry: DebugJSON sanitized a non-finite geometry coordinate
+	// (±Inf or NaN) to 0 — reachable when adversarial content-stream numbers overflow
+	// the text-matrix multiplication, a page box overflows its width subtraction, or a
+	// link rectangle overflows its per-page transform. The warning marks that a
+	// coordinate was zeroed, so a sanitized 0 is not mistaken for real geometry at the
+	// origin. Page text/box geometry is page-scoped (Page > 0, in the page dict); link
+	// geometry, surfaced only by Reader.DebugJSON, is document-scoped (Page == 0, in the
+	// envelope) with the affected page in Detail ("link on page N").
 	WarningNonFiniteGeometry ExtractionWarningCode = "non_finite_geometry"
 )
 
@@ -204,7 +206,9 @@ type ExtractionWarning struct {
 	// Page is the 1-based page number for page-scoped warnings
 	// (image_only_page, null_page_slot), or 0 for document-scoped warnings —
 	// font/encoding/filter warnings are document-scoped because fonts are
-	// document-level objects shared across pages.
+	// document-level objects shared across pages. Page == 0 is also used for a
+	// geometry warning whose natural page has no dedicated output slot, e.g. a
+	// non_finite_geometry on a link rectangle, which carries its page in Detail.
 	Page int
 	// Code classifies the issue.
 	Code ExtractionWarningCode

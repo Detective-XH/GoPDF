@@ -18,10 +18,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   projection for debugging and ingestion pipelines — not a converter: it emits only the
   fields GoPDF actually computes (font flags, colour, and writing-mode are omitted rather
   than reported as a misleading zero) and carries GoPDF's own routing/diagnostic warnings
-  (e.g. `image_only_page`) in-band. Adversarial content-stream geometry that overflows to a
-  non-finite coordinate (±Inf/NaN) is sanitized to `0` and flagged with a new page-scoped
-  `non_finite_geometry` warning, so the output is always valid JSON and a zeroed value is not
-  mistaken for a real span at the page origin. Both return `[]byte`; the JSON wire format is
+  (e.g. `image_only_page`) in-band. Adversarial page, text, or link geometry that overflows to
+  a non-finite coordinate (±Inf/NaN) is sanitized to `0` and flagged with a new
+  `non_finite_geometry` warning (page-scoped for page/text geometry, document-scoped for links),
+  so the output is always valid JSON and a zeroed value is not mistaken for real geometry at the
+  origin. Both return `[]byte`; the JSON wire format is
   experimental and may change in a future minor release, while the Go signatures are stable.
   See [EXAMPLES.md](EXAMPLES.md) and the Experimental tier in
   [API-STABILITY.md](API-STABILITY.md).
