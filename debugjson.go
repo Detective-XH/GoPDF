@@ -162,24 +162,28 @@ func (p Page) pageModel() jsonPage {
 		return jp
 	}
 
-	// Interpret the content stream ONCE; both the routing summary and the line
-	// geometry derive from this single Content, so the page's content stream is
-	// interpreted once rather than once per sink. Each derivation recovers
-	// independently (summaryFromContent / linesFromContentRecovered), so a
-	// malformed page degrades to a partial dict exactly as the two-call version
-	// did — never a panic to the caller.
 	c := p.Content()
+
+	// Assemble the page's lines ONCE. The routing summary's word count and
+	// sparse-text signal are derived by flattening these lines' words (the same
+	// multiset Words() yields — TestWordsLinesCountEquivalence) rather than a
+	// second bandsByY + wordsFromBand pass over the same Content. A line panic is
+	// recovered into linesErr; the line-only steps (columnGutters /
+	// splitWordsByGutters / lineFromWords) are panic-free on the non-empty word
+	// rows wordsFromBand yields, so linesFromContentRecovered fails iff a second
+	// wordsFromContentRecovered would (both fail only when bandsByY/wordsFromBand
+	// panics). Feeding linesErr to summarize as the word-assembly error therefore
+	// reproduces the two-pass routing exactly.
+	lines, linesErr := linesFromContentRecovered(c)
 
 	// Classification pass: the SOLE emitter of the page-scoped routing warnings
 	// (image_only_page, sparse_text), recorded into the Reader's warning store.
-	// s.Page is the locatable 1-based page number (0 if unlocatable), set before the
-	// scan and retained even when the summary errors.
-	s, summaryErr := p.summaryFromContent(c)
+	s, summaryErr := p.summarize(wordsFromLines(lines), linesErr)
 	if summaryErr == nil {
 		jp.Warnings = warningsToJSON(s.Warnings)
 	}
 
-	if lines, err := linesFromContentRecovered(c); err == nil && len(lines) > 0 {
+	if linesErr == nil && len(lines) > 0 {
 		blk := jsonBlock{Type: 0, Lines: make([]jsonLine, 0, len(lines))}
 		var bb [4]float64
 		first := true

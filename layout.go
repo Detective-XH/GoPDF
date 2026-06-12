@@ -295,6 +295,28 @@ func wordsFromContentRecovered(c Content) (words []Word, err error) {
 	return wordsFromContent(c), nil
 }
 
+// wordsFromLines flattens the words of already-assembled lines back into one
+// slice, in line/column order. splitWordsByGutters partitions a band's words
+// without dropping or duplicating any, and lineFromWords keeps Line.Words as
+// that partition, so the result is the same multiset of words wordsFromContent
+// would yield from the same Content — the invariant TestWordsLinesCountEquivalence
+// locks. It copies only Word headers (the strings are shared), so it is far
+// cheaper than a second bandsByY + wordsFromBand pass.
+func wordsFromLines(lines []Line) []Word {
+	n := 0
+	for _, ln := range lines {
+		n += len(ln.Words)
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([]Word, 0, n)
+	for _, ln := range lines {
+		out = append(out, ln.Words...)
+	}
+	return out
+}
+
 // bandsByY sorts texts top-to-bottom (Y descending then X ascending) and
 // groups them into y-bands: a new band starts when the Y-distance from the
 // first glyph of the current band exceeds max(band[0].FontSize*0.5, 1).

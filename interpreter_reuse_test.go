@@ -56,6 +56,45 @@ func TestWordsLinesCountEquivalence(t *testing.T) {
 	}
 }
 
+// TestSummarizeMatchesSummaryFromContent locks the DebugJSON word-reuse
+// optimization: the summary pageModel builds from flatten(Lines) must equal the
+// summary the from-Content path builds. Per-page value fields must match, and
+// the two paths' emitted warning stores must be identical — which locks
+// sparse_text / image_only_page, the routing signals that read word geometry the
+// field compare alone cannot see. Two fresh Readers keep the deduped stores from
+// cross-contaminating.
+func TestSummarizeMatchesSummaryFromContent(t *testing.T) {
+	for _, e := range corpusManifest {
+		t.Run(e.Path, func(t *testing.T) {
+			ra := loadCorpus(t, e) // from-Content path
+			rb := loadCorpus(t, e) // flatten-Lines path
+			for i := 1; i <= ra.NumPage(); i++ {
+				pa, pb := ra.Page(i), rb.Page(i)
+				if pa.V.IsNull() {
+					continue
+				}
+				want, werr := pa.summaryFromContent(pa.Content()) // re-bands
+				lines, lerr := linesFromContentRecovered(pb.Content())
+				got, gerr := pb.summarize(wordsFromLines(lines), lerr) // reuses lines
+				if (werr == nil) != (gerr == nil) {
+					t.Fatalf("page %d: err mismatch: from-content %v vs from-lines %v", i, werr, gerr)
+				}
+				if want.Page != got.Page || want.HasText != got.HasText ||
+					want.WordCount != got.WordCount || want.ImageCount != got.ImageCount ||
+					want.ImageCoverage != got.ImageCoverage {
+					t.Errorf("page %d: summary fields differ:\n from-content %+v\n from-lines   %+v", i, want, got)
+				}
+			}
+			// End-to-end lock on sparse_text / image_only_page: the page-scoped
+			// routing warnings the two paths emit must be byte-identical.
+			if !reflect.DeepEqual(ra.Warnings(), rb.Warnings()) {
+				t.Errorf("warning stores differ between paths:\n from-content %+v\n flatten-Lines %+v",
+					ra.Warnings(), rb.Warnings())
+			}
+		})
+	}
+}
+
 // TestDebugJSONPanickingPageDegrades exercises the panic-recovery contract: the
 // recovers that ExtractionSummary()/Lines() carried now live in
 // summaryFromContent / linesFromContentRecovered, which pageModel calls. A page
