@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Performance
+
+- `Reader.DebugJSON` / `Page.DebugJSON` got faster and lighter again: each page's
+  words are no longer assembled twice. Building on the v0.7.7 single-interpret change,
+  the structured-export path now reuses the words it already grouped into lines to
+  drive its routing summary, instead of re-grouping the page from scratch. On a
+  22-page CJK document `Reader.DebugJSON` drops from **67.1 to 59.7 ms/op (−11 %)**,
+  **74.8 to 59.3 MB/op (−21 %)**, and allocations from **921k to 863k per call
+  (−6 %)**. The output is byte-identical.
+
 ## v0.7.7 — 2026-06-11
 
 ### Added

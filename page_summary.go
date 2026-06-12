@@ -109,16 +109,24 @@ func (p Page) ExtractionSummary() (PageExtractionSummary, error) {
 }
 
 // summaryFromContent is ExtractionSummary's body over an already-interpreted
-// Content: the page's words come from c (via wordsFromContentRecovered) instead
-// of a second p.Content() pass. Everything else is identical — image scan FIRST
-// (so ImageCount is populated even when word banding panics), MediaBox for the
-// sparse-text band, and an outer recover that reduces any panic to a Page-only
-// summary plus error. p must be non-null (callers guard p.V.IsNull()).
-func (p Page) summaryFromContent(c Content) (s PageExtractionSummary, err error) {
+// Content: it assembles the page's words from c and summarises. DebugJSON,
+// which already assembles Lines from the same Content, flattens those lines and
+// calls summarize directly, skipping this second band/word pass.
+func (p Page) summaryFromContent(c Content) (PageExtractionSummary, error) {
+	words, werr := wordsFromContentRecovered(c)
+	return p.summarize(words, werr)
+}
+
+// summarize builds the page summary from a pre-assembled word slice. wordsErr
+// carries a word-assembly failure (a banding panic) the caller already
+// recovered, reproducing the early return wordsFromContentRecovered's error
+// produced inline. The image scan runs FIRST (so ImageCount is populated even
+// when word assembly failed), and an outer recover reduces any panic (image
+// scan, MediaBox, emitRoutingWarning) to a Page-only summary plus error. p must
+// be non-null (callers guard p.V.IsNull()).
+func (p Page) summarize(words []Word, wordsErr error) (s PageExtractionSummary, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			// Keep the already-attributed page number for failure routing;
-			// everything else is unreliable after a panic.
 			s = PageExtractionSummary{Page: s.Page}
 			err = errors.New(fmt.Sprint(rec))
 		}
@@ -128,20 +136,11 @@ func (p Page) summaryFromContent(c Content) (s PageExtractionSummary, err error)
 		s.Page = r.cachedPageMap()[p.V.ptr.id]
 	}
 	box := p.MediaBox()
-	// One count-only image scan yields both the draw count and the summed image
-	// area for coverage, retaining no per-image refs - so a tiled or adversarial
-	// content stream that draws an image many times cannot inflate memory here
-	// (Page.Images is the only path that retains refs). It uses the scanner
-	// without an internal recover, so a malformed content stream panics through
-	// to the deferred handler above.
 	_, cnt, areaSum := scanPageImages(p, true)
 	s.ImageCount = cnt
 	s.ImageCoverage = imageCoverage(areaSum, box)
-	words, werr := wordsFromContentRecovered(c)
-	if werr != nil {
-		// Text extraction failed: report the failure rather than guess.
-		// Page and ImageCount stay populated for routing.
-		return s, werr
+	if wordsErr != nil {
+		return s, wordsErr
 	}
 	s.WordCount = len(words)
 	s.HasText = s.WordCount > 0
