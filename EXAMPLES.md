@@ -57,10 +57,14 @@ if err != nil {
 }
 
 for _, t := range texts {
-	fmt.Printf("font=%s size=%.1f x=%.1f y=%.1f text=%s\n",
-		t.Font, t.FontSize, t.X, t.Y, t.S)
+	fmt.Printf("font=%s size=%.1f x=%.1f y=%.1f h=%.1f rot=%.0f text=%s\n",
+		t.Font, t.FontSize, t.X, t.Y, t.H, t.Rotation, t.S)
 }
 ```
+
+`Text.H` is the nominal font-box height (the text up-vector's magnitude, always
+non-negative); `Text.Rotation` is the baseline angle in degrees, counter-clockwise
+from horizontal (`0` for upright text), distinct from the page `/Rotate` attribute.
 
 ## Words and Bounding Boxes
 

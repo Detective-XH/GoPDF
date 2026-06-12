@@ -85,11 +85,18 @@ X rightward, Y upward, units in points (1/72 inch).
 Semantics differ by type — apply conversions accordingly:
 
 - `Text.X`/`Text.Y` is the glyph's text-space position (the baseline origin,
-  with text rise applied). `Text` carries a width `W` but no height.
+  with text rise applied). `Text.W` is the advance along the baseline; `Text.H`
+  is the nominal font-box height (the text up-vector's magnitude, always `>= 0`).
+  `Text.Rotation` is the baseline angle in degrees, counter-clockwise-positive,
+  `0` for horizontal text — the text rendering matrix's angle, distinct from and
+  opposite-signed to the page `/Rotate` attribute (clockwise). For horizontal text
+  `[X, X+W] × [Y, Y+H]` is the nominal box; for a rotated run `W` runs along the
+  (rotated) baseline and `H` along the up-vector, so they do not form an
+  axis-aligned box.
 - `Word` and `Line` carry best-effort boxes: `Y` is the lowest glyph baseline
   in the unit, and `H` extends from that baseline to the top of the tallest
   nominal font box (baseline + font size). Descenders may extend below `Y`.
-  The nominal box spans `[X, X+W] × [Y, Y+H]`.
+  The nominal box spans `[X, X+W] × [Y, Y+H]` for horizontal text.
 
 To convert a nominal box to top-left screen space (MuPDF, poppler, OCR and
 layout-model conventions):
@@ -111,7 +118,7 @@ Planned, pre-announced additions (additive only — nothing existing changes):
 | `ExtractionWarningCode` | new warning codes (the enum is additive by design; match known codes, pass unknown ones through). Shipped: page-scoped `sparse_text` (page furniture, no body text) and `non_finite_geometry` (a coordinate `DebugJSON` sanitized to zero; page-scoped for page/text geometry, document-scoped with the page in `Detail` for link rects) |
 | `ImageRef` | image metadata fields (e.g. color space, inline-image dimensions) |
 | `Word`, `Line` | font name/size fields (per-word font info), aligning with the cross-ecosystem norm. Shipped: `Font string` + `FontSize float64` on both (first-glyph/first-word wins) |
-| `Text` | height field completing the bounding box; possibly an orientation field later |
+| `Text` | Shipped: `H float64` (nominal font-box height) and `Rotation float64` (text-baseline angle, degrees, CCW-positive) |
 
 ### Additive-evolving: extraction-quality tier
 

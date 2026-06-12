@@ -21,6 +21,17 @@ type Text struct {
 	X        float64 // the X coordinate, in points, increasing left to right
 	Y        float64 // the Y coordinate, in points, increasing bottom to top
 	W        float64 // the width of the text, in points
+	// H is the nominal font-box height in points: the magnitude of the text-space
+	// up-vector. It equals the font size for ordinary horizontal text and stays
+	// positive and rotation-invariant for rotated runs, where FontSize (taken from
+	// the matrix x-scale) collapses toward zero. Always >= 0.
+	H float64
+	// Rotation is the text baseline's angle in degrees, counter-clockwise-positive
+	// from the positive x-axis; 0 for ordinary horizontal text. This is the text
+	// rendering matrix's baseline angle — distinct from, and opposite-signed to,
+	// the page /Rotate attribute (which is clockwise-positive and is not applied
+	// here).
+	Rotation float64
 	// S is the extracted UTF-8 text, returned verbatim with no escaping applied.
 	// Callers must escape S before embedding it in HTML, shell commands, SQL, or
 	// any other context-sensitive sink (e.g. html.EscapeString for HTML output).

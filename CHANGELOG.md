@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Added
+
+- `Text.H` and `Text.Rotation` complete the per-glyph geometry on the `Text` struct
+  (returned by `Page.Texts()`, `Page.Content()`, and `Reader.GetStyledTexts`).
+  `Text.H` is the nominal font-box height in points — the magnitude of the text
+  rendering matrix's up-vector, so it equals the font size for ordinary horizontal
+  text and stays **positive and rotation-invariant** for rotated runs, where
+  `FontSize` (taken from the matrix x-scale) collapses toward zero: on a 90°-rotated
+  run whose `FontSize` reads 0, `H` still reports the true 12 pt. `Text.Rotation` is
+  the baseline's angle in **degrees, counter-clockwise-positive** from horizontal
+  (`0` for upright text) — the rendering matrix's baseline angle, distinct from and
+  opposite-signed to the page `/Rotate` attribute (clockwise), which is not applied
+  here. Both fields are additive (`Text` stays Stable-tier); no existing field value,
+  golden, or `DebugJSON` output changes. `Word.H`/`Line.H` are unchanged (still the
+  first-glyph font size); unifying them with the rotation-aware `Text.H` is left to a
+  later vertical-layout change. Carrying the two new `float64` fields widens `Text`
+  from 64 to 80 bytes, so the structured-extraction paths
+  (`Texts`/`GetStyledTexts`/`Content`/`DebugJSON`) allocate **+8–13 % more bytes** and
+  run **+2–3.5 % slower**, with the allocation *count* unchanged; `GetPlainText` is a
+  separate path and is unaffected (measured same-machine A/B, Apple M4 Pro). A
+  fast-path that skips the per-glyph trigonometry on horizontal text was measured and
+  gave no benefit, confirming the cost is the wider struct rather than the
+  computation — so the simpler unconditional form ships. See [EXAMPLES.md](EXAMPLES.md).
+
 ## v0.7.8 — 2026-06-12
 
 ### Performance
