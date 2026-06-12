@@ -5,6 +5,7 @@
 package pdf
 
 import (
+	"math"
 	"strings"
 )
 
@@ -76,7 +77,24 @@ func (s *contentState) layoutDecoded(str, decoded string) {
 			s.rotatedWarned = true
 			s.p.V.warn(WarningRotatedText, "rotated text matrix (non-horizontal baseline)")
 		}
-		s.text = append(s.text, Text{f, Trm[0][0], Trm[2][0], Trm[2][1], w0 / 1000 * Trm[0][0], string(ch)})
+		// H is the up-vector magnitude (nominal font height: rotation-invariant
+		// and always >= 0); Rotation is the baseline angle, CCW-positive in
+		// degrees. math.Atan2(0, x>0) is exactly 0 and math.Hypot(0, h)=|h|, so
+		// ordinary horizontal text yields Rotation==0 and H==FontSize, exactly.
+		// Computed unconditionally: a guarded fast-path that skips these on
+		// horizontal text was benchmarked and gave no benefit — the per-glyph
+		// transcendentals are negligible; the measured extraction-path cost is the
+		// two extra struct fields (a wider Text), which a guard cannot avoid.
+		s.text = append(s.text, Text{
+			Font:     f,
+			FontSize: Trm[0][0],
+			X:        Trm[2][0],
+			Y:        Trm[2][1],
+			W:        w0 / 1000 * Trm[0][0],
+			H:        math.Hypot(Trm[1][0], Trm[1][1]),
+			Rotation: math.Atan2(Trm[0][1], Trm[0][0]) * 180 / math.Pi,
+			S:        string(ch),
+		})
 		tx := w0/1000*s.g.Tfs + s.g.Tc
 		tx *= s.g.Th
 		s.g.Tm = matrix{{1, 0, 0}, {0, 1, 0}, {tx, 0, 1}}.mul(s.g.Tm)
