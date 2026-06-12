@@ -77,6 +77,21 @@ func (f *Font) cachedEncoder() (TextEncoding, encSource) {
 	return f.enc, f.encSource
 }
 
+// cachedReadCmap parses toUnicode's CMap, memoizing it on the Reader's
+// document-level encoder cache keyed by the ToUnicode stream's own object
+// pointer, so a font referenced on many pages parses its CMap once per Reader
+// instead of once per (page, sink). It falls back to a direct readCmap when no
+// Reader is reachable (a detached Font value) or the stream has no stable object
+// pointer (always indirect in a conformant PDF, but a zero ptr is guarded so a
+// pathological direct stream can never alias the cache).
+func (f Font) cachedReadCmap(toUnicode Value) *cmap {
+	r := f.V.r
+	if r == nil || toUnicode.ptr == (objptr{}) {
+		return readCmap(toUnicode)
+	}
+	return r.encoders.lookup(toUnicode.ptr, toUnicode)
+}
+
 // getEncoder selects the font's TextEncoding and reports the decode-path source
 // it came from (so decoded glyphs can be attributed without extending the
 // TextEncoding interface). The source mirrors the diagnostic emitted at each
@@ -84,7 +99,7 @@ func (f *Font) cachedEncoder() (TextEncoding, encSource) {
 func (f Font) getEncoder() (TextEncoding, encSource) {
 	toUnicode := f.V.Key("ToUnicode")
 	if toUnicode.Kind() == Stream {
-		if m := readCmap(toUnicode); m != nil {
+		if m := f.cachedReadCmap(toUnicode); m != nil {
 			return m, encSourceToUnicode
 		}
 		if DebugOn {
