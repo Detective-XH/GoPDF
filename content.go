@@ -47,7 +47,22 @@ func (s *contentState) appendText(str string) {
 // runes are layout, not content. The plain-text sink emits no such separators,
 // so counting them here would make the decode-path counters disagree by entry
 // point — the exact discrepancy this framework exists to prevent.
+//
+// In vertical writing mode the separator must NOT advance the text matrix: it
+// decodes to a real rune under the multibyte -V CMaps (e.g. "\n" → "\n" via
+// Shift-JIS), and layoutDecoded's vertical branch advances a full em per rune
+// regardless of the glyph — which would push any real text after the TJ in the
+// same text object an extra line down. The separator Text entry is still
+// recorded (a layout marker); only its advance is suppressed. Horizontal mode is
+// left byte-identical (its separator advance is the glyph width, ~0 for "\n").
+// Vertical word-segmentation/leading is a WS3 concern.
 func (s *contentState) appendSeparator(sep string) {
+	if s.g.vertical {
+		saved := s.g.Tm
+		s.layoutDecoded(sep, s.g.enc.Decode(sep))
+		s.g.Tm = saved
+		return
+	}
 	s.layoutDecoded(sep, s.g.enc.Decode(sep))
 }
 
@@ -95,9 +110,16 @@ func (s *contentState) layoutDecoded(str, decoded string) {
 			Rotation: math.Atan2(Trm[0][1], Trm[0][0]) * 180 / math.Pi,
 			S:        string(ch),
 		})
-		tx := w0/1000*s.g.Tfs + s.g.Tc
-		tx *= s.g.Th
-		s.g.Tm = matrix{{1, 0, 0}, {0, 1, 0}, {tx, 0, 1}}.mul(s.g.Tm)
+		// Advance to the next glyph. Vertical writing (a -V CMap) moves down the
+		// page by the PDF default vertical displacement (DW2 w1 = -1000 → one em;
+		// Th does not scale vertical advance, PDF 32000-1 §9.4.4) — GoPDF reads no
+		// per-glyph CIDFont /W2 metrics, so every vertical glyph uses this
+		// em-square default. Horizontal writing advances along x by the width.
+		if s.g.vertical {
+			s.g.advance(0, -s.g.Tfs+s.g.Tc)
+		} else {
+			s.g.advance((w0/1000*s.g.Tfs+s.g.Tc)*s.g.Th, 0)
+		}
 	}
 }
 
@@ -189,6 +211,7 @@ func (s *contentState) handleTf(args []Value) {
 	}
 	f := s.font(args[0].Name())
 	s.g.Tf = *f
+	s.g.vertical = verticalWritingCMap(f.V.Key("Encoding").Name())
 	s.g.enc, s.g.encSource = f.cachedEncoder()
 	if s.g.enc == nil {
 		if DebugOn {
@@ -261,8 +284,18 @@ func (s *contentState) interpretTJArray(v Value) {
 			}
 			s.appendText(x.RawString())
 		} else {
-			tx := -x.Float64() / 1000 * s.g.Tfs * s.g.Th
-			s.g.Tm = matrix{{1, 0, 0}, {0, 1, 0}, {tx, 0, 1}}.mul(s.g.Tm)
+			// A TJ numeric adjustment translates along the writing axis: x for
+			// horizontal, y for vertical (-V CMap). Same magnitude; Th scales only
+			// the horizontal axis (PDF 32000-1 §9.4.4).
+			adj := -x.Float64() / 1000 * s.g.Tfs
+			if s.g.vertical {
+				s.g.advance(0, adj)
+			} else {
+				s.g.advance(adj*s.g.Th, 0)
+			}
+			// The word-gap threshold sign is horizontal-specific (a vertical gap is
+			// the opposite sign); left unchanged, so vertical word-segmentation is
+			// unaffected and deferred to WS3.
 			if x.Float64() <= -tjSpaceThreshold {
 				needSpace = true
 			}

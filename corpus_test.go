@@ -270,7 +270,7 @@ var corpusManifest = []corpusEntry{
 		Path: "geometry/vertical-cmap.pdf", Golden: "",
 		Synthetic: true, Compare: compareExact, Feature: "signal-geometry",
 		Source: "synthetic", License: "synthetic",
-		Purpose: "Vertical -V CMap (/UniJIS-UCS2-V); WMode unread, no vertical warning today",
+		Purpose: "Vertical -V CMap (/UniJIS-UCS2-V); fires fallback+vertical warnings; advance now vertical (single glyph: unobservable here)",
 	},
 }
 

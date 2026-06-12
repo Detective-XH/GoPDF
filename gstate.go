@@ -42,6 +42,21 @@ type gstate struct {
 	// save and restore it together (a font set inside q…Q must not leak its
 	// classification past the Q that restores the outer font).
 	encSource encSource
+	// vertical reports whether the current font selects vertical writing mode
+	// (WMode 1), identified by a predefined-CMap "-V" suffix. Like enc/encSource
+	// it is part of the graphics state, so q/Q save and restore it with the font
+	// (a vertical font set inside q…Q must not leak its advance direction past the
+	// Q that restores an outer horizontal font). It governs only the intra-run
+	// advance direction in layoutDecoded / interpretTJArray; inter-line leading
+	// (T*/TD/TL) and layout grouping stay horizontal until WS3.
+	vertical bool
+}
+
+// advance translates the text matrix by (dx, dy) text-space units, the
+// displacement after a shown glyph or a TJ numeric adjustment. Horizontal writing
+// advances along x; vertical writing (a -V CMap) advances along y.
+func (g *gstate) advance(dx, dy float64) {
+	g.Tm = matrix{{1, 0, 0}, {0, 1, 0}, {dx, dy, 1}}.mul(g.Tm)
 }
 
 // xobjMaxDepth caps Form XObject recursion to guard against malformed PDFs
