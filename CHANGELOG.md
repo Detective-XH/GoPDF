@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Performance
 
+- CJK and other ToUnicode-based text extraction is substantially faster and
+  lighter: a font's ToUnicode character map is now decoded once per document
+  instead of re-parsed on every page of every extraction pass. Repeated
+  extraction calls and multi-page documents reuse the decoded map, which is
+  bounded in memory and safe for concurrent use. Output is byte-identical — the
+  cache only changes *when* a map is parsed, never *what* it decodes to. On a
+  22-page Traditional-Chinese document, `Reader.GetPlainText` drops **−28 % time,
+  −35 % bytes, −18 % allocations**; cold open-and-extract **−26 % / −31 % /
+  −17 %**; and `Reader.DebugJSON` a further **−12 % / −10 % / −11 %**.
+
 - `Reader.DebugJSON` / `Page.DebugJSON` got faster and lighter again: each page's
   words are no longer assembled twice. Building on the v0.7.7 single-interpret change,
   the structured-export path now reuses the words it already grouped into lines to

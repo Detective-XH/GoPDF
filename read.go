@@ -72,10 +72,10 @@ var DebugOn = false
 // A Reader is a single PDF file open for reading.
 // After Open/NewReader returns, the methods of Reader (and of the Value,
 // Page, and Outline trees it produces) are safe for concurrent use by
-// multiple goroutines: post-open state is read-only except for an internal
-// bounded cache, a bounded extraction-warning store, and a lazily built
-// page-number map, which synchronize themselves. The one caller-visible
-// mutable helper remains
+// multiple goroutines: post-open state is read-only except for internal
+// bounded caches (resolved objects and parsed font encoders), a bounded
+// extraction-warning store, and a lazily built page-number map, which
+// synchronize themselves. The one caller-visible mutable helper remains
 // (*Font).cachedEncoder, which memoizes on the Font value — keep
 // per-goroutine Font copies, as plaintext.go already does.
 type Reader struct {
@@ -107,6 +107,13 @@ type Reader struct {
 	// pageNums lazily memoizes the page-number map (page_summary.go):
 	// built once, read-only after, used by Page.ExtractionSummary.
 	pageNums pageMapCache
+	// encoders memoizes parsed ToUnicode CMaps document-wide (cache.go), keyed
+	// by the ToUnicode stream's objptr, so a font referenced on N pages parses
+	// its CMap once per Reader instead of once per (page, sink). Bounded and
+	// self-synchronizing (RWMutex). Unlike the object cache it needs no opening
+	// bypass: getEncoder runs only during extraction, after decryption state is
+	// established, so a cached CMap is always parsed from decrypted bytes.
+	encoders encoderCache
 }
 
 // Open opens a file for reading.
