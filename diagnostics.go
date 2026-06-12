@@ -54,7 +54,7 @@ var warningMessages = map[ExtractionWarningCode]string{
 	WarningImageOnlyPage:       "page declares image content but yields no extractable text; OCR is not attempted",
 	WarningNullPageSlot:        "page slot is null and was skipped during extraction",
 	WarningRotatedText:         "a text run has a rotated (non-horizontal) baseline; geometry-based layout for it is unreliable",
-	WarningVerticalWritingMode: "a vertical writing-mode CMap was selected; vertical text advances are not honored",
+	WarningVerticalWritingMode: "a vertical writing-mode CMap was selected; glyphs advance vertically using a default one-em displacement (per-glyph vertical metrics are not applied)",
 	WarningSparseText:          "page text is only sparse page furniture (e.g. a page number) at the margin; it may be a scanned page",
 	WarningNonFiniteGeometry:   "geometry held a non-finite coordinate that DebugJSON sanitized to zero",
 }
@@ -179,11 +179,11 @@ const (
 	// Content/Words/Lines/Texts path (the plain-text path tracks no geometry).
 	WarningRotatedText ExtractionWarningCode = "rotated_text"
 	// WarningVerticalWritingMode: a vertical (-V) writing-mode CMap was
-	// selected. Glyphs decode correctly but advance horizontally because WMode
-	// is not honored, so vertical text smears along X. Detection only.
-	// Document-scoped; emitted at encoder selection, so a vertical font that
-	// also carries a usable /ToUnicode is not flagged (the ToUnicode path wins
-	// before the CMap name is examined).
+	// selected. Glyphs decode correctly and advance down the page using the PDF
+	// default one-em vertical displacement (no per-glyph /W2 metrics are read).
+	// Document-scoped; emitted at encoder selection, so a vertical font that also
+	// carries a usable /ToUnicode is not flagged here (the ToUnicode path wins
+	// before the CMap name is examined) even though its advance is still vertical.
 	WarningVerticalWritingMode ExtractionWarningCode = "vertical_writing_mode"
 	// WarningSparseText: a page yields only a few short page-number-like tokens
 	// at the top or bottom margin (page furniture) and no body text, so it reads

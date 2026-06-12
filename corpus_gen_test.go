@@ -353,10 +353,11 @@ func buildRotated90PDF() []byte {
 	)
 }
 
-// buildVerticalCMapPDF: /Encoding /UniJIS-UCS2-V (a vertical -V CMap). WMode is
-// never read (cmap.go), so the glyph decodes and advances horizontally; today
-// SignalText + WarningFallbackEncoding (ucs2), no vertical warning. Locks the gap
-// the vertical-writing-mode risk warning closes. No golden.
+// buildVerticalCMapPDF: /Encoding /UniJIS-UCS2-V (a vertical -V CMap). Decodes via
+// the ucs2 charset fallback and fires SignalText + WarningFallbackEncoding +
+// WarningVerticalWritingMode; the -V advance is now vertical (one em down), though
+// a single glyph makes that unobservable here. The multi-glyph advance is locked
+// by TestVerticalWritingAdvance. Warning-detection lock; no golden.
 func buildVerticalCMapPDF() []byte {
 	return encodingPagePDF(
 		"BT /F1 12 Tf (N-) Tj ET",

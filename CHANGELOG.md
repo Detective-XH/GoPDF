@@ -31,6 +31,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   gave no benefit, confirming the cost is the wider struct rather than the
   computation — so the simpler unconditional form ships. See [EXAMPLES.md](EXAMPLES.md).
 
+- Vertical writing-mode text (a `-V` predefined CMap) now advances **down the page**
+  instead of horizontally. Previously such text decoded correctly but every glyph
+  advanced along the x-axis (or, for composite fonts, did not advance at all), so a
+  multi-glyph vertical run overprinted at a single point. The per-glyph advance and the
+  `TJ` kerning adjustment now translate along the vertical axis using the PDF default
+  one-em displacement, and text following a `TJ` array in the same text block is no
+  longer pushed an extra line down. The `vertical_writing_mode` warning message now
+  states that the advance is applied with a default-metrics approximation rather than
+  ignored. Per-glyph vertical metrics (`/W2`), the glyph position vector, and vertical
+  word/line grouping are not yet modelled; horizontal text, `GetPlainText`, and all
+  existing field values and goldens are unchanged.
+
 ## v0.7.8 — 2026-06-12
 
 ### Performance

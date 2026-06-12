@@ -93,6 +93,10 @@ Semantics differ by type — apply conversions accordingly:
   `[X, X+W] × [Y, Y+H]` is the nominal box; for a rotated run `W` runs along the
   (rotated) baseline and `H` along the up-vector, so they do not form an
   axis-aligned box.
+- Vertical-writing text (a predefined `-V` CMap, WMode 1) advances down the page
+  along −y at the PDF default one-em displacement; per-glyph vertical metrics
+  (`/W2`) and the glyph position vector are not modelled, and inter-line/column
+  ordering for vertical runs is best-effort.
 - `Word` and `Line` carry best-effort boxes: `Y` is the lowest glyph baseline
   in the unit, and `H` extends from that baseline to the top of the tallest
   nominal font box (baseline + font size). Descenders may extend below `Y`.

@@ -129,6 +129,13 @@ func (f Font) getEncoder() (TextEncoding, encSource) {
 	}
 }
 
+// verticalWritingCMap reports whether a predefined PDF CMap/Encoding name selects
+// vertical writing mode (WMode 1). The predefined CJK CMaps encode direction in
+// the name: a "-V" suffix is vertical; "-H" (or no suffix) is horizontal.
+func verticalWritingCMap(name string) bool {
+	return strings.HasSuffix(name, "-V")
+}
+
 // namedEncoder resolves a named /Encoding via encoderForCMapName, emits the
 // matching diagnostic, and reports the decode-path source. Reached only when the
 // font has no usable ToUnicode (getEncoder returns early on a parsed ToUnicode
@@ -137,7 +144,7 @@ func (f Font) getEncoder() (TextEncoding, encSource) {
 // early returns, so an Identity-V CMap is flagged too. Split from getEncoder to
 // keep both under the gocyclo threshold.
 func (f Font) namedEncoder(n string) (TextEncoding, encSource) {
-	if strings.HasSuffix(n, "-V") {
+	if verticalWritingCMap(n) {
 		f.V.warn(WarningVerticalWritingMode, fontRef(f)+": vertical writing-mode CMap "+clampDetail(n))
 	}
 	e := encoderForCMapName(n)
