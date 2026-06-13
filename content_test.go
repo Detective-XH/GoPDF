@@ -729,3 +729,33 @@ func TestContentReNegativeDimsNormalized(t *testing.T) {
 		t.Errorf("re Max = %v, want (110,70) normalized", s.rect[0].Max)
 	}
 }
+
+// TestPopArgsReuseGrowsAndRefills locks the scratch-buffer contract: popArgsReuse
+// returns the same args popArgs would (order preserved), reuses the backing array
+// when capacity suffices, and grows it when the next operator needs more.
+func TestPopArgsReuseGrowsAndRefills(t *testing.T) {
+	mk := func(vals ...int64) *Stack {
+		st := &Stack{}
+		for _, v := range vals {
+			st.Push(Value{data: v})
+		}
+		return st
+	}
+	var buf []Value
+	buf = popArgsReuse(mk(1, 2, 3), buf) // 3 args
+	if got := []int64{buf[0].Int64(), buf[1].Int64(), buf[2].Int64()}; got[0] != 1 || got[1] != 2 || got[2] != 3 {
+		t.Fatalf("order not preserved: %v", got)
+	}
+	prev := &buf[:cap(buf)][0]
+	buf = popArgsReuse(mk(7, 8), buf) // fewer args → reuse backing
+	if &buf[:cap(buf)][0] != prev {
+		t.Errorf("backing reallocated when capacity sufficed")
+	}
+	if len(buf) != 2 || buf[0].Int64() != 7 || buf[1].Int64() != 8 {
+		t.Errorf("refill wrong: len=%d %v", len(buf), buf)
+	}
+	buf = popArgsReuse(mk(1, 2, 3, 4, 5, 6), buf) // more args → grow
+	if len(buf) != 6 || buf[5].Int64() != 6 {
+		t.Errorf("grow wrong: len=%d", len(buf))
+	}
+}
