@@ -104,6 +104,22 @@ var corpusManifest = []corpusEntry{
 		Source: "IRS Data Book 2025 (Pub 55-B) pp. 40-55, qpdf excerpt", License: "US-Gov PD (17 USC 105)",
 		Purpose: "Financial statistics tables; numeric columns extract, some labels unmapped",
 	},
+	// Cell-grid accuracy corpus: ground-truth grids in .cellgrid.tsv;
+	// consumed by corpus_cellgrid_test.go.
+	{
+		Path: "tables/irs-db-t4-3-2025.pdf", Golden: "tables/irs-db-t4-3-2025.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "IRS Data Book 2025 (Pub 55-B) p.72 (Table 4-3 Appeals Workload), single-page qpdf excerpt",
+		License: "US-Gov PD (17 USC 105)",
+		Purpose: "Clean borderless cell-grid ground truth (10x4); partial text layer (some labels U+FFFD), numeric cells extract",
+	},
+	{
+		Path: "tables/eia-aer-t3-1-2011.pdf", Golden: "tables/eia-aer-t3-1-2011.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "EIA Annual Energy Review 2011 Table 3.1 (Fossil Fuel Production Prices), eia.gov/totalenergy/data/annual/pdf/sec3_3.pdf",
+		License: "US-Gov PD (17 USC 105)",
+		Purpose: "Two-tier spanning-header cell-grid ground truth (45x10); special tokens R/(s)/2011P/en-dash; clean text layer",
+	},
 	// Table-detection false-positive gate fixtures: dense 3-column Federal
 	// Register notices with ZERO tables — a detector must return nothing here.
 	{
