@@ -84,6 +84,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   change — in particular a 90°-rotated column, which used to collapse into a single block
   because its old height read `0`, can now split into separate blocks.
 
+### Performance
+
+- The text-extraction paths that group glyphs into lines — `Page.Words`,
+  `Page.Lines`, `Page.Blocks`, `Reader.DebugJSON`, and `Page.ExtractionSummary` —
+  now allocate substantially less memory. The internal y-band grouping step used to
+  copy the page's glyph slice **twice** per page (a defensive copy plus per-band
+  value copies); it now sorts a lightweight index permutation and references the
+  original glyphs in place, leaving the page's content untouched. Output is
+  byte-for-byte identical. On a 22-page Traditional-Chinese document,
+  `Reader.DebugJSON` drops **−21.6 % bytes allocated** (and ~1 % fewer allocations),
+  and the word/line path drops **−29–31 % bytes**. Time per operation is flat to
+  slightly lower — the workload is dominated by garbage-collection pressure, so
+  fewer bytes chiefly relieve GC. This more than offsets the +8–13 % bytes the new
+  `Text.H`/`Text.Rotation` fields added (above).
+
 ## v0.7.8 — 2026-06-12
 
 ### Performance
