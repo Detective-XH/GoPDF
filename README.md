@@ -65,8 +65,9 @@ func main() {
   `degraded`) and quantify decode quality, so a pipeline can index, route to OCR,
   or flag low-confidence pages — without parsing logs.
 - **Survives the real world.** CJK and Cyrillic scripts, RC4 / AES-128 / AES-256
-  encryption, hybrid cross-references, object streams, and malformed PDFs are all
-  handled with bounded, panic-safe, deterministic extraction.
+  encryption, hybrid cross-references, object streams, rotated and vertical-writing
+  pages, and malformed PDFs are all handled with bounded, panic-safe, deterministic
+  extraction.
 - **Pure Go, drop-in.** No CGo and no external services — `go get` and ship. Safe
   for concurrent use after open.
 
@@ -86,6 +87,7 @@ func main() {
 | Image draw metadata (no decoding) | `Page.Images` |
 | Fonts / XMP / document info | `Reader.Fonts` / `Reader.XMP` / `Reader.Info` |
 | Printed page labels (roman front matter, offsets) | `Reader.PageLabels` |
+| Applied page rotation (`/Rotate`, upright display-space coords) | `Page.Rotate` |
 | Page extraction readiness + warnings | `Page.ExtractionSummary` / `Reader.Warnings` |
 | Extraction routing signals (text / image / empty / degraded) | `Page.ExtractionSignal` / `Reader.DocumentSummary` |
 | Structured JSON debug export (PyMuPDF-dict shape, experimental) | `Page.DebugJSON` / `Reader.DebugJSON` |
