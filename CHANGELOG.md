@@ -54,10 +54,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   text-matrix and page rotation in display space. The change is additive and
   **golden-neutral**: an unrotated page (`/Rotate 0`) is bit-for-bit unchanged,
   `GetPlainText` is unaffected, and every corpus, `DebugJSON`, and signal golden is
-  unchanged; the per-page cost is within measurement noise. One limitation: `Content().Rect`
-  (raw rectangle-path operands) is not yet rotated. See [EXAMPLES.md](EXAMPLES.md).
+  unchanged; the per-page cost is within measurement noise. See [EXAMPLES.md](EXAMPLES.md).
 
 ### Changed
+
+- `Content().Rect` (the `re` path-construction rectangles from `Page.Content()`) now
+  **honors the CTM**: each rectangle's four corners are mapped through the current
+  transformation matrix and returned as their axis-aligned display-space bounding box, so
+  it agrees with the `/Rotate`-honored text and image geometry on a rotated or
+  `cm`-transformed page — the last mixed-frame surface after the page-`/Rotate` work. An
+  unrotated page with no `cm` transform is bit-for-bit unchanged; the returned bbox is now
+  always normalized (`Min <= Max`), which additionally corrects un-normalized output for a
+  negative-dimension `re`. `DebugJSON` does not emit content rectangles, so its goldens are
+  unaffected.
 
 - `Word.H` and `Line.H` (and the `Block` and `DebugJSON` boxes derived from them) are
   now the **rotation-aware nominal font height** — the same basis as `Text.H` — finishing

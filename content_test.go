@@ -646,3 +646,86 @@ func TestContentHandleTfNilEncoder(t *testing.T) {
 		t.Errorf("handleTf: g.Tfs = %v, want 12.0", s.g.Tfs)
 	}
 }
+
+// TestContentReHonorsCTM verifies the re operator maps its rectangle through a
+// non-identity CTM (a scale+translate, as a cm [2 0 0 3 10 20] would set) and
+// returns the axis-aligned display-space bbox rather than the raw operands.
+func TestContentReHonorsCTM(t *testing.T) {
+	s := contentMakeState()
+	s.g.CTM = matrix{{2, 0, 0}, {0, 3, 0}, {10, 20, 1}} // scale (2x,3y) + translate (10,20)
+
+	s.handleGraphics("re", []Value{
+		contentMakeFloat64Value(10), contentMakeFloat64Value(20),
+		contentMakeFloat64Value(100), contentMakeFloat64Value(50),
+	})
+
+	if len(s.rect) != 1 {
+		t.Fatalf("re: len(s.rect) = %d, want 1", len(s.rect))
+	}
+	if s.rect[0].Min != (Point{30, 80}) { // (10,20) -> (10*2+10, 20*3+20)
+		t.Errorf("re Min = %v, want (30,80)", s.rect[0].Min)
+	}
+	if s.rect[0].Max != (Point{230, 230}) { // (110,70) -> (110*2+10, 70*3+20)
+		t.Errorf("re Max = %v, want (230,230)", s.rect[0].Max)
+	}
+}
+
+// TestContentReHonorsCmTransform exercises the full interpret path: a cm operator
+// updates the CTM, then a re must be returned in that transformed space.
+func TestContentReHonorsCmTransform(t *testing.T) {
+	r, err := OpenBytes(buildTextPDF("q 2 0 0 3 10 20 cm 10 20 100 50 re Q"))
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	c := r.Page(1).Content()
+	if len(c.Rect) != 1 {
+		t.Fatalf("Rect: want 1, got %d", len(c.Rect))
+	}
+	if c.Rect[0].Min != (Point{30, 80}) {
+		t.Errorf("Rect.Min = %v, want (30,80)", c.Rect[0].Min)
+	}
+	if c.Rect[0].Max != (Point{230, 230}) {
+		t.Errorf("Rect.Max = %v, want (230,230)", c.Rect[0].Max)
+	}
+}
+
+// TestContentReHonorsPageRotate locks the headline case: a /Rotate 90 page (MediaBox
+// [0 0 612 792]) maps a 100x50 user-space re at the origin into a 50x100 display-space
+// bbox. rotateMatrix() for /Rotate 90 is {{0,-1,0},{1,0,0},{0,612,1}} (y0=0, x1=612).
+func TestContentReHonorsPageRotate(t *testing.T) {
+	r, err := OpenBytes(rotatedPagePDF(90, "0 0 100 50 re"))
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	c := r.Page(1).Content()
+	if len(c.Rect) != 1 {
+		t.Fatalf("Rect: want 1, got %d", len(c.Rect))
+	}
+	if !approxEq(c.Rect[0].Min.X, 0) || !approxEq(c.Rect[0].Min.Y, 512) {
+		t.Errorf("Rect.Min = %v, want (0,512)", c.Rect[0].Min)
+	}
+	if !approxEq(c.Rect[0].Max.X, 50) || !approxEq(c.Rect[0].Max.Y, 612) {
+		t.Errorf("Rect.Max = %v, want (50,612)", c.Rect[0].Max)
+	}
+}
+
+// TestContentReNegativeDimsNormalized documents the only unrotated-page behavior change:
+// a negative-dimension re (legal PDF) now returns a normalized bbox (Min <= Max), matching
+// the image path, instead of the old un-normalized Min > Max.
+func TestContentReNegativeDimsNormalized(t *testing.T) {
+	s := contentMakeState() // CTM = ident
+	// (110,70,-100,-50) describes the same rectangle as (10,20,100,50).
+	s.handleGraphics("re", []Value{
+		contentMakeFloat64Value(110), contentMakeFloat64Value(70),
+		contentMakeFloat64Value(-100), contentMakeFloat64Value(-50),
+	})
+	if len(s.rect) != 1 {
+		t.Fatalf("re: len(s.rect) = %d, want 1", len(s.rect))
+	}
+	if s.rect[0].Min != (Point{10, 20}) {
+		t.Errorf("re Min = %v, want (10,20) normalized", s.rect[0].Min)
+	}
+	if s.rect[0].Max != (Point{110, 70}) {
+		t.Errorf("re Max = %v, want (110,70) normalized", s.rect[0].Max)
+	}
+}
