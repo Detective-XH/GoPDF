@@ -136,7 +136,7 @@ func (s *contentState) handleGraphics(op string, args []Value) {
 			panic("bad re")
 		}
 		x, y, w, h := args[0].Float64(), args[1].Float64(), args[2].Float64(), args[3].Float64()
-		s.rect = append(s.rect, Rect{Point{x, y}, Point{x + w, y + h}})
+		s.rect = append(s.rect, rectFromCTM(s.g.CTM, x, y, w, h))
 	case "q":
 		s.gstack = append(s.gstack, s.g)
 	case "Q":
@@ -155,6 +155,32 @@ func matrixFrom6Args(args []Value) matrix {
 	}
 	m[2][2] = 1
 	return m
+}
+
+// rectFromCTM maps a user-space rectangle (the re operator's x, y, w, h operands)
+// through the CTM and returns the axis-aligned bounding box of its four transformed
+// corners — the display-space convention imageRefFromCTM already uses for images, so
+// Content().Rect agrees with the Text and ImageRef geometry on a /Rotate- or
+// cm-transformed page. With an identity CTM (an unrotated page, no cm) and non-negative
+// w/h it reduces to {Point{x, y}, Point{x + w, y + h}}, byte-identical to the prior
+// raw-operand result; the bbox is always normalized (Min <= Max), unlike the old
+// un-normalized output for a negative-dimension re.
+func rectFromCTM(ctm matrix, x, y, w, h float64) Rect {
+	corners := [...]Point{
+		transformPoint(ctm, x, y),
+		transformPoint(ctm, x+w, y),
+		transformPoint(ctm, x, y+h),
+		transformPoint(ctm, x+w, y+h),
+	}
+	minX, maxX := corners[0].X, corners[0].X
+	minY, maxY := corners[0].Y, corners[0].Y
+	for _, p := range corners[1:] {
+		minX = math.Min(minX, p.X)
+		maxX = math.Max(maxX, p.X)
+		minY = math.Min(minY, p.Y)
+		maxY = math.Max(maxY, p.Y)
+	}
+	return Rect{Point{minX, minY}, Point{maxX, maxY}}
 }
 
 func (s *contentState) applyTd(tx, ty float64) {
@@ -433,6 +459,9 @@ func (s *contentState) interpret(stk *Stack, op string) {
 // PDF; no HTML, shell, or other escaping is applied. Callers must escape at their
 // output sink (e.g. html.EscapeString before writing to an HTML template).
 // For a page with no Contents stream, Content returns a zero Content whose Text and Rect slices are nil.
+// Rect coordinates are in the page's upright display space: each re rectangle's
+// corners are mapped through the current transformation matrix (page /Rotate and any
+// cm) and returned as their axis-aligned bounding box.
 // If the content stream causes a panic (e.g. malformed operator arguments),
 // the defer/recover returns whatever text and rectangles were collected before
 // the crash rather than propagating the panic to the caller.

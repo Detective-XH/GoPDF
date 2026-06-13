@@ -85,10 +85,10 @@ X rightward, Y upward, units in points (1/72 inch). The page `/Rotate` attribute
 extracted text and image geometry (`Text`/`Word`/`Line`/`Block` and `ImageRef`): it is
 composed into the base coordinate system, so those coordinates are in the page's
 upright display space; an unrotated page (`/Rotate 0`) is unchanged. `Page.Rotate()`
-returns the applied clockwise rotation (`0`/`90`/`180`/`270`). `Content().Rect` (raw
-`re` path-construction rectangles) reports the operator's operands directly and does
-**not** apply the CTM — a pre-existing limitation, so on a `/Rotate`- (or
-`cm`-) transformed page it is not in display space.
+returns the applied clockwise rotation (`0`/`90`/`180`/`270`). `Content().Rect` (`re` path-construction rectangles) is **honored** too: each
+rectangle's four corners are mapped through the CTM and returned as their axis-aligned
+display-space bounding box, so it agrees with the text and image geometry; an unrotated
+page with no `cm` transform is unchanged.
 
 Semantics differ by type — apply conversions accordingly:
 
