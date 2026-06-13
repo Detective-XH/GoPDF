@@ -291,7 +291,7 @@ func wordsFromContent(c Content) []Word {
 	}
 	var words []Word
 	for _, band := range bandsByY(texts) {
-		words = append(words, wordsFromBand(band)...)
+		words = append(words, wordsFromBand(texts, band)...)
 	}
 	return words
 }
@@ -330,59 +330,64 @@ func wordsFromLines(lines []Line) []Word {
 	return out
 }
 
-// bandsByY sorts texts top-to-bottom (Y descending then X ascending) and
-// groups them into y-bands: a new band starts when the Y-distance from the
-// first glyph of the current band exceeds max(band[0].FontSize*0.5, 1).
-// Each band is re-sorted X-ascending before appending, satisfying
-// wordsFromBand's left-to-right precondition and handling sub/superscript Y-shift.
-func bandsByY(texts []Text) [][]Text {
-	// Sort a copy: the in-place sort below must not mutate the caller's slice
-	// (one page's Content.Text may be shared between the words and lines
-	// derivations). Bands are built by appending Text values into fresh slices,
-	// so they never alias the input.
-	texts = append([]Text(nil), texts...)
-	sort.SliceStable(texts, func(i, j int) bool {
+// bandsByY sorts texts top-to-bottom (Y descending then X ascending) and groups
+// them into y-bands: a new band starts when the Y-distance from the first glyph
+// of the current band exceeds max(band[0].FontSize*0.5, 1). Within a band the
+// glyphs are X-ascending (with a deterministic Y tie-break for stacked glyphs),
+// satisfying wordsFromBand's left-to-right precondition.
+//
+// bandsByY does NOT mutate texts. It sorts a private []int permutation and
+// returns bands as sub-slices of that permutation (indices into texts), so a
+// 22pp CJK page no longer pays two whole-[]Text copies (the former defensive
+// copy plus the per-band value copies); only one len(texts) index slice is
+// allocated. Banding the same Content twice is therefore idempotent.
+func bandsByY(texts []Text) [][]int {
+	if len(texts) == 0 {
+		return nil
+	}
+	idx := make([]int, len(texts))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool {
+		ti, tj := texts[idx[a]], texts[idx[b]]
 		// Quantise Y to a fine grid (far finer than line spacing, coarser than
 		// floating-point noise) so two glyphs meant for the same visual line
 		// cannot be reordered by sub-point baseline jitter; co-linear glyphs and
 		// ties fall through to left-to-right X order. Distinct lines, spaced by
 		// whole points, never share a grid cell.
-		if qi, qj := quantize(texts[i].Y), quantize(texts[j].Y); qi != qj {
+		if qi, qj := quantize(ti.Y), quantize(tj.Y); qi != qj {
 			return qi > qj
 		}
-		return texts[i].X < texts[j].X
+		return ti.X < tj.X
 	})
 
-	var bands [][]Text
-	var band []Text
-	flush := func() {
-		sort.SliceStable(band, func(i, j int) bool {
-			if quantize(band[i].X) != quantize(band[j].X) {
-				return band[i].X < band[j].X
+	var bands [][]int
+	start := 0
+	flush := func(end int) {
+		band := idx[start:end:end] // cap-bounded sub-slice; a later append cannot bleed across bands
+		sort.SliceStable(band, func(a, b int) bool {
+			ta, tb := texts[band[a]], texts[band[b]]
+			if quantize(ta.X) != quantize(tb.X) {
+				return ta.X < tb.X
 			}
-			return band[i].Y > band[j].Y // deterministic tie-break for stacked glyphs
+			return ta.Y > tb.Y // deterministic tie-break for stacked glyphs
 		})
 		bands = append(bands, band)
-		band = nil
+		start = end
 	}
 
-	for _, t := range texts {
-		if len(band) == 0 {
-			band = append(band, t)
-			continue
-		}
-		tol := band[0].FontSize * 0.5
+	for i := 1; i < len(idx); i++ {
+		anchor := texts[idx[start]] // the band's first glyph; start advances only at a flush
+		tol := anchor.FontSize * 0.5
 		if tol < 1 {
 			tol = 1
 		}
-		if band[0].Y-t.Y > tol {
-			flush()
+		if anchor.Y-texts[idx[i]].Y > tol {
+			flush(i)
 		}
-		band = append(band, t)
 	}
-	if len(band) > 0 {
-		flush()
-	}
+	flush(len(idx))
 	return bands
 }
 
@@ -404,9 +409,9 @@ func isAllSpace(s string) bool {
 	return true
 }
 
-// wordsFromBand groups per-glyph Text entries that share a y-band into Word values.
-// band must be sorted left-to-right (X ascending).
-func wordsFromBand(band []Text) []Word {
+// wordsFromBand groups the per-glyph Text entries named by band (indices into
+// texts, in left-to-right X order — bandsByY's postcondition) into Word values.
+func wordsFromBand(texts []Text, band []int) []Word {
 	if len(band) == 0 {
 		return nil
 	}
@@ -420,7 +425,8 @@ func wordsFromBand(band []Text) []Word {
 		}
 	}
 
-	for _, t := range band {
+	for _, bi := range band {
+		t := texts[bi]
 		// Skip empty glyphs and the synthetic "\n" that content.go appends after
 		// every TJ operator (content.go handleTextShow): that terminator is an
 		// interpreter artifact, not a real word boundary. Genuine separations
@@ -533,7 +539,7 @@ func linesAndGutters(c Content) ([]Line, []float64) {
 	}
 	var rows [][]Word
 	for _, band := range bandsByY(texts) {
-		if ws := wordsFromBand(band); len(ws) > 0 {
+		if ws := wordsFromBand(texts, band); len(ws) > 0 {
 			rows = append(rows, ws)
 		}
 	}
