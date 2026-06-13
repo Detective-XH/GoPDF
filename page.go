@@ -215,6 +215,56 @@ func (p Page) CropBox() [4]float64 {
 	return p.MediaBox()
 }
 
+// Rotate returns the page's /Rotate attribute normalized to the clockwise degrees
+// {0, 90, 180, 270} actually applied to the page's coordinate system. /Rotate is an
+// inheritable page attribute (PDF 32000-1 §7.7.3.3) specifying a clockwise display
+// rotation that must be a multiple of 90. The raw value is reduced mod 360 (negatives
+// wrap: -90 → 270, 360 → 0, 450 → 90) and snapped to a multiple of 90; any value that
+// is not a multiple of 90 (e.g. 45), absent, or non-integer reads as 0. This is the
+// clockwise page rotation — distinct from, and opposite-signed to, Text.Rotation (the
+// counter-clockwise text-baseline angle).
+func (p Page) Rotate() int {
+	// Reduce in int64 BEFORE narrowing to int: a hostile /Rotate outside the platform
+	// int range would otherwise truncate first, making the result architecture-
+	// dependent (32-bit vs 64-bit) and breaking cross-platform determinism.
+	deg := p.findInherited("Rotate").Int64() % 360
+	if deg < 0 {
+		deg += 360
+	}
+	switch deg {
+	case 90, 180, 270:
+		return int(deg)
+	default:
+		return 0
+	}
+}
+
+// rotateMatrix returns the base CTM that honors the page's /Rotate, mapping
+// user/content space into the upright display space a viewer sees (PDF 32000-1
+// §7.7.3.3; the pdfminer/PyMuPDF construction). It returns the literal identity
+// matrix for /Rotate 0 (the overwhelmingly common case) and for a missing or
+// degenerate MediaBox — no float ops and no MediaBox read on that path — so unrotated
+// pages stay bit-for-bit identical.
+func (p Page) rotateMatrix() matrix {
+	deg := p.Rotate()
+	if deg == 0 {
+		return ident
+	}
+	b := p.MediaBox()
+	x0, y0, x1, y1 := b[0], b[1], b[2], b[3]
+	if !(x1 > x0 && y1 > y0) { // missing or degenerate box: cannot rotate
+		return ident
+	}
+	switch deg {
+	case 90:
+		return matrix{{0, -1, 0}, {1, 0, 0}, {-y0, x1, 1}}
+	case 180:
+		return matrix{{-1, 0, 0}, {0, -1, 0}, {x1, y1, 1}}
+	default: // 270 (Rotate() guarantees the value is one of 90/180/270 here)
+		return matrix{{0, 1, 0}, {-1, 0, 0}, {y1, -x0, 1}}
+	}
+}
+
 // Resources returns the resources dictionary associated with the page.
 func (p Page) Resources() Value {
 	return p.findInherited("Resources")

@@ -46,6 +46,7 @@ func TestCorpusRegenerate(t *testing.T) {
 		// warnings; also the fixture half of the rotated/vertical geometry gate).
 		{"geometry/rotated-90.pdf", buildRotated90PDF()},
 		{"geometry/vertical-cmap.pdf", buildVerticalCMapPDF()},
+		{"geometry/page-rotate-90.pdf", buildPageRotate90PDF()},
 	}
 	for _, e := range synth {
 		p := corpusPath(e.rel)
@@ -363,4 +364,21 @@ func buildVerticalCMapPDF() []byte {
 		"BT /F1 12 Tf (N-) Tj ET",
 		"<< /Type /Font /Subtype /Type1 /BaseFont /Synthetic /Encoding /UniJIS-UCS2-V >>",
 	)
+}
+
+// buildPageRotate90PDF: the rotated-90 content (Tm 0 1 -1 0) PLUS a page /Rotate 90.
+// Honoring /Rotate composes a clockwise turn that CANCELS the content rotation back to
+// a horizontal display-space baseline — FontSize recovers to 12, no WarningRotatedText
+// (the contrast to rotated-90.pdf: same content, no /Rotate, which fires it). The
+// decode-path lock is notWarnings:[WarningRotatedText]; no golden.
+func buildPageRotate90PDF() []byte {
+	const content = "BT /F1 12 Tf 0 1 -1 0 72 400 Tm (Rotated) Tj ET"
+	return buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Rotate 90" +
+			" /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+	})
 }

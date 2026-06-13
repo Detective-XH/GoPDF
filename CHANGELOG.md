@@ -43,6 +43,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   word/line grouping are not yet modelled; horizontal text, `GetPlainText`, and all
   existing field values and goldens are unchanged.
 
+- Page `/Rotate` (the clockwise display-rotation attribute) is now **honored**, so
+  extracted text and image coordinates land in the page's upright display space instead
+  of the raw content space that previously ignored the rotation. A page authored sideways
+  with `/Rotate` set to display upright now extracts with a horizontal baseline — the font
+  size comes back, the `rotated_text` warning stops, and reading-order grouping works. A
+  new `Page.Rotate() int` accessor returns the applied clockwise rotation
+  (`0`/`90`/`180`/`270`); `/Rotate` is inheritable and normalized (a non-multiple of 90,
+  an absent, or a non-integer value reads as 0). `Text.Rotation` now reflects the combined
+  text-matrix and page rotation in display space. The change is additive and
+  **golden-neutral**: an unrotated page (`/Rotate 0`) is bit-for-bit unchanged,
+  `GetPlainText` is unaffected, and every corpus, `DebugJSON`, and signal golden is
+  unchanged; the per-page cost is within measurement noise. One limitation: `Content().Rect`
+  (raw rectangle-path operands) is not yet rotated. See [EXAMPLES.md](EXAMPLES.md).
+
 ### Changed
 
 - `Word.H` and `Line.H` (and the `Block` and `DebugJSON` boxes derived from them) are

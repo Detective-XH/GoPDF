@@ -64,6 +64,14 @@ var decodePathExpectations = map[string]decodePathExpect{
 		detailSubstr: "UniJIS-UCS2-V",
 		notWarnings:  []ExtractionWarningCode{WarningRotatedText},
 	},
+	// Same content as rotated-90.pdf but with a page /Rotate 90 that cancels the
+	// content rotation back to upright: honoring /Rotate removes the degenerate run
+	// and the rotated-text warning. notWarnings[WarningRotatedText] is the contrast
+	// lock — without honoring, the rotated content re-fires it and this entry fails.
+	"geometry/page-rotate-90.pdf": {
+		signal:      SignalText,
+		notWarnings: []ExtractionWarningCode{WarningRotatedText, WarningVerticalWritingMode},
+	},
 }
 
 // assertDecodePath runs DocumentSummary (which classifies and emits/captures the

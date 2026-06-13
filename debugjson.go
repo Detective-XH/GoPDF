@@ -129,10 +129,38 @@ func (t boxTransform) rectBbox(r Rect, sf func(float64) float64) [4]float64 {
 	return [4]float64{sf(r.Min.X - t.llx), sf(t.ury - r.Max.Y), sf(r.Max.X - t.llx), sf(t.ury - r.Min.Y)}
 }
 
+// displayBox returns the page box expressed in the honored display space: the
+// bounding box of the CropBox transformed by the /Rotate matrix. For /Rotate 0 it is
+// the CropBox unchanged (bit-identical), so unrotated DebugJSON output does not move.
+// For 90/270 the width and height swap, keeping the top-left Y-flip pivot consistent
+// with the rotated coordinates — without this, the flip would pivot on the wrong
+// dimension and emit negative bbox coordinates on a rotated landscape-MediaBox page.
+func (p Page) displayBox() [4]float64 {
+	box := p.CropBox()
+	if p.Rotate() == 0 {
+		return box
+	}
+	m := p.rotateMatrix()
+	pts := [...]Point{
+		transformPoint(m, box[0], box[1]),
+		transformPoint(m, box[2], box[1]),
+		transformPoint(m, box[0], box[3]),
+		transformPoint(m, box[2], box[3]),
+	}
+	minX, minY, maxX, maxY := pts[0].X, pts[0].Y, pts[0].X, pts[0].Y
+	for _, pt := range pts[1:] {
+		minX = math.Min(minX, pt.X)
+		maxX = math.Max(maxX, pt.X)
+		minY = math.Min(minY, pt.Y)
+		maxY = math.Max(maxY, pt.Y)
+	}
+	return [4]float64{minX, minY, maxX, maxY}
+}
+
 // ---- per-page model ----
 
 func (p Page) pageModel() jsonPage {
-	box := p.CropBox()
+	box := p.displayBox()
 	t := newBoxTransform(box)
 	coordOrigin := coordOriginTopLeft
 	if !t.flip {

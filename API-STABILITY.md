@@ -46,7 +46,7 @@ Page-level extraction primitives:
 - `Page.ExtractionSummary() (PageExtractionSummary, error)` — the method is
   frozen; its result struct is Additive-evolving (see below)
 - `Page.Fonts() []string`, `Page.Font(name string) Font`,
-  `Page.Resources() Value`, `Page.MediaBox()`, `Page.CropBox()`
+  `Page.Resources() Value`, `Page.MediaBox()`, `Page.CropBox()`, `Page.Rotate() int`
 - `Page.Content() Content`
 
 Package-level text helpers:
@@ -80,7 +80,15 @@ loss where detectable.
 ### Coordinate system
 
 All geometry is PDF-native user space: origin at the bottom-left of the page,
-X rightward, Y upward, units in points (1/72 inch).
+X rightward, Y upward, units in points (1/72 inch). The page `/Rotate` attribute
+(an inheritable clockwise display rotation, a multiple of 90) is **honored** for
+extracted text and image geometry (`Text`/`Word`/`Line`/`Block` and `ImageRef`): it is
+composed into the base coordinate system, so those coordinates are in the page's
+upright display space; an unrotated page (`/Rotate 0`) is unchanged. `Page.Rotate()`
+returns the applied clockwise rotation (`0`/`90`/`180`/`270`). `Content().Rect` (raw
+`re` path-construction rectangles) reports the operator's operands directly and does
+**not** apply the CTM — a pre-existing limitation, so on a `/Rotate`- (or
+`cm`-) transformed page it is not in display space.
 
 Semantics differ by type — apply conversions accordingly:
 
@@ -88,11 +96,12 @@ Semantics differ by type — apply conversions accordingly:
   with text rise applied). `Text.W` is the advance along the baseline; `Text.H`
   is the nominal font-box height (the text up-vector's magnitude, always `>= 0`).
   `Text.Rotation` is the baseline angle in degrees, counter-clockwise-positive,
-  `0` for horizontal text — the text rendering matrix's angle, distinct from and
-  opposite-signed to the page `/Rotate` attribute (clockwise). For horizontal text
-  `[X, X+W] × [Y, Y+H]` is the nominal box; for a rotated run `W` runs along the
-  (rotated) baseline and `H` along the up-vector, so they do not form an
-  axis-aligned box.
+  `0` for horizontal text — the text rendering matrix's angle in display space, so
+  on a `/Rotate` page it reflects the combined text-matrix and page rotation
+  (`/Rotate` is clockwise, opposite-signed; read it via `Page.Rotate()`). For
+  horizontal text `[X, X+W] × [Y, Y+H]` is the nominal box; for a rotated run `W`
+  runs along the (rotated) baseline and `H` along the up-vector, so they do not form
+  an axis-aligned box.
 - Vertical-writing text (a predefined `-V` CMap, WMode 1) advances down the page
   along −y at the PDF default one-em displacement; per-glyph vertical metrics
   (`/W2`) and the glyph position vector are not modelled, and inter-line/column
