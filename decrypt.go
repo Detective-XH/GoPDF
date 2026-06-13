@@ -27,11 +27,18 @@ func cryptKey(key []byte, mode cipherMode, ptr objptr) []byte {
 	return sum[:min(len(key)+5, 16)]
 }
 
+// validAESKeyLen reports whether n is a valid AES key length in bytes
+// (128/192/256-bit). AES.NewCipher rejects any other length; decryptAES screens
+// the derived per-object key against it so a crafted /Length (e.g. 40 → a 5-byte
+// V<=4 key) degrades to empty plaintext instead of reaching the cipher.
+func validAESKeyLen(n int) bool {
+	return n == 16 || n == 24 || n == 32
+}
+
 // decryptAES decrypts an AES-CBC payload: data = [BlockSize IV] || [PKCS7-padded ciphertext].
 // Modifies data in-place. Returns nil on any validation or cipher error.
 func decryptAES(key, data []byte) []byte {
-	kl := len(key)
-	if kl != 16 && kl != 24 && kl != 32 {
+	if !validAESKeyLen(len(key)) {
 		return nil
 	}
 	if len(data) < aes.BlockSize || (len(data)-aes.BlockSize)%aes.BlockSize != 0 {
