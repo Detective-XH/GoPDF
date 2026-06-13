@@ -24,6 +24,8 @@ type contentState struct {
 	g             gstate
 	text          []Text
 	rect          []Rect
+	stroke        []Stroke  // accumulated stroked straight-line segments
+	subpaths      [][]Point // current path under construction (display space)
 	gstack        []gstate
 	p             Page
 	resources     Value
@@ -145,7 +147,7 @@ func (s *contentState) handleGraphics(op string, args []Value) {
 			s.g = s.gstack[n]
 			s.gstack = s.gstack[:n]
 		}
-		// f, g, l, m, cs, scn, gs: no-op
+		// g, cs, scn, gs: no-op (color/graphics-state operators we don't model)
 	}
 }
 
@@ -182,6 +184,97 @@ func rectFromCTM(ctm matrix, x, y, w, h float64) Rect {
 		maxY = math.Max(maxY, p.Y)
 	}
 	return Rect{Point{minX, minY}, Point{maxX, maxY}}
+}
+
+// handlePath routes path-construction (m l c v y h) and path-painting
+// (S s f F B b n W and variants) operators. The re rectangle stays in
+// handleGraphics (it feeds Rect, not the segment accumulator).
+func (s *contentState) handlePath(op string, args []Value) {
+	switch op {
+	case "m", "l", "c", "v", "y", "h":
+		s.buildPath(op, args)
+	default:
+		s.paintPath(op)
+	}
+}
+
+// buildPath extends the current path. m begins a subpath; l adds a straight
+// segment; c/v/y are Bézier curves (not ruling lines), so they break the
+// straight run by starting a fresh subpath at the curve's endpoint; h closes
+// the current subpath. Points are mapped to display space through the CTM in
+// effect now, matching rectFromCTM.
+func (s *contentState) buildPath(op string, args []Value) {
+	switch op {
+	case "m":
+		if len(args) != 2 {
+			panic("bad m")
+		}
+		s.subpaths = append(s.subpaths, []Point{transformPoint(s.g.CTM, args[0].Float64(), args[1].Float64())})
+	case "l":
+		if len(args) != 2 {
+			panic("bad l")
+		}
+		s.appendPathPoint(transformPoint(s.g.CTM, args[0].Float64(), args[1].Float64()))
+	case "c", "v", "y":
+		if n := len(args); n >= 2 {
+			s.subpaths = append(s.subpaths, []Point{transformPoint(s.g.CTM, args[n-2].Float64(), args[n-1].Float64())})
+		}
+	case "h":
+		s.closeSubpath()
+	}
+}
+
+// appendPathPoint adds p to the current subpath, starting one if the path is
+// empty (a lineto with no preceding moveto — lenient toward malformed streams).
+func (s *contentState) appendPathPoint(p Point) {
+	if len(s.subpaths) == 0 {
+		s.subpaths = append(s.subpaths, []Point{p})
+		return
+	}
+	i := len(s.subpaths) - 1
+	s.subpaths[i] = append(s.subpaths[i], p)
+}
+
+// closeSubpath appends the current subpath's start point, closing the polygon so
+// its final edge is captured when stroked. It is idempotent: a subpath already
+// closed (last point already equals the start) is left unchanged, so an explicit
+// h followed by a close-and-stroke painter (s/b/b*) does not synthesize a spurious
+// zero-length closing segment.
+func (s *contentState) closeSubpath() {
+	if n := len(s.subpaths); n > 0 && len(s.subpaths[n-1]) > 0 {
+		sp := s.subpaths[n-1]
+		if sp[len(sp)-1] != sp[0] {
+			s.subpaths[n-1] = append(sp, sp[0])
+		}
+	}
+}
+
+// paintPath consumes the current path. A stroke-painting operator (S s B B* b b*)
+// emits each subpath's consecutive point pairs as Stroke segments; the close
+// variants (s b b*) close first. Every painting operator then clears the path.
+// Fill-only (f F f*) and end-path (n) emit nothing; clip (W W*) keeps the path
+// for the following painter.
+func (s *contentState) paintPath(op string) {
+	switch op {
+	case "W", "W*":
+		return
+	case "s", "b", "b*":
+		s.closeSubpath()
+	}
+	switch op {
+	case "S", "s", "B", "B*", "b", "b*":
+		s.emitStrokes()
+	}
+	s.subpaths = s.subpaths[:0]
+}
+
+// emitStrokes appends each subpath's consecutive point pairs to s.stroke.
+func (s *contentState) emitStrokes() {
+	for _, sp := range s.subpaths {
+		for i := 1; i < len(sp); i++ {
+			s.stroke = append(s.stroke, Stroke{From: sp[i-1], To: sp[i]})
+		}
+	}
 }
 
 func (s *contentState) applyTd(tx, ty float64) {
@@ -456,8 +549,11 @@ func (s *contentState) interpret(stk *Stack, op string) {
 	s.argbuf = popArgsReuse(stk, s.argbuf)
 	args := s.argbuf
 	switch op {
-	case "cm", "re", "q", "Q", "f", "g", "l", "m", "cs", "scn", "gs":
+	case "cm", "re", "q", "Q", "g", "cs", "scn", "gs":
 		s.handleGraphics(op, args)
+	case "m", "l", "c", "v", "y", "h",
+		"S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "n", "W", "W*":
+		s.handlePath(op, args)
 	case "BT", "ET", "T*", "TD", "Td", "Tm":
 		s.handleTextMatrix(op, args)
 	case "Tf":
@@ -475,10 +571,13 @@ func (s *contentState) interpret(stk *Stack, op string) {
 // All Text.S values in the returned Content are verbatim UTF-8 extracted from the
 // PDF; no HTML, shell, or other escaping is applied. Callers must escape at their
 // output sink (e.g. html.EscapeString before writing to an HTML template).
-// For a page with no Contents stream, Content returns a zero Content whose Text and Rect slices are nil.
+// For a page with no Contents stream, Content returns a zero Content whose Text, Rect, and
+// Stroke slices are nil.
 // Rect coordinates are in the page's upright display space: each re rectangle's
 // corners are mapped through the current transformation matrix (page /Rotate and any
 // cm) and returned as their axis-aligned bounding box.
+// Stroke segments are the straight lines painted by a stroke operator (S, s, B, b),
+// with endpoints in the same display space as Rect; see Stroke.
 // If the content stream causes a panic (e.g. malformed operator arguments),
 // the defer/recover returns whatever text and rectangles were collected before
 // the crash rather than propagating the panic to the caller.
@@ -486,7 +585,7 @@ func (p Page) Content() (out Content) {
 	var s *contentState
 	defer func() {
 		if recover() != nil && s != nil {
-			out = Content{s.text, s.rect}
+			out = Content{s.text, s.rect, s.stroke}
 		}
 	}()
 	s = newContentState(p)
@@ -494,7 +593,7 @@ func (p Page) Content() (out Content) {
 		return
 	}
 	Interpret(p.V.Key("Contents"), s.interpret)
-	return Content{s.text, s.rect}
+	return Content{s.text, s.rect, s.stroke}
 }
 
 func newContentState(p Page) *contentState {

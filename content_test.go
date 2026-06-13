@@ -759,3 +759,138 @@ func TestPopArgsReuseGrowsAndRefills(t *testing.T) {
 		t.Errorf("grow wrong: len=%d", len(buf))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestContentStroke* — stroke extraction (Content.Stroke field, B1)
+// ---------------------------------------------------------------------------
+
+// openContent builds a single-page PDF from a content stream and returns its Content.
+func openContent(t *testing.T, stream string) (Content, *Reader) {
+	t.Helper()
+	r, err := OpenBytes(buildTextPDF(stream))
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	return r.Page(1).Content(), r
+}
+
+func TestContentStrokeSimpleLine(t *testing.T) {
+	r, err := OpenBytes(buildTextPDF("10 20 m 110 20 l S"))
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	c := r.Page(1).Content()
+	if len(c.Stroke) != 1 {
+		t.Fatalf("Stroke: want 1, got %d", len(c.Stroke))
+	}
+	if c.Stroke[0].From != (Point{10, 20}) || c.Stroke[0].To != (Point{110, 20}) {
+		t.Errorf("Stroke[0] = %v, want {10,20}->{110,20}", c.Stroke[0])
+	}
+}
+
+func TestContentStrokePolyline(t *testing.T) {
+	c, _ := openContent(t, "10 20 m 110 20 l 110 70 l S")
+	if len(c.Stroke) != 2 {
+		t.Fatalf("Stroke: want 2, got %d (%v)", len(c.Stroke), c.Stroke)
+	}
+	if c.Stroke[1].From != (Point{110, 20}) || c.Stroke[1].To != (Point{110, 70}) {
+		t.Errorf("Stroke[1] = %v, want {110,20}->{110,70}", c.Stroke[1])
+	}
+}
+
+func TestContentStrokeClosepath(t *testing.T) {
+	c, _ := openContent(t, "10 20 m 110 20 l 110 70 l h S")
+	if len(c.Stroke) != 3 { // includes the closing edge back to {10,20}
+		t.Fatalf("Stroke: want 3, got %d (%v)", len(c.Stroke), c.Stroke)
+	}
+	if c.Stroke[2].To != (Point{10, 20}) {
+		t.Errorf("closing edge To = %v, want {10,20}", c.Stroke[2].To)
+	}
+}
+
+func TestContentStrokeCloseThenCloseStrokeNoDuplicate(t *testing.T) {
+	// h closes the subpath; the close-and-stroke painter s must NOT synthesize a
+	// second closing segment — closeSubpath is idempotent (Codex adversarial review).
+	c, _ := openContent(t, "10 20 m 110 20 l 110 70 l h s")
+	if len(c.Stroke) != 3 {
+		t.Fatalf("h s: want 3 strokes (no duplicate close), got %d (%v)", len(c.Stroke), c.Stroke)
+	}
+	for i, s := range c.Stroke {
+		if s.From == s.To {
+			t.Errorf("Stroke[%d] is zero-length %v (spurious double-close)", i, s)
+		}
+	}
+}
+
+func TestContentStrokeCloseThenCloseFillStrokeNoDuplicate(t *testing.T) {
+	// Same idempotence guard for b (close+fill+stroke).
+	c, _ := openContent(t, "10 20 m 110 20 l 110 70 l h b")
+	if len(c.Stroke) != 3 {
+		t.Fatalf("h b: want 3 strokes, got %d (%v)", len(c.Stroke), c.Stroke)
+	}
+	for i, s := range c.Stroke {
+		if s.From == s.To {
+			t.Errorf("Stroke[%d] is zero-length %v (spurious double-close)", i, s)
+		}
+	}
+}
+
+func TestContentStrokeFillEmitsNothing(t *testing.T) {
+	c, _ := openContent(t, "10 20 m 110 20 l 110 70 l f")
+	if len(c.Stroke) != 0 {
+		t.Errorf("fill-only: want 0 strokes, got %d", len(c.Stroke))
+	}
+}
+
+func TestContentStrokeFillStrokeEmits(t *testing.T) {
+	c, _ := openContent(t, "10 20 m 110 20 l B")
+	if len(c.Stroke) != 1 {
+		t.Errorf("B (fill+stroke): want 1 stroke, got %d", len(c.Stroke))
+	}
+}
+
+func TestContentStrokeClipEmitsNothing(t *testing.T) {
+	c, _ := openContent(t, "0 0 m 100 0 l 100 100 l W n")
+	if len(c.Stroke) != 0 {
+		t.Errorf("clip path: want 0 strokes, got %d", len(c.Stroke))
+	}
+}
+
+func TestContentStrokeHonorsCmTransform(t *testing.T) {
+	c, _ := openContent(t, "q 2 0 0 2 0 0 cm 10 20 m 110 20 l S Q")
+	if len(c.Stroke) != 1 {
+		t.Fatalf("Stroke: want 1, got %d", len(c.Stroke))
+	}
+	if c.Stroke[0].From != (Point{20, 40}) || c.Stroke[0].To != (Point{220, 40}) {
+		t.Errorf("Stroke[0] = %v, want {20,40}->{220,40}", c.Stroke[0])
+	}
+}
+
+func TestContentStrokeHonorsPageRotate(t *testing.T) {
+	r, err := OpenBytes(rotatedPagePDF(90, "0 0 m 100 0 l S"))
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	c := r.Page(1).Content()
+	if len(c.Stroke) != 1 {
+		t.Fatalf("Stroke: want 1, got %d", len(c.Stroke))
+	}
+	// /Rotate 90 on a [0 0 612 792] MediaBox maps (0,0)→(0,612) and (100,0)→(0,512).
+	// rotateMatrix: {{0,-1,0},{1,0,0},{0,612,1}}; derivation: x'=y, y'=-x+612.
+	if !approxEq(c.Stroke[0].From.X, 0) || !approxEq(c.Stroke[0].From.Y, 612) {
+		t.Errorf("Stroke[0].From = %v, want (0,612)", c.Stroke[0].From)
+	}
+	if !approxEq(c.Stroke[0].To.X, 0) || !approxEq(c.Stroke[0].To.Y, 512) {
+		t.Errorf("Stroke[0].To = %v, want (0,512)", c.Stroke[0].To)
+	}
+}
+
+func TestContentStrokeReStaysInRectOnly(t *testing.T) {
+	c, _ := openContent(t, "10 20 100 50 re S")
+	if len(c.Rect) != 1 {
+		t.Fatalf("Rect: want 1, got %d", len(c.Rect))
+	}
+	if len(c.Stroke) != 0 {
+		t.Errorf("re must not enter Stroke: got %d strokes", len(c.Stroke))
+	}
+}

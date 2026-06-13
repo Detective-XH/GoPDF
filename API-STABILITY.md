@@ -88,7 +88,9 @@ upright display space; an unrotated page (`/Rotate 0`) is unchanged. `Page.Rotat
 returns the applied clockwise rotation (`0`/`90`/`180`/`270`). `Content().Rect` (`re` path-construction rectangles) is **honored** too: each
 rectangle's four corners are mapped through the CTM and returned as their axis-aligned
 display-space bounding box, so it agrees with the text and image geometry; an unrotated
-page with no `cm` transform is unchanged.
+page with no `cm` transform is unchanged. `Content().Stroke` segment endpoints
+(`From`/`To`) are likewise mapped through the CTM in effect at path construction, so they
+share the same display space as `Rect` and text (see the Experimental tier).
 
 Semantics differ by type — apply conversions accordingly:
 
@@ -175,6 +177,7 @@ projection is refined. Each is marked `Experimental` in its godoc.
 | `Reader.DebugJSON() ([]byte, error)` | Experimental — document envelope (pages + fonts + links + warnings). Wire format may change. |
 | `Page.Blocks() ([]Block, error)` | Experimental — column-major visual blocks (gap-grouped lines, the RAG chunking unit). The grouping heuristic may change; the Go signature and field set are additive-stable. |
 | `Block` | Experimental — the type returned by `Page.Blocks()`. Field set additive-stable; the line-to-block grouping heuristic may change. |
+| `Stroke` / `Content.Stroke []Stroke` | Experimental — stroked straight-line segments (table ruling lines / cell borders) from the content stream. `Content` itself stays Stable and the field is additive (keyed literals); but *which* segments are emitted — the re-vs-stroke boundary (`re` rectangles report in `Rect`, even when stroked), and degenerate / closed-path handling — may be refined in a minor release as ruling-line/table support matures. Deterministic for a given input; the mutable surface is the emitted segment set, not a serialization format. |
 
 The returned bytes are not a typed surface: callers unmarshal into their own structs or
 `map[string]any`. Note these emit **top-left, y-down** coordinates (`coord_origin` tagged),
