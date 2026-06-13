@@ -432,18 +432,25 @@ func wordsFromBand(band []Text) []Word {
 		}
 
 		if cur == nil {
-			cur = &Word{S: t.S, X: t.X, Y: t.Y, W: t.W, H: t.FontSize, Font: t.Font, FontSize: t.FontSize}
+			// H is the up-vector nominal font height (Text.H: rotation-invariant,
+			// always >= 0), NOT t.FontSize (the matrix x-scale, which collapses at
+			// 90 deg, doubles under Tz, and goes negative under a horizontal flip).
+			// For horizontal Th=1 text the two are identical, so the committed
+			// corpus is byte-unchanged.
+			cur = &Word{S: t.S, X: t.X, Y: t.Y, W: t.W, H: t.H, Font: t.Font, FontSize: t.FontSize}
 			continue
 		}
 
 		gap := t.X - (cur.X + cur.W)
+		// The gap threshold sizes a HORIZONTAL inter-glyph gap; it stays on
+		// FontSize (the x-scale), not t.H — it is an advance heuristic, not a height.
 		threshold := t.W * 0.3
 		if alt := t.FontSize * 0.15; alt > threshold {
 			threshold = alt
 		}
 		if gap > threshold {
 			emit()
-			cur = &Word{S: t.S, X: t.X, Y: t.Y, W: t.W, H: t.FontSize, Font: t.Font, FontSize: t.FontSize}
+			cur = &Word{S: t.S, X: t.X, Y: t.Y, W: t.W, H: t.H, Font: t.Font, FontSize: t.FontSize}
 			continue
 		}
 
@@ -455,7 +462,7 @@ func wordsFromBand(band []Text) []Word {
 		if t.Y < cur.Y {
 			cur.Y = t.Y
 		}
-		if tTop := t.Y + t.FontSize; tTop > curTop {
+		if tTop := t.Y + t.H; tTop > curTop { // up-vector height, matching the seed
 			curTop = tTop
 		}
 		cur.H = curTop - cur.Y
@@ -466,7 +473,9 @@ func wordsFromBand(band []Text) []Word {
 
 // Line is a reading-order group of words that share a visual line.
 // X and Y are the bottom-left origin in PDF coordinate space (Y increases upward).
-// W and H are the bounding box of the entire line in points.
+// W and H are the bounding box of the entire line in points; H is the up-vector
+// nominal font height (the same Text.H basis as Word.H), rotation-invariant and
+// >= 0, and equals the font size for ordinary horizontal text.
 // S is the words joined by a single space, except no space is inserted between
 // two glyphs of a space-less CJK script (Han, Hiragana, Katakana) so a per-glyph
 // run rejoins seamlessly; Korean (Hangul) keeps its inter-word spaces.

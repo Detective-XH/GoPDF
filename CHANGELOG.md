@@ -43,6 +43,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   word/line grouping are not yet modelled; horizontal text, `GetPlainText`, and all
   existing field values and goldens are unchanged.
 
+### Changed
+
+- `Word.H` and `Line.H` (and the `Block` and `DebugJSON` boxes derived from them) are
+  now the **rotation-aware nominal font height** — the same basis as `Text.H` — finishing
+  the unification noted when `Text.H` shipped. Previously they came from the text
+  matrix's x-scale (`FontSize`), which collapses toward `0` on a 90°-rotated run, doubles
+  under horizontal text scaling, and goes **negative** under a horizontal flip; they now
+  report the text up-vector magnitude, which is rotation-invariant and **always
+  non-negative**, so a word, line, or block reports the same nominal height as the glyphs
+  in it. For ordinary horizontal text this value equals the font size exactly, so all
+  existing extraction output — every corpus golden, `DebugJSON`, and `Page.Words()`/
+  `Page.Lines()` result — is byte-for-byte unchanged; only rotated, flipped, or scaled
+  runs (none of which were previously locked by a test) take the new value. One
+  consequence on the Experimental `Page.Blocks()` API: because the corrected line height
+  also feeds block grouping, the way **non-horizontal** lines group into blocks can
+  change — in particular a 90°-rotated column, which used to collapse into a single block
+  because its old height read `0`, can now split into separate blocks.
+
 ## v0.7.8 — 2026-06-12
 
 ### Performance

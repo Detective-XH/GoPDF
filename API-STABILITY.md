@@ -98,9 +98,10 @@ Semantics differ by type — apply conversions accordingly:
   (`/W2`) and the glyph position vector are not modelled, and inter-line/column
   ordering for vertical runs is best-effort.
 - `Word` and `Line` carry best-effort boxes: `Y` is the lowest glyph baseline
-  in the unit, and `H` extends from that baseline to the top of the tallest
-  nominal font box (baseline + font size). Descenders may extend below `Y`.
-  The nominal box spans `[X, X+W] × [Y, Y+H]` for horizontal text.
+  in the unit, and `H` is the tallest constituent up-vector nominal font height
+  (the same `Text.H` basis — the text up-vector magnitude, rotation-invariant and
+  `>= 0`); it equals the font size for horizontal text. Descenders may extend below
+  `Y`. The nominal box spans `[X, X+W] × [Y, Y+H]` for horizontal text.
 
 To convert a nominal box to top-left screen space (MuPDF, poppler, OCR and
 layout-model conventions):
