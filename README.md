@@ -234,21 +234,22 @@ for the full provenance table and fixture inventory.
 ## Releases & Verification
 
 Versions are published as **signed git tags** (mirrored as GitHub Releases —
-Go module resolution only needs the tag). Tags are signed with a
-hardware-backed SSH key:
+Go module resolution only needs the tag). Tags are signed with one of the
+maintainer's hardware-backed SSH keys; v0.7.9 was signed with:
 
 ```
-256 SHA256:duCP4h22hb2oNAZMaFhUlpq0j8+qBbZuaXnS99yUhkY (ED25519-SK)
+256 SHA256:BlsTid0viIuF2db9zc/gY1JerD7mK47KH19brGGFKWM (ED25519-SK)
 ```
 
-Verify a release tag — the trusted keys are published on the maintainer's
-GitHub account, so nothing needs to be copied from this README:
+Verify a release tag — all of the maintainer's trusted keys are published on
+the GitHub account, so the recipe below works for any release regardless of
+which key signed it, and nothing needs to be copied from this README:
 
 ```bash
 curl -s https://api.github.com/users/Detective-XH/ssh_signing_keys \
   | python3 -c "import json,sys; [print('*', k['key']) for k in json.load(sys.stdin)]" > allowed_signers
 git -c gpg.ssh.allowedSignersFile=./allowed_signers tag -v v0.7.9
-# expect: Good "git" signature for * with ED25519-SK key SHA256:duCP4h22...
+# expect: Good "git" signature for * with ED25519-SK key SHA256:BlsTid0...
 ```
 
 Module integrity is independently guaranteed by the Go checksum database:
