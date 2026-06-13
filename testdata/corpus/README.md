@@ -34,6 +34,8 @@ fallback-encoding work.
 | `cyrillic/udhr-ru.pdf` | Russian (Cyrillic) | OHCHR — UDHR (Russian) | Public domain (UDHR) | 9,923 Cyrillic runes / 10 pp |
 | `tables/nist-hb44-appc-2026.pdf` | English (Latin) | NIST Handbook 44 (2026 ed.) Appendix C — General Tables of Units of Measurement | US-Gov work, public domain (17 U.S.C. §105) | 55,512 normalized chars / 28 pp; clean Words()/Lines() with real glyph widths |
 | `tables/irs-p55b-2025-excerpt.pdf` | English (Latin) | IRS Data Book 2025 (Pub 55-B), pages 40–55, excerpted with qpdf | US-Gov work, public domain (17 U.S.C. §105) | 68,696 normalized chars / 16 pp; numeric table cells extract, some row labels unmapped |
+| `tables/irs-db-t4-3-2025.pdf` | English (Latin) | IRS Data Book 2025 (Pub 55-B), p.72 — Table 4-3 (Appeals Workload), single-page qpdf excerpt | US-Gov work, public domain (17 U.S.C. §105) | Partial text layer: numeric cells extract, some row labels U+FFFD. Cell-grid ground truth in `.cellgrid.tsv` (10×4) — see "Cell-grid accuracy corpus" below |
+| `tables/eia-aer-t3-1-2011.pdf` | English (Latin) | EIA Annual Energy Review 2011, Table 3.1 (Fossil Fuel Production Prices) | US-Gov work, public domain (17 U.S.C. §105) | Clean text layer; two-tier spanning header. Cell-grid ground truth in `.cellgrid.tsv` (45×10) with as-printed `R`/`(s)`/`2011P`/en-dash tokens — see "Cell-grid accuracy corpus" below |
 | `multicolumn/fr-2024-06543.pdf` | English (Latin) | Federal Register 89 FR 21528, doc 2024-06543 (Coast Guard ICR notice), govinfo.gov | US-Gov work, public domain (17 U.S.C. §105) | 13,661 normalized chars / 2 pp; dense 3-column body text, zero tables |
 | `multicolumn/fr-2024-01353.pdf` | English (Latin) | Federal Register 89 FR 4633, doc 2024-01353 (NRC notice), govinfo.gov | US-Gov work, public domain (17 U.S.C. §105) | 6,570 normalized chars / 1 pp; dense 3-column body text, zero tables |
 | `hard/bea-dici0724.pdf` | English (unmappable) | BEA — Direct Investment by Country and Industry, July 2024 release | US-Gov work, public domain (17 U.S.C. §105) | NEGATIVE fixture (no golden): subset fonts lack usable ToUnicode — geometry intact, text extracts as U+FFFD |
@@ -46,7 +48,11 @@ fallback-encoding work.
 - UDHR translations: `https://www.ohchr.org/sites/default/files/UDHR/Documents/UDHR_Translations/{chn,jpn,kkn,rus}.pdf`
 - IRS Publication 850 (Traditional Chinese): `https://www.irs.gov/pub/irs-pdf/p850enzt.pdf`
 - NIST Handbook 44 Appendix C: `https://www.nist.gov/system/files/documents/2025/12/30/appc-26-HB44-20251222.pdf`
-- IRS Data Book 2025 (full, 94 pp — repo carries a 16-page qpdf excerpt): `https://www.irs.gov/pub/irs-pdf/p55b.pdf`
+- IRS Data Book 2025 (full, 94 pp — repo carries a 16-page qpdf excerpt `irs-p55b-2025-excerpt.pdf` AND a single-page p.72 excerpt `irs-db-t4-3-2025.pdf`): `https://www.irs.gov/pub/irs-pdf/p55b.pdf`
+- EIA Annual Energy Review 2011, Table 3.1 (single-page PDF): `https://www.eia.gov/totalenergy/data/annual/pdf/sec3_3.pdf`
+- Cell-grid companion datasets (authoring cross-checks; URLs recorded, **not committed** — no consumer in-tree yet):
+  IRS Data Book 2025 Table 4-3 XLSX `https://www.irs.gov/pub/irs-soi/25db-4-03-ap.xlsx`;
+  EIA AER 2011 Table 3.1 (HTML served as `.xls`) `https://www.eia.gov/totalenergy/data/annual/xls/stb0301.xls`
 - Federal Register notices: `https://www.govinfo.gov/content/pkg/FR-2024-03-28/pdf/2024-06543.pdf`, `https://www.govinfo.gov/content/pkg/FR-2024-01-24/pdf/2024-01353.pdf`
 - BEA Direct Investment release: `https://www.bea.gov/sites/default/files/2024-07/dici0724.pdf`
 - IRS Publication 1040 (full — repo carries a 2-page qpdf excerpt): `https://www.irs.gov/pub/irs-pdf/p1040.pdf`
@@ -110,6 +116,51 @@ goldens carry only template/label field names and empty / `Off` values.
 |------|--------|------------------|--------|
 | `forms/irs-f1040-2025.pdf` | 199 | Adobe LiveCycle flat AcroForm; deep dotted qualified names (`topmostSubform[0].Page1[0].f1_01[0]`, maxDepth 6); mixed Text/CheckBox; carries a rotated text run (registered in `rotatedCorpusFixtures`) | `forms/irs-f1040-2025.golden.txt` (text) + `.fields-golden.txt` (fields) |
 | `forms/uscourts-cv071-civil-cover.pdf` | 165 | Real `/Parent` field tree + `/DA` default-appearance chains; Acrobat-derived `/T` names that are full label strings (a real generator quirk); Text/CheckBox/Radio/Combo mix | `forms/uscourts-cv071-civil-cover.golden.txt` (text) + `.fields-golden.txt` (fields) |
+
+## Cell-grid accuracy corpus (`tables/*.cellgrid.tsv`)
+
+Held-out ground-truth grids for table cell-segmentation accuracy. Each `.cellgrid.tsv`
+records a real table's `(row, col) → value` layout, authored **independently of GoPDF**
+so it can later score a table detector without circularity. **There is no table-detector
+API in-tree yet**, so this is *not* an accuracy gate today: the consuming test
+(`../../corpus_cellgrid_test.go`) validates structural **integrity** only — it parses each
+grid, checks the declared `dims`/`header_rows` match the actual tab-field layout, confirms
+the cited source PDF is in `corpusManifest` and its `pdf_page` is in range, and forbids
+orphan grids. The extraction-vs-ground-truth scorer is a follow-up blocked on that API.
+
+**Anti-circularity (independence).** Ground truth is authored from (a) the page rendered to
+an image and read visually, and (b) a published companion dataset (XLSX/HTML) — **never**
+from GoPDF `Words()`/`Lines()`/`Blocks()` output. NIST HB44 is deliberately **excluded**
+from this set (it was the cell-seg spike's tuning source; scoring against it would flatter
+the number) — it stays a bordered/lattice example only.
+
+**`.cellgrid.tsv` v1 format.** Tab = column, newline = row. Leading `#` lines are a
+metadata/comment block the parser skips; the block declares `dims=<rows>x<cols>` and
+`header_rows=<n>`, and the parser asserts every grid row has exactly `cols` tab-separated
+fields (so trailing empty cells are explicit, never lost). Values are **as printed on the
+page** (thousands separators, footnote markers `[n]`, special tokens like `(s)` and en-dash
+kept; the companion confirms the digits but the page is the stored form). A multi-tier
+header uses multiple `header_rows`: a spanning cell's text sits in its leftmost (or, for a
+header cell spanning rows, topmost) spanned column, the rest empty. An out-of-scope cell may
+carry a `# known-ceiling: <reason> @ r<row>c<col>` marker so a future scorer attributes the
+miss to an absent capability, not broken segmentation.
+
+| File | Bucket | Dims (`r×c`) | Header rows | Companion (cross-check) | Notes |
+|------|--------|-------------|-------------|-------------------------|-------|
+| `tables/irs-db-t4-3-2025.cellgrid.tsv` | borderless clean | 10×4 | 1 | `25db-4-03-ap.xlsx` (27/27 data cells matched) | The printed `(1)/(2)/(3)` column-number band is a column-index aid, omitted as data |
+| `tables/eia-aer-t3-1-2011.cellgrid.tsv` | two-tier spanning header + special values | 45×10 | 2 | `stb0301.xls` (full annual series; PDF is the selected-years subset) | `R`-prefix=Revised, `2011P`=Preliminary, `(s)`=magnitude < 0.05%, en-dash pair (1949)=Not applicable |
+
+Both PDFs had their document metadata stripped (`qpdf --remove-info --remove-metadata`)
+before commit to remove embedded `/Info` + XMP author fields — the EIA file's `/Info`
+`/Author` named the template's author (a personal name), and the XMP `dc:creator` block was
+dropped from both. The page content and text layer are unmodified (only `/ModDate` remains
+in `/Info`), so the `.golden.txt` snippets and `.cellgrid.tsv` grids are unaffected. This
+matters because the PII scan skips `testdata/`, so a personal name here would otherwise
+bypass automated checks.
+
+Companion datasets are recorded by URL above and **not committed** (no in-tree consumer
+yet; they are authoring cross-checks). The grids match the companions value-by-value and the
+rendered page visually.
 
 ## Synthetic extraction-signal fixtures (`signals/`)
 

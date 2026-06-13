@@ -1,0 +1,14 @@
+# cellgrid v1
+# source=irs-db-2025-t4-3 | pdf_page=1 | dims=10x4 | header_rows=1
+# values=as-printed | companion=25db-4-03-ap.xlsx (27/27 data cells cross-checked) | source_pdf=IRS Data Book 2025 (Pub 55-B) p.72, single-page qpdf excerpt
+# model=label + 3 data cols. The printed "(1)/(2)/(3)" column-number band is a column-index aid, not data, and is omitted (one header row).
+Type of case	Cases received	Cases closed [1]	Cases pending September 30, 2025
+Total cases [2]	60,933	52,997	40,313
+Collection Due Process cases [3]	24,191	17,291	18,965
+Examination cases [4]	23,139	21,904	14,409
+Penalty appeals cases [5]	3,627	3,816	1,448
+Offers in Compromise cases [6]	3,124	2,978	2,125
+Innocent spouse cases [7]	1,633	1,871	1,325
+Industry cases [8]	859	757	1,000
+Coordinated industry cases [9]	39	30	90
+Other cases [10]	4,321	4,350	951
