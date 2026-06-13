@@ -7,6 +7,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Fixed, pending release
 
+### Added
+
+- `Page.Content()` now reports stroked **ruling lines** — table cell borders, underlines,
+  and other vector rules drawn with the content stream's stroke operators — as
+  `Content.Stroke`, a slice of `Stroke{From, To Point}` segments, alongside the existing
+  text and rectangles. Endpoints are in the page's upright display space (honoring page
+  `/Rotate` and `cm` transforms), the same coordinate space as `Content.Rect`. Bézier
+  curves break the run rather than forming a chord; fill-only and clip paths are excluded;
+  rectangles drawn with the `re` operator stay in `Content.Rect` (even when stroked), so a
+  table-grid consumer should read both `Stroke` and `Rect` — some documents rule tables
+  with thin filled rectangles rather than stroked lines. This is the raw vector signal for
+  detecting table structure without rendering. Marked **experimental**: the type and field
+  are additive-stable, but which segments are emitted may be refined as table support
+  matures.
+
 ### Performance
 
 - Text extraction allocates less and runs faster on large pages. The content-stream

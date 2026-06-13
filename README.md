@@ -143,6 +143,7 @@ GoPDF has closed extraction gaps still open upstream:
 - Styled text extraction with font name, size, and position.
 - Text grouped by row, plus word-level extraction with bounding boxes via `Page.Words()`.
 - `Page.Blocks()` (experimental) groups lines into **column-major** visual blocks — read down each detected column in full — as the chunking unit for RAG pipelines. See [EXAMPLES.md](EXAMPLES.md).
+- `Page.Content()` exposes the page's vector geometry — drawn rectangles (`Rect`) and stroked ruling lines / cell borders (`Stroke`, experimental) — in display space, the raw signal for table-grid detection without rendering. See [EXAMPLES.md](EXAMPLES.md).
 - Nested **Form XObject** text is included and reported in page-space coordinates.
 - TJ kerning arrays are interpreted as word gaps when spacing indicates a word boundary.
 - Broad script coverage: Latin, **Cyrillic**, and CJK predefined CMaps.

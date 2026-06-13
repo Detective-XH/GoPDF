@@ -236,6 +236,40 @@ for _, img := range images {
 }
 ```
 
+## Drawn Rectangles and Ruling Lines
+
+`Page.Content()` returns, alongside the page's positioned `Text`, the page's vector
+geometry: `Content.Rect` (rectangles drawn with the `re` operator) and `Content.Stroke`
+(straight line segments painted by a stroke operator — `S`, `s`, `B`, `b`). Both are in
+the page's upright display space (points, after page `/Rotate` and any `cm`), the same
+coordinate space as `Text`. This is the raw vector signal for detecting table cell
+borders and ruling lines without rendering.
+
+```go
+p := r.Page(1)
+c := p.Content()
+
+for _, rc := range c.Rect {
+	fmt.Printf("rect min=(%.1f,%.1f) max=(%.1f,%.1f)\n",
+		rc.Min.X, rc.Min.Y, rc.Max.X, rc.Max.Y)
+}
+for _, s := range c.Stroke {
+	fmt.Printf("stroke (%.1f,%.1f) -> (%.1f,%.1f)\n",
+		s.From.X, s.From.Y, s.To.X, s.To.Y)
+}
+```
+
+`Stroke` holds geometry only (no width, color, or dash). A Bézier curve breaks the
+straight run rather than contributing a chord, and fill-only (`f`/`F`) and clip
+(`W`/`W*`) paths are excluded — only stroked straight segments appear. Segments are
+verbatim from the stream and may include zero-length runs; filter as needed.
+
+Note the division of labour with `Rect`: rectangles drawn with `re` are always reported
+in `Rect` (even when stroked), never in `Stroke`. Many documents also rule tables with
+thin *filled* rectangles (e.g. `x y w 0.5 re f`) rather than stroked segments — those
+land in `Rect`. So a consumer reconstructing a table grid should read **both** `Rect`
+and `Stroke`. `Content()` carries no table/cell semantics itself.
+
 ## Extraction Readiness
 
 `Page.ExtractionSummary()` is useful for ingestion pipelines that need to route

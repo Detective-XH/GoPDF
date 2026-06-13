@@ -45,18 +45,40 @@ type Rect struct {
 	Min, Max Point
 }
 
+// A Stroke is a straight line segment drawn by a stroke-painting operator
+// (S, s, B, B*, b, b*) in the content stream — a table ruling line, cell border,
+// underline, or other vector rule. From and To are its endpoints in the page's
+// upright display space (points, after page /Rotate and any cm), the same
+// coordinate space as Rect and Text.
+//
+// Only straight stroked segments appear: a Bézier curve (c/v/y) breaks the run
+// rather than contributing a chord, and fill-only (f/F) and clip (W/W*) paths
+// are excluded. Rectangles drawn with the re operator are reported in Rect (even
+// when stroked), not here; a lattice/table consumer reads both Rect and Stroke.
+// Segments are verbatim from the stream and may include zero-length runs; callers
+// that want only ruling lines should filter as needed.
+//
+// Experimental: the Go type and the Content.Stroke field are additive-stable, but
+// which segments are emitted (the re-vs-stroke boundary, degenerate and closed-path
+// handling) may be refined in a minor release as ruling-line/table support matures.
+type Stroke struct {
+	From, To Point
+}
+
 // A Point represents an X, Y pair.
 type Point struct {
 	X float64
 	Y float64
 }
 
-// Content describes the basic content on a page: the text and any drawn rectangles.
+// Content describes the basic content on a page: the text, any drawn rectangles,
+// and any stroked line segments.
 // All string fields within Text elements are verbatim UTF-8; see Text.S for the
 // escaping contract that callers must honour.
 type Content struct {
-	Text []Text
-	Rect []Rect
+	Text   []Text
+	Rect   []Rect
+	Stroke []Stroke
 }
 
 // Column represents the contents of a column.
