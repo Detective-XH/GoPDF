@@ -456,7 +456,7 @@ func newContentState(p Page) *contentState {
 		return nil
 	}
 	return &contentState{
-		g:         gstate{Th: 1, CTM: ident, enc: &nopEncoder{}},
+		g:         gstate{Th: 1, CTM: p.rotateMatrix(), enc: &nopEncoder{}},
 		p:         p,
 		resources: p.Resources(),
 	}

@@ -264,13 +264,19 @@ var corpusManifest = []corpusEntry{
 		Path: "geometry/rotated-90.pdf", Golden: "",
 		Synthetic: true, Compare: compareExact, Feature: "signal-geometry",
 		Source: "synthetic", License: "synthetic",
-		Purpose: "90°-rotated Tm run (FontSize=Trm[0][0]=0); looks healthy today (no rotation warning)",
+		Purpose: "90°-rotated Tm run (FontSize=Trm[0][0]=0); fires WarningRotatedText (the rotated-text risk lock; contrast to page-rotate-90.pdf, same content + /Rotate 90, which cancels it)",
 	},
 	{
 		Path: "geometry/vertical-cmap.pdf", Golden: "",
 		Synthetic: true, Compare: compareExact, Feature: "signal-geometry",
 		Source: "synthetic", License: "synthetic",
 		Purpose: "Vertical -V CMap (/UniJIS-UCS2-V); fires fallback+vertical warnings; advance now vertical (single glyph: unobservable here)",
+	},
+	{
+		Path: "geometry/page-rotate-90.pdf", Golden: "",
+		Synthetic: true, Compare: compareExact, Feature: "signal-geometry",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "page /Rotate 90 honored: the rotated-90 content (Tm 0 1 -1 0) plus /Rotate 90 cancels to an upright display-space baseline; FontSize recovers, no rotated-text warning (contrast to rotated-90.pdf, same content, no /Rotate)",
 	},
 }
 

@@ -64,7 +64,10 @@ for _, t := range texts {
 
 `Text.H` is the nominal font-box height (the text up-vector's magnitude, always
 non-negative); `Text.Rotation` is the baseline angle in degrees, counter-clockwise
-from horizontal (`0` for upright text), distinct from the page `/Rotate` attribute.
+from horizontal (`0` for upright text). All coordinates are in the page's display
+space: the page `/Rotate` attribute (an inheritable clockwise rotation) is honored, so
+on a rotated page `Text.Rotation` reflects the combined text-matrix and page rotation.
+Read the applied clockwise page rotation (`0`/`90`/`180`/`270`) via `r.Page(n).Rotate()`.
 
 ## Words and Bounding Boxes
 

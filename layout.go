@@ -27,10 +27,12 @@ type Text struct {
 	// the matrix x-scale) collapses toward zero. Always >= 0.
 	H float64
 	// Rotation is the text baseline's angle in degrees, counter-clockwise-positive
-	// from the positive x-axis; 0 for ordinary horizontal text. This is the text
-	// rendering matrix's baseline angle — distinct from, and opposite-signed to,
-	// the page /Rotate attribute (which is clockwise-positive and is not applied
-	// here).
+	// from the positive x-axis; 0 for ordinary horizontal text. It is the baseline
+	// angle of the text rendering matrix in the page's display space: the page
+	// /Rotate attribute (clockwise) is composed into the coordinate system, so on a
+	// rotated page Rotation reflects the combined text-matrix and page rotation.
+	// /Rotate is opposite-signed (clockwise) to this counter-clockwise angle; read
+	// the applied page rotation directly via Page.Rotate.
 	Rotation float64
 	// S is the extracted UTF-8 text, returned verbatim with no escaping applied.
 	// Callers must escape S before embedding it in HTML, shell commands, SQL, or

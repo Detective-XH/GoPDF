@@ -92,7 +92,7 @@ func newImageScanState(p Page, countOnly bool) *imageScanState {
 	}
 	return &imageScanState{
 		resources: p.Resources(),
-		ctm:       ident,
+		ctm:       p.rotateMatrix(),
 		countOnly: countOnly,
 	}
 }

@@ -157,15 +157,18 @@ they appear in `DocumentSummary().Warnings` / `Reader.Warnings()`, not in
 | `encoding/differences-partial.pdf` | dict `/Differences` (1 lost) | text + `missing_glyph_mapping` | `differ` |
 | `encoding/unknown-name.pdf` | unknown name → pdfDoc | text + `unsupported_encoding` | `unknown` |
 | `encoding/unmapped-glyph.pdf` | ToUnicode under-coverage | text, U+FFFD in output (silent) | `A` + U+FFFD |
-| `geometry/rotated-90.pdf` | 90°-rotated Tm | text, no rotation warning | — |
-| `geometry/vertical-cmap.pdf` | vertical `-V` CMap | text + `fallback_encoding`, no vertical warning | — |
+| `geometry/rotated-90.pdf` | 90°-rotated Tm | text + `rotated_text` (FontSize→0) | — |
+| `geometry/vertical-cmap.pdf` | vertical `-V` CMap | text + `fallback_encoding` + `vertical_writing_mode` | — |
+| `geometry/page-rotate-90.pdf` | same Tm + page `/Rotate 90` | text, **no** `rotated_text` (/Rotate cancels it) | — |
 
-The `geometry/` fixtures are warning-level only (no extraction golden): they lock that
-a rotated or vertical page looks healthy today (`text` signal; FontSize collapses to
-`Trm[0][0]=0` for the 90° run, and the `-V` CMap's WMode is unread). The fallback
-encoding framework adds the rotated-text / vertical-writing-mode risk warnings these
-fixtures will then trigger; they also satisfy the fixture half of the rotated/vertical
-geometry gate.
+The `geometry/` fixtures are warning-level only (no extraction golden). `rotated-90.pdf`
+locks the rotated-text risk warning (its 90° `Tm` collapses `FontSize` to `Trm[0][0]=0`);
+`vertical-cmap.pdf` locks the fallback-encoding + vertical-writing-mode warnings (its `-V`
+advance is now vertical). `page-rotate-90.pdf` is the contrast case: the **same** rotated
+content plus a page `/Rotate 90` that GoPDF now **honors** (composed into the base CTM) —
+the rotation cancels back to an upright display-space baseline, so `FontSize` recovers and
+the rotated-text warning does **not** fire. Together they satisfy the fixture half of the
+rotated/vertical geometry gate.
 
 ## Lines() reading-order characterization (committed FR + UDHR fixtures)
 
