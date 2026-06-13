@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Performance
+
+- Text extraction allocates less and runs faster on large pages. The content-stream
+  interpreter previously allocated a fresh operand slice for every operator; it now
+  reuses a per-pass scratch buffer, cutting garbage on the structured-extraction paths
+  (`Page.Content`, `Reader.DebugJSON`, `ExtractionSummary`, and the CJK `Words`/`Texts`
+  paths). Output is byte-identical. Measured same-machine A/B (Apple M4 Pro):
+  `DebugJSON` on a 22-page CJK PDF uses **−13.9 % memory** with **−8.0 % allocations**
+  and runs **−5.1 %** faster; CJK word extraction uses **−10.4 % memory**.
+  `GetPlainText` is unaffected.
+
 ## v0.7.9 — 2026-06-13
 
 ### Added

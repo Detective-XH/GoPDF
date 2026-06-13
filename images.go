@@ -70,6 +70,7 @@ type imageScanState struct {
 	areaSum   float64 // summed page-space bbox area of drawn images (for coverage)
 	countOnly bool
 	inBI      bool
+	argbuf    []Value // reused per-operator arg scratch — handlers MUST NOT retain args (see popArgsReuse)
 }
 
 // scanPageImages interprets the page's content for drawn-image metadata. It always
@@ -103,7 +104,8 @@ func countDrawnImages(p Page) int {
 }
 
 func (s *imageScanState) interpret(stk *Stack, op string) {
-	args := popArgs(stk)
+	s.argbuf = popArgsReuse(stk, s.argbuf)
+	args := s.argbuf
 	switch op {
 	case "cm", "q", "Q":
 		s.handleGraphics(op, args)

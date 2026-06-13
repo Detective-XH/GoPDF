@@ -31,6 +31,7 @@ type contentState struct {
 	fonts         map[string]*Font
 	counters      decodeCounters // per-decode-path glyph counts for this run
 	rotatedWarned bool           // WarningRotatedText fired once for this run
+	argbuf        []Value        // reused per-operator arg scratch — handlers MUST NOT retain args (see popArgsReuse)
 }
 
 // appendText decodes a genuine content show-string through the current encoder,
@@ -416,14 +417,29 @@ func formMatrix(xobj Value) matrix {
 	return matrixFrom6Args(args)
 }
 
-// popArgs drains the stack into a slice, preserving argument order.
-func popArgs(stk *Stack) []Value {
+// popArgsReuse drains stk into buf (grown if needed), preserving argument order,
+// and returns the filled prefix. The caller stores the returned slice's backing
+// (buf may have been reallocated) and reuses it for the next operator, so the
+// per-operator []Value allocation popArgs made is paid once per interpreter pass
+// instead of once per operator.
+//
+// CONTRACT — MUST NOT be violated: a handler MUST NOT retain the returned slice
+// or any element of it beyond its own operator dispatch. The backing array is
+// OVERWRITTEN on the next operator. Storing args, args[i], or &args[i] anywhere
+// that outlives the dispatch (a struct field, append, closure, goroutine, or
+// deferred read) is a silent corruption bug that only manifests under specific
+// operator sequences. Every current handler stores only COMPUTED values
+// (Rect/gstate/matrix/decoded string), never an arg — keep it that way.
+func popArgsReuse(stk *Stack, buf []Value) []Value {
 	n := stk.Len()
-	args := make([]Value, n)
-	for i := n - 1; i >= 0; i-- {
-		args[i] = stk.Pop()
+	if cap(buf) < n {
+		buf = make([]Value, n)
 	}
-	return args
+	buf = buf[:n]
+	for i := n - 1; i >= 0; i-- {
+		buf[i] = stk.Pop()
+	}
+	return buf
 }
 
 // handleDo executes the Do operator, walking Form XObjects up to the depth limit.
@@ -437,7 +453,8 @@ func (s *contentState) handleDo(args []Value) {
 // interpret is the per-operator callback passed to Interpret.  It collects
 // stack arguments then dispatches to the appropriate handler.
 func (s *contentState) interpret(stk *Stack, op string) {
-	args := popArgs(stk)
+	s.argbuf = popArgsReuse(stk, s.argbuf)
+	args := s.argbuf
 	switch op {
 	case "cm", "re", "q", "Q", "f", "g", "l", "m", "cs", "scn", "gs":
 		s.handleGraphics(op, args)
