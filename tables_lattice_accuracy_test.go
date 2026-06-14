@@ -94,7 +94,7 @@ func TestLatticeAccuracyNISTArea(t *testing.T) {
 	}
 
 	// --- dump reconstructed grid vs golden for diagnosis ---
-	for ri := 0; ri < nRows; ri++ {
+	for ri := range nRows {
 		for ci := 0; ci < nCols; ci++ {
 			var want string
 			if ri < len(nistAreaGolden) && ci < 2 {
@@ -110,16 +110,10 @@ func TestLatticeAccuracyNISTArea(t *testing.T) {
 
 	// --- Tier 2 (verbatim) + Tier 3 (normalized), over the overlapping region ---
 	var verbatim, normalized, loose, total int
-	rmax := nRows
-	if len(nistAreaGolden) < rmax {
-		rmax = len(nistAreaGolden)
-	}
-	for ri := 0; ri < rmax; ri++ {
-		cmax := nCols
-		if 2 < cmax {
-			cmax = 2
-		}
-		for ci := 0; ci < cmax; ci++ {
+	rmax := min(nRows, len(nistAreaGolden))
+	for ri := range rmax {
+		cmax := min(nCols, 2)
+		for ci := range cmax {
 			total++
 			if grid[ri][ci] == nistAreaGolden[ri][ci] {
 				verbatim++

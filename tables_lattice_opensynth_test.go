@@ -30,7 +30,7 @@ import (
 func makeClosedCells(x0s, x1s, rowTops []float64) []lCell {
 	var cells []lCell
 	for r := 0; r+1 < len(rowTops); r++ {
-		for c := 0; c < len(x0s); c++ {
+		for c := range len(x0s) {
 			cells = append(cells, lCell{
 				x0:     x0s[c],
 				x1:     x1s[c],
@@ -127,7 +127,7 @@ func TestLatticeOpenRight(t *testing.T) {
 	}
 	// Words should appear in the last column.
 	wordStrings := map[string]bool{"495,215": true, "786,764": true, "5,812,502": true, "1,234,567": true}
-	for ri := 0; ri < nRows; ri++ {
+	for ri := range nRows {
 		cell := grid[ri][nCols-1]
 		if cell == "" {
 			t.Errorf("grid[%d][%d] (right open col): empty; want one of the open-side words", ri, nCols-1)

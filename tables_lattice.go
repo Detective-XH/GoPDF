@@ -9,6 +9,7 @@ package pdf
 
 import (
 	"math"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -197,10 +198,8 @@ func joinEdges(edges []lEdge, tol float64) []lEdge {
 
 func intersectIdx(a, b []int) bool {
 	for _, x := range a {
-		for _, y := range b {
-			if x == y {
-				return true
-			}
+		if slices.Contains(b, x) {
+			return true
 		}
 	}
 	return false
