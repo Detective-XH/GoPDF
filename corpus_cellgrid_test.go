@@ -237,6 +237,11 @@ var cellgridFixtures = []cellgridFixture{
 		sourcePDF: "tables/epa-egrid2022-t1.pdf",
 		rows:      31, cols: 17, headerRows: 3,
 	},
+	{
+		path:      "tables/irs-soi-inpre-t1-2022.cellgrid.tsv",
+		sourcePDF: "tables/irs-soi-inpre-t1-2022.pdf",
+		rows:      51, cols: 6, headerRows: 3,
+	},
 }
 
 // TestCorpusCellGridFixtures is the primary integrity gate for the cell-grid

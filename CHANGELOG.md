@@ -33,6 +33,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   and runs **−5.1 %** faster; CJK word extraction uses **−10.4 % memory**.
   `GetPlainText` is unaffected.
 
+### Fixed
+
+- Text extraction now recovers **simple fonts (Type1/TrueType/Type3/MMType1) whose embedded
+  `ToUnicode` CMap declares a 2-byte `codespacerange` over single-byte character codes** — a
+  common pattern in Adobe-generated PDFs (notably subset TrueType fonts named `CIDFont+F*`).
+  Previously the decoder chunked the content bytes by the ToUnicode codespace width, so it read
+  the 1-byte codes two at a time, matched none of the 1-byte `bfchar` entries, and emitted
+  U+FFFD (the replacement character) for the entire run; an affected page extracted as almost
+  pure replacement characters even though its text layer was fully valid (external tools such as
+  `pdftotext`/`pdfminer` recovered the text). A simple font's character codes are single-byte by
+  definition (PDF 32000-1:2008 §9.6), so its ToUnicode is now decoded one byte per code,
+  independent of the declared codespace width. Composite (Type0) fonts are unchanged — their CMap
+  codespace width is authoritative. The change is byte-identical for simple fonts whose ToUnicode
+  already declares a 1-byte codespace, and for every font without a ToUnicode stream.
+
 ## v0.7.9 — 2026-06-13
 
 ### Added
