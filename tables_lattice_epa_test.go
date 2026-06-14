@@ -46,7 +46,7 @@ func TestLatticeAccuracyEPA(t *testing.T) {
 		cR = len(grid[0])
 	}
 	t.Logf("lattice: %d tables on p2; largest=%d cells; reconstructed grid=%dx%d", len(tables), len(largest), rR, cR)
-	for ri := 0; ri < rR; ri++ {
+	for ri := range rR {
 		c0, c2, c16 := "", "", ""
 		if len(grid[ri]) > 0 {
 			c0 = grid[ri][0]

@@ -74,7 +74,7 @@ func parseCellGridMeta(lines []string) (meta map[string]string, ceilings []ceili
 			ceilings = append(ceilings, cm)
 			continue
 		}
-		for _, token := range strings.Split(body, "|") {
+		for token := range strings.SplitSeq(body, "|") {
 			token = strings.TrimSpace(token)
 			parts := strings.SplitN(token, "=", 2)
 			if len(parts) != 2 {
@@ -267,7 +267,6 @@ func TestCorpusCellGridFixtures(t *testing.T) {
 	}
 
 	for _, f := range cellgridFixtures {
-		f := f
 		t.Run(f.path, func(t *testing.T) {
 			// 1. Parse and validate structural integrity.
 			//nolint:gosec // G304: fixed corpus path, not user input
@@ -474,7 +473,6 @@ func TestParseCellGrid(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			g, err := parseCellGrid([]byte(tc.input))
 			if tc.wantErr {

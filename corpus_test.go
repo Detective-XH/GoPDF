@@ -370,7 +370,7 @@ func assertGolden(t *testing.T, e corpusEntry, got string, want []byte) {
 		// vacuously true (D2/D3).
 		gotNorm := normalize(got)
 		var checked int
-		for _, line := range strings.Split(string(want), "\n") {
+		for line := range strings.SplitSeq(string(want), "\n") {
 			snip := normalize(line)
 			if snip == "" {
 				continue
