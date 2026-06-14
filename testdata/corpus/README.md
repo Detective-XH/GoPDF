@@ -36,6 +36,7 @@ fallback-encoding work.
 | `tables/irs-p55b-2025-excerpt.pdf` | English (Latin) | IRS Data Book 2025 (Pub 55-B), pages 40–55, excerpted with qpdf | US-Gov work, public domain (17 U.S.C. §105) | 68,696 normalized chars / 16 pp; numeric table cells extract, some row labels unmapped |
 | `tables/irs-db-t4-3-2025.pdf` | English (Latin) | IRS Data Book 2025 (Pub 55-B), p.72 — Table 4-3 (Appeals Workload), single-page qpdf excerpt | US-Gov work, public domain (17 U.S.C. §105) | Partial text layer: numeric cells extract, some row labels U+FFFD. Cell-grid ground truth in `.cellgrid.tsv` (10×4) — see "Cell-grid accuracy corpus" below |
 | `tables/eia-aer-t3-1-2011.pdf` | English (Latin) | EIA Annual Energy Review 2011, Table 3.1 (Fossil Fuel Production Prices) | US-Gov work, public domain (17 U.S.C. §105) | Clean text layer; two-tier spanning header. Cell-grid ground truth in `.cellgrid.tsv` (45×10) with as-printed `R`/`(s)`/`2011P`/en-dash tokens — see "Cell-grid accuracy corpus" below |
+| `tables/epa-egrid2022-t1.pdf` | English (Latin) | EPA eGRID2022 Summary Tables, Table 1 (Subregion Output Emission Rates), p.2 | US-Gov work, public domain (17 U.S.C. §105) | **Held-out STROKE-bordered full lattice** (both `Content.Stroke` rules and thin `Content.Rect`); 3-tier header. Cell-grid ground truth in `.cellgrid.tsv` (31×17): ASCII-joined sub/superscript unit headers (`CO2`/`CH4`/`N2O`/`NOX`), bare-number data cells — see "Cell-grid accuracy corpus" below |
 | `multicolumn/fr-2024-06543.pdf` | English (Latin) | Federal Register 89 FR 21528, doc 2024-06543 (Coast Guard ICR notice), govinfo.gov | US-Gov work, public domain (17 U.S.C. §105) | 13,661 normalized chars / 2 pp; dense 3-column body text, zero tables |
 | `multicolumn/fr-2024-01353.pdf` | English (Latin) | Federal Register 89 FR 4633, doc 2024-01353 (NRC notice), govinfo.gov | US-Gov work, public domain (17 U.S.C. §105) | 6,570 normalized chars / 1 pp; dense 3-column body text, zero tables |
 | `hard/bea-dici0724.pdf` | English (unmappable) | BEA — Direct Investment by Country and Industry, July 2024 release | US-Gov work, public domain (17 U.S.C. §105) | NEGATIVE fixture (no golden): subset fonts lack usable ToUnicode — geometry intact, text extracts as U+FFFD |
@@ -50,9 +51,11 @@ fallback-encoding work.
 - NIST Handbook 44 Appendix C: `https://www.nist.gov/system/files/documents/2025/12/30/appc-26-HB44-20251222.pdf`
 - IRS Data Book 2025 (full, 94 pp — repo carries a 16-page qpdf excerpt `irs-p55b-2025-excerpt.pdf` AND a single-page p.72 excerpt `irs-db-t4-3-2025.pdf`): `https://www.irs.gov/pub/irs-pdf/p55b.pdf`
 - EIA Annual Energy Review 2011, Table 3.1 (single-page PDF): `https://www.eia.gov/totalenergy/data/annual/pdf/sec3_3.pdf`
+- EPA eGRID2022 Summary Tables (5-page PDF; Table 1 on p.2): `https://www.epa.gov/system/files/documents/2024-01/egrid2022_summary_tables.pdf`
 - Cell-grid companion datasets (authoring cross-checks; URLs recorded, **not committed** — no consumer in-tree yet):
   IRS Data Book 2025 Table 4-3 XLSX `https://www.irs.gov/pub/irs-soi/25db-4-03-ap.xlsx`;
-  EIA AER 2011 Table 3.1 (HTML served as `.xls`) `https://www.eia.gov/totalenergy/data/annual/xls/stb0301.xls`
+  EIA AER 2011 Table 3.1 (HTML served as `.xls`) `https://www.eia.gov/totalenergy/data/annual/xls/stb0301.xls`;
+  EPA eGRID2022 Summary Tables XLSX `https://www.epa.gov/system/files/documents/2024-01/egrid2022_summary_tables.xlsx`
 - Federal Register notices: `https://www.govinfo.gov/content/pkg/FR-2024-03-28/pdf/2024-06543.pdf`, `https://www.govinfo.gov/content/pkg/FR-2024-01-24/pdf/2024-01353.pdf`
 - BEA Direct Investment release: `https://www.bea.gov/sites/default/files/2024-07/dici0724.pdf`
 - IRS Publication 1040 (full — repo carries a 2-page qpdf excerpt): `https://www.irs.gov/pub/irs-pdf/p1040.pdf`
@@ -149,6 +152,7 @@ miss to an absent capability, not broken segmentation.
 |------|--------|-------------|-------------|-------------------------|-------|
 | `tables/irs-db-t4-3-2025.cellgrid.tsv` | borderless clean | 10×4 | 1 | `25db-4-03-ap.xlsx` (27/27 data cells matched) | The printed `(1)/(2)/(3)` column-number band is a column-index aid, omitted as data |
 | `tables/eia-aer-t3-1-2011.cellgrid.tsv` | two-tier spanning header + special values | 45×10 | 2 | `stb0301.xls` (full annual series; PDF is the selected-years subset) | `R`-prefix=Revised, `2011P`=Preliminary, `(s)`=magnitude < 0.05%, en-dash pair (1949)=Not applicable |
+| `tables/epa-egrid2022-t1.cellgrid.tsv` | **bordered/lattice (stroke)** + 3-tier header | 31×17 | 3 | `egrid2022_summary_tables.xlsx` (Table 1 sheet; 28 data rows × 15 numeric cols generated from XLSX, round-half-up to printed precision, render cross-verified) | First **stroke-bordered** held-out fixture (`Content.Stroke`+thin `Content.Rect`); data cells bare numbers; ASCII-joined sub/superscript unit headers (`CO2`/`CH4`/`N2O`/`CO2e`/`NOX`/`SO2`) per the 2026-06-14 format amendment |
 
 Both PDFs had their document metadata stripped (`qpdf --remove-info --remove-metadata`)
 before commit to remove embedded `/Info` + XMP author fields — the EIA file's `/Info`

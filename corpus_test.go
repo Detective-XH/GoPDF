@@ -120,6 +120,13 @@ var corpusManifest = []corpusEntry{
 		License: "US-Gov PD (17 USC 105)",
 		Purpose: "Two-tier spanning-header cell-grid ground truth (45x10); special tokens R/(s)/2011P/en-dash; clean text layer",
 	},
+	{
+		Path: "tables/epa-egrid2022-t1.pdf", Golden: "tables/epa-egrid2022-t1.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "EPA eGRID2022 Summary Tables, Table 1 (Subregion Output Emission Rates) p.2, epa.gov/system/files/documents/2024-01/egrid2022_summary_tables.pdf",
+		License: "US-Gov PD (17 USC 105)",
+		Purpose: "Held-out STROKE-bordered full-lattice cell-grid ground truth (31x17); ASCII-joined sub/superscript headers (CO2/CH4/N2O/NOX); bare-number data cells; companion egrid2022_summary_tables.xlsx",
+	},
 	// Table-detection false-positive gate fixtures: dense 3-column Federal
 	// Register notices with ZERO tables — a detector must return nothing here.
 	{
