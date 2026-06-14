@@ -103,8 +103,9 @@ In matched-scope benchmarking against common Python extractors on the same
 documents, GoPDF was fastest at both plain-text and positioned-word extraction —
 several times faster than pure-Python `pypdf` / `pdfminer.six` / `pdfplumber`, and
 ahead of the C-backed `pdftotext` and PyMuPDF on this workload — while staying pure
-Go. These are **speed** numbers only: GoPDF does not render pages, decode images, or
-reconstruct tables, and its layout/word-grouping quality is a work in progress and
+Go. These are **speed** numbers only, covering text and word extraction: GoPDF does
+not render pages or decode images, its ruled-table reconstruction (`Page.Tables()`) is
+experimental, and its layout/word-grouping quality is a work in progress and
 not benchmarked. See [BENCHMARKS.md](BENCHMARKS.md) for methodology, full tables,
 and caveats.
 
@@ -144,6 +145,7 @@ GoPDF has closed extraction gaps still open upstream:
 - Text grouped by row, plus word-level extraction with bounding boxes via `Page.Words()`.
 - `Page.Blocks()` (experimental) groups lines into **column-major** visual blocks — read down each detected column in full — as the chunking unit for RAG pipelines. See [EXAMPLES.md](EXAMPLES.md).
 - `Page.Content()` exposes the page's vector geometry — drawn rectangles (`Rect`) and stroked ruling lines / cell borders (`Stroke`, experimental) — in display space, the raw signal for table-grid detection without rendering. See [EXAMPLES.md](EXAMPLES.md).
+- `Page.Tables()` (experimental) reconstructs **ruled (lattice) tables** — those drawn with visible cell borders — into a grid of cell strings (`Table.Cells[row][col]`), reading the ruling lines from `Content.Stroke` and thin `Content.Rect`. Borderless and partially-ruled tables are not detected. See [EXAMPLES.md](EXAMPLES.md).
 - Nested **Form XObject** text is included and reported in page-space coordinates.
 - TJ kerning arrays are interpreted as word gaps when spacing indicates a word boundary.
 - Broad script coverage: Latin, **Cyrillic**, and CJK predefined CMaps.
@@ -220,7 +222,7 @@ screen-space conversion recipe are documented there too.
 - Image content is not decoded; `Page.Images()` reports draw metadata only.
 - AcroForms extraction is read-only field values — no form filling or appearance rendering.
 - `Reader.Attachments()` walks the document-level name tree only; page-level `/FileAttachment` annotations are not scanned.
-- No table reconstruction: a spatial table-detection heuristic was evaluated against a real-document corpus and deferred — it does not yet meet the cell-accuracy bar we require for structured output.
+- Table reconstruction is limited to **ruled (lattice) tables** via `Page.Tables()` (experimental) — tables with visible cell borders. Borderless and partially-ruled tables are not reconstructed; an earlier text-only spatial heuristic for them was evaluated against a real-document corpus and deferred for not meeting the cell-accuracy bar.
 - Layout/word-position extraction (`Page.Words`, `Page.Lines`, `GetStyledTexts`) is available and fast, but its grouping **quality is a work in progress**: it is tuned for speed and determinism and has not been benchmarked for layout fidelity against dedicated layout tools (on CJK it currently segments more aggressively). Validate it on your own documents.
 
 ## Accuracy & test corpus
@@ -238,10 +240,10 @@ for the full provenance table and fixture inventory.
 
 Versions are published as **signed git tags** (mirrored as GitHub Releases —
 Go module resolution only needs the tag). Tags are signed with one of the
-maintainer's hardware-backed SSH keys; v0.7.9 was signed with:
+maintainer's hardware-backed SSH keys; v0.8.0 was signed with:
 
 ```
-256 SHA256:BlsTid0viIuF2db9zc/gY1JerD7mK47KH19brGGFKWM (ED25519-SK)
+256 SHA256:duCP4h22hb2oNAZMaFhUlpq0j8+qBbZuaXnS99yUhkY (ED25519-SK)
 ```
 
 Verify a release tag — all of the maintainer's trusted keys are published on
@@ -251,8 +253,8 @@ which key signed it, and nothing needs to be copied from this README:
 ```bash
 curl -s https://api.github.com/users/Detective-XH/ssh_signing_keys \
   | python3 -c "import json,sys; [print('*', k['key']) for k in json.load(sys.stdin)]" > allowed_signers
-git -c gpg.ssh.allowedSignersFile=./allowed_signers tag -v v0.7.9
-# expect: Good "git" signature for * with ED25519-SK key SHA256:BlsTid0...
+git -c gpg.ssh.allowedSignersFile=./allowed_signers tag -v v0.8.0
+# expect: Good "git" signature for * with ED25519-SK key SHA256:duCP4h2...
 ```
 
 Module integrity is independently guaranteed by the Go checksum database:
