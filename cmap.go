@@ -206,6 +206,33 @@ func (m *cmap) Decode(raw string) (text string) {
 	return string(r)
 }
 
+// simpleCmapEncoder decodes a SIMPLE (single-byte) font's content codes through a
+// ToUnicode CMap one byte per code, ignoring the CMap's declared codespacerange
+// width. A simple font (Type1/TrueType/Type3/MMType1) always uses 1-byte codes
+// (PDF 32000-1:2008 §9.6), but Adobe-emitted ToUnicode CMaps for such fonts
+// routinely declare a 2-byte codespacerange (<0000> <FFFF>) while their bfchar
+// keys — and the actual content-stream codes — are 1-byte. The generic
+// width-driven cmap.Decode would then read those 1-byte codes two-at-a-time, miss
+// every 1-byte bfchar, and yield U+FFFD for the whole run. Looking up each byte
+// directly recovers the text. Composite (Type0) fonts keep cmap.Decode, whose
+// codespace-driven width IS authoritative for them.
+type simpleCmapEncoder struct{ m *cmap }
+
+func (e *simpleCmapEncoder) Decode(raw string) (text string) {
+	r := make([]rune, 0, len(raw))
+	for i := 0; i < len(raw); i++ {
+		b := raw[i : i+1]
+		if runes, ok := e.m.lookupBfchar(b); ok {
+			r = append(r, runes...)
+		} else if runes, ok := e.m.lookupBfrange(b, 1); ok {
+			r = append(r, runes...)
+		} else {
+			r = append(r, noRune)
+		}
+	}
+	return string(r)
+}
+
 // cmapInterp holds mutable state for the readCmap Interpret callback.
 type cmapInterp struct {
 	n  int

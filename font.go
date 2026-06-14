@@ -92,6 +92,20 @@ func (f Font) cachedReadCmap(toUnicode Value) *cmap {
 	return r.encoders.lookup(toUnicode.ptr, toUnicode)
 }
 
+// isSimpleFontSubtype reports whether a /Subtype names a simple font, which by
+// PDF 32000-1:2008 §9.6 always uses single-byte character codes (as opposed to a
+// composite Type0 font, whose code width is set by its CMap). Used to pick 1-byte
+// ToUnicode decoding. An unknown/empty subtype is treated as composite (false) so
+// the codespace-driven path stays the default for anything not provably simple.
+func isSimpleFontSubtype(subtype string) bool {
+	switch subtype {
+	case "Type1", "TrueType", "Type3", "MMType1":
+		return true
+	default:
+		return false
+	}
+}
+
 // getEncoder selects the font's TextEncoding and reports the decode-path source
 // it came from (so decoded glyphs can be attributed without extending the
 // TextEncoding interface). The source mirrors the diagnostic emitted at each
@@ -100,6 +114,12 @@ func (f Font) getEncoder() (TextEncoding, encSource) {
 	toUnicode := f.V.Key("ToUnicode")
 	if toUnicode.Kind() == Stream {
 		if m := f.cachedReadCmap(toUnicode); m != nil {
+			// A simple font always uses 1-byte codes; decode it one byte per code
+			// so a (common, Adobe) 2-byte ToUnicode codespacerange cannot make the
+			// width-driven cmap.Decode mis-chunk the 1-byte codes into U+FFFD.
+			if isSimpleFontSubtype(f.V.Key("Subtype").Name()) {
+				return &simpleCmapEncoder{m}, encSourceToUnicode
+			}
 			return m, encSourceToUnicode
 		}
 		if DebugOn {

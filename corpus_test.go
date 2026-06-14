@@ -127,6 +127,13 @@ var corpusManifest = []corpusEntry{
 		License: "US-Gov PD (17 USC 105)",
 		Purpose: "Held-out STROKE-bordered full-lattice cell-grid ground truth (31x17); ASCII-joined sub/superscript headers (CO2/CH4/N2O/NOX); bare-number data cells; companion egrid2022_summary_tables.xlsx",
 	},
+	{
+		Path: "tables/irs-soi-inpre-t1-2022.pdf", Golden: "tables/irs-soi-inpre-t1-2022.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "IRS SOI Bulletin (Spring 2024), Table 1 (Individual Income Tax Returns, Preliminary Data, TY2022) p.6 (printed p.8), single-page qpdf excerpt, irs.gov/pub/irs-soi/soi-a-inpre-id2401.pdf",
+		License: "US-Gov PD (17 USC 105)",
+		Purpose: "Held-out RECT-bordered split-column cell-grid ground truth (51x6, cols 1-5 of an 11-col table); 3-tier rule-4 header; as-printed asterisks (* 5,178)/footnotes/negatives. Data fonts are subset TrueType (CIDFont+F1) whose ToUnicode declares a 2-byte codespace over 1-byte codes — the regression fixture for simple-font 1-byte ToUnicode decode; companion 22in01pl.xls",
+	},
 	// Table-detection false-positive gate fixtures: dense 3-column Federal
 	// Register notices with ZERO tables — a detector must return nothing here.
 	{
