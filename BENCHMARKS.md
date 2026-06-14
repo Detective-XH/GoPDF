@@ -113,6 +113,13 @@ go test -run '^$' -bench 'BenchmarkExtractText|BenchmarkExtractWords' -count=8 .
 benchstat go.txt
 ```
 
+`BenchmarkExtractText`/`BenchmarkExtractWords` run a curated 3-file subset chosen for
+the Python comparison above. The repository also carries broader **internal coverage
+benchmarks** — `BenchmarkCorpusExtractText`/`…Words` (more real documents),
+`BenchmarkExtractFields` (AcroForm `Reader.Fields()`), and `BenchmarkDecodePathExtract`
+(encoder/fallback paths). Those are GoPDF-only regression gates, not part of this
+cross-tool comparison; run `go test -bench=.` to see them all.
+
 ### Python side (isolated venv, no system pollution)
 
 The comparison script is kept here rather than as a tracked `.py` file so the
