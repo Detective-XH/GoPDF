@@ -323,3 +323,189 @@ func TestDestCyclicNameTree(t *testing.T) {
 		t.Errorf("Dest page = %d, want 0", page)
 	}
 }
+
+// buildFileAttachmentAnnotPDF returns a one-page PDF whose /Annots array holds
+// two annotations: a /Link (URI action) and a /FileAttachment with a minimal
+// embedded-file stream.  There is no /Root/Names/EmbeddedFiles tree.
+//
+// Object layout:
+//
+//	1 Catalog → Pages 2, no /Names
+//	2 Pages   → Kids [3]
+//	3 Page    → Annots [4 0 R 5 0 R]
+//	4 Link annotation  (URI action)
+//	5 FileAttachment annotation → /FS 6 0 R
+//	6 Filespec dict    → /EF << /F 7 0 R >>
+//	7 EmbeddedFile stream (tiny literal body)
+func buildFileAttachmentAnnotPDF() []byte {
+	const efBody = "hello"
+	efStream := fmt.Sprintf(
+		"<< /Type /EmbeddedFile /Length %d >>\nstream\n%s\nendstream",
+		len(efBody), efBody,
+	)
+	return buildPDFFromObjects([]string{
+		// 1: Catalog — no /Names key → Attachments() returns nil immediately
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		// 2: Pages
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		// 3: Page with two annotations: Link (obj 4) + FileAttachment (obj 5)
+		"<< /Type /Page /Parent 2 0 R /Annots [4 0 R 5 0 R] >>",
+		// 4: /Link annotation with a URI action
+		"<< /Type /Annot /Subtype /Link /Rect [10 700 60 712] /A << /S /URI /URI (https://example.com/link) >> >>",
+		// 5: /FileAttachment annotation pointing to a filespec (obj 6)
+		"<< /Type /Annot /Subtype /FileAttachment /Rect [20 600 70 620] /Contents (attached file) /FS 6 0 R >>",
+		// 6: Filespec dict with an embedded file (/EF /F → obj 7)
+		"<< /Type /Filespec /F (a.txt) /EF << /F 7 0 R >> >>",
+		// 7: EmbeddedFile stream
+		efStream,
+	})
+}
+
+// TestFileAttachmentAnnotBenignAbsorption exercises both the deferral boundary
+// (Part A) and the Fields non-leak (Part B) for a page-level /FileAttachment
+// annotation.
+func TestFileAttachmentAnnotBenignAbsorption(t *testing.T) {
+	// -------------------------------------------------------------------------
+	// Part A — benign absorption + deferral boundary
+	// -------------------------------------------------------------------------
+	t.Run("AnnotationsClassification", func(t *testing.T) {
+		data := buildFileAttachmentAnnotPDF()
+		r, err := OpenBytes(data)
+		if err != nil {
+			t.Fatalf("OpenBytes: %v", err)
+		}
+
+		// Annotations() must not panic and must not error.
+		anns, err := r.Page(1).Annotations()
+		if err != nil {
+			t.Fatalf("Annotations(): %v", err)
+		}
+
+		// Two annotations: Link + FileAttachment.
+		if len(anns) != 2 {
+			t.Fatalf("len(Annotations) = %d, want 2", len(anns))
+		}
+
+		// First annotation is the /Link → AnnotLink.
+		if anns[0].Type != AnnotLink {
+			t.Errorf("anns[0].Type = %v, want AnnotLink", anns[0].Type)
+		}
+
+		// Second annotation is /FileAttachment → classified as AnnotOther
+		// (the deliberate deferred-but-intentional behavior: neither AnnotLink
+		// nor AnnotText, so the default branch fires).
+		if anns[1].Type != AnnotOther {
+			t.Errorf("anns[1].Type = %v, want AnnotOther for /FileAttachment", anns[1].Type)
+		}
+	})
+
+	t.Run("LinksExcludesFileAttachment", func(t *testing.T) {
+		data := buildFileAttachmentAnnotPDF()
+		r, err := OpenBytes(data)
+		if err != nil {
+			t.Fatalf("OpenBytes: %v", err)
+		}
+
+		links, err := r.Links()
+		if err != nil {
+			t.Fatalf("Links(): %v", err)
+		}
+
+		// Only the /Link annotation must appear; /FileAttachment is not AnnotLink.
+		if len(links) != 1 {
+			t.Fatalf("len(Links) = %d, want 1 (/FileAttachment must be excluded)", len(links))
+		}
+		if links[0].URI != "https://example.com/link" {
+			t.Errorf("links[0].URI = %q, want https://example.com/link", links[0].URI)
+		}
+	})
+
+	t.Run("AttachmentsDocLevelOnly", func(t *testing.T) {
+		data := buildFileAttachmentAnnotPDF()
+		r, err := OpenBytes(data)
+		if err != nil {
+			t.Fatalf("OpenBytes: %v", err)
+		}
+
+		// No /Root/Names/EmbeddedFiles tree → Attachments() must return nil.
+		// This locks the documented deferral boundary: "Page-level /FileAttachment
+		// annotations are not scanned."
+		atts, err := r.Attachments()
+		if err != nil {
+			t.Fatalf("Attachments(): %v", err)
+		}
+		if atts != nil {
+			t.Errorf("Attachments() = %v, want nil (page-level FileAttachment must not be scanned)", atts)
+		}
+	})
+
+	// -------------------------------------------------------------------------
+	// Part B — Fields() non-leak: a stray FileAttachment in the same /Annots
+	// array as a real Widget must NOT produce a phantom field.
+	//
+	// Object layout mirrors TestFieldsCheckBox (no /P on the widget, so
+	// Fields() resolves the page via annotPageMap — the exact code path where
+	// the stray FileAttachment entry could pollute the map or the result).
+	//
+	//   1 Catalog → Pages 2 + AcroForm Fields [4 0 R]
+	//   2 Pages   → Kids [3]
+	//   3 Page    → Annots [4 0 R 5 0 R]   ← Widget AND FileAttachment together
+	//   4 Widget  (checkbox, no /P)
+	//   5 FileAttachment → /FS 6 0 R
+	//   6 Filespec → /EF /F 7 0 R
+	//   7 EmbeddedFile stream
+	// -------------------------------------------------------------------------
+	t.Run("FieldsNoPhantomFromFileAttachment", func(t *testing.T) {
+		const efBody = "hi"
+		efStream := fmt.Sprintf(
+			"<< /Type /EmbeddedFile /Length %d >>\nstream\n%s\nendstream",
+			len(efBody), efBody,
+		)
+		data := buildPDFFromObjects([]string{
+			// 1: Catalog with AcroForm pointing at the widget (obj 4) only
+			"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+			// 2: Pages
+			"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+			// 3: Page — Annots holds both the widget AND the FileAttachment;
+			//    widget has NO /P so Fields() must use annotPageMap for attribution
+			"<< /Type /Page /Parent 2 0 R /Annots [4 0 R 5 0 R] >>",
+			// 4: Widget annotation (checkbox); no /P forces annotPageMap path
+			"<< /Type /Annot /Subtype /Widget /FT /Btn /T (agree) /V /Yes /Rect [10 10 20 20] >>",
+			// 5: FileAttachment annotation in the same /Annots array
+			"<< /Type /Annot /Subtype /FileAttachment /Rect [30 10 80 30] /FS 6 0 R >>",
+			// 6: Filespec
+			"<< /Type /Filespec /F (b.txt) /EF << /F 7 0 R >> >>",
+			// 7: EmbeddedFile stream
+			efStream,
+		})
+
+		r, err := OpenBytes(data)
+		if err != nil {
+			t.Fatalf("OpenBytes: %v", err)
+		}
+
+		fields, err := r.Fields()
+		if err != nil {
+			t.Fatalf("Fields(): %v", err)
+		}
+
+		// Exactly ONE real field; the FileAttachment must not create a phantom.
+		if len(fields) != 1 {
+			t.Fatalf("len(Fields) = %d, want 1 (FileAttachment must not produce a phantom field)", len(fields))
+		}
+		f := fields[0]
+		if f.Name != "agree" {
+			t.Errorf("fields[0].Name = %q, want agree", f.Name)
+		}
+		if f.Type != FieldCheckBox {
+			t.Errorf("fields[0].Type = %v, want FieldCheckBox", f.Type)
+		}
+		if f.Value != "Yes" {
+			t.Errorf("fields[0].Value = %q, want Yes", f.Value)
+		}
+		// PageNum must be 1 (resolved via annotPageMap since /P is absent)
+		if f.PageNum != 1 {
+			t.Errorf("fields[0].PageNum = %d, want 1 (resolved via annotPageMap)", f.PageNum)
+		}
+	})
+}
