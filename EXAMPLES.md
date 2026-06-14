@@ -614,6 +614,50 @@ so warnings may newly appear on `Reader.Warnings()` as a side effect — the sam
 contract as `Page.ExtractionSummary`. For a ready-made RAG metadata projection
 instead of raw geometry, see the adapter below.
 
+## Ruled-table extraction (`Page.Tables`)
+
+`Page.Tables()` reconstructs the ruled (lattice) tables on a page — tables whose cells
+are bounded by visible horizontal and vertical lines. It returns `[]Table`, where each
+`Table.Cells[row][col]` holds the text extracted from that cell.
+
+**Experimental:** the API is additive-evolving (see [API-STABILITY.md](API-STABILITY.md)).
+`Table.Cells` is stable; the type may gain additional fields (for example cell bounding
+boxes) in a future minor release.
+
+```go
+f, err := os.Open("report.pdf")
+// handle err ...
+fi, _ := f.Stat()
+r, err := pdf.NewReader(f, fi.Size())
+// handle err ...
+
+p := r.Page(1)
+tables, err := p.Tables()
+// handle err ...
+
+for ti, tbl := range tables {
+    fmt.Printf("Table %d: %d rows x %d cols\n", ti, len(tbl.Cells), len(tbl.Cells[0]))
+    for ri, row := range tbl.Cells {
+        for ci, cell := range row {
+            fmt.Printf("  [%d][%d] %q\n", ri, ci, cell)
+        }
+    }
+}
+```
+
+**What is detected:** only fully-ruled ("closed") and structurally semi-open tables.
+A table needs at least one closed cell (a rectangle bounded on all four sides by ruled
+lines). Borderless tables and partially-ruled tables return no `Table`.
+
+**Open edge columns:** the right data column and left label column of statistical tables
+are often unbounded — their outer vertical rule is absent. `Tables()` recovers these
+half-open columns when the table's row rules overhang into them by more than 6 pt, and
+the overhang contains at least two bands of words. A column whose rules stop at the inner
+vertical is not recovered (a safe omission).
+
+**Error handling:** `Tables()` returns the same error type as `Words()`. A page with no
+extractable text returns `(nil, nil)`.
+
 ## Ecosystem adapters (langchaingo / RAG loaders)
 
 `examples/langchaingo_loader` is a runnable adapter for Go RAG pipelines. It emits
