@@ -22,6 +22,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   are additive-stable, but which segments are emitted may be refined as table support
   matures.
 
+- `Page.Tables()` extracts **ruled tables** from a page, returning each as a `Table` whose
+  `Cells[row][col]` holds the text of that cell. It reconstructs the grid from the page's ruling
+  lines — both stroked lines and thin filled rectangles — and assigns each word to its cell by
+  position, so dense numeric values that fragment under text-only heuristics land whole in the
+  right cell. Half-open edge columns common in statistical tables — the row-label column and the
+  last data column, which have no outer vertical rule — are recovered when the table's own
+  horizontal row rules extend into them (and only then, so margin text such as page numbers or a
+  sidebar label is never mistaken for a column). Only ruled tables are detected: borderless and
+  partially-ruled tables, and open columns whose rules stop at the inner border, return nothing
+  rather than guessing. Marked **experimental** — the `Table` type and the detection geometry may
+  gain fields or be refined in a future minor release. See `EXAMPLES.md` for usage.
+
 ### Performance
 
 - Text extraction allocates less and runs faster on large pages. The content-stream
