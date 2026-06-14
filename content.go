@@ -59,14 +59,34 @@ func (s *contentState) appendText(str string) {
 // recorded (a layout marker); only its advance is suppressed. Horizontal mode is
 // left byte-identical (its separator advance is the glyph width, ~0 for "\n").
 // Vertical word-segmentation/leading is a WS3 concern.
+//
+// sep is interpreter-chosen ASCII ("\n" or " "), not a font code byte, but is
+// still routed through the content font's encoder so the -V CMaps keep the
+// real-rune advance handling above. A simpleCmapEncoder (simple font + a
+// ToUnicode CMap) has no bfchar/bfrange entry for the 0x0A/0x20 separator byte
+// and decodes it to U+FFFD, which would otherwise leak a replacement glyph into
+// the text/Words sink for every TJ array (observed as the trailing U+FFFD run on
+// Adobe-subset-font tables). The separator is already its own Unicode, so when the
+// decode is exactly that single unmapped U+FFFD, fall back to the literal sep —
+// matching the byte-identical passthrough every other encoder gives "\n"/" ".
+//
+// The match is intentionally exact (== one U+FFFD), not "contains U+FFFD": sep is
+// always a single ASCII byte, so a genuinely-unmapped decode is exactly one
+// replacement rune. A font whose ToUnicode legitimately maps 0x0A/0x20 to a
+// multi-rune sequence that happens to include U+FFFD is then left untouched —
+// the font's own mapping wins over this fallback.
 func (s *contentState) appendSeparator(sep string) {
+	decoded := s.g.enc.Decode(sep)
+	if decoded == string(noRune) {
+		decoded = sep
+	}
 	if s.g.vertical {
 		saved := s.g.Tm
-		s.layoutDecoded(sep, s.g.enc.Decode(sep))
+		s.layoutDecoded(sep, decoded)
 		s.g.Tm = saved
 		return
 	}
-	s.layoutDecoded(sep, s.g.enc.Decode(sep))
+	s.layoutDecoded(sep, decoded)
 }
 
 // layoutDecoded appends one Text entry per decoded rune to s.text, advancing the

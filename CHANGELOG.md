@@ -48,6 +48,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   codespace width is authoritative. The change is byte-identical for simple fonts whose ToUnicode
   already declares a 1-byte codespace, and for every font without a ToUnicode stream.
 
+- `Page.Content()` and `Page.Words()` no longer emit a **U+FFFD replacement character for the
+  word/line separators a `TJ` array synthesizes**. Showing text with a `TJ` array appends a
+  newline after the array (and a space across a wide kerning gap) as a layout marker; the
+  interpreter routed that interpreter-chosen ASCII separator through the content font's encoder,
+  and a simple font whose `ToUnicode` CMap has no entry for the `0x0A`/`0x20` byte decoded it to
+  U+FFFD — so a table laid out with one `TJ` array per cell leaked one replacement character per
+  array into the structured-extraction stream (a real IRS tax-table page carried 190 of them in
+  `Content().Text` and `Words()`). The separator is already its own Unicode, so an unmappable
+  decode now falls back to the literal separator, matching the byte-identical passthrough every
+  other encoder already gave it. `GetPlainText` was never affected (it synthesizes no such
+  separator); cell-grid values were unaffected (the zero-advance markers fall at cell edges).
+
 ## v0.7.9 — 2026-06-13
 
 ### Added
