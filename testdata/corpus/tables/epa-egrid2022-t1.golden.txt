@@ -1,0 +1,4 @@
+This document provides eGRID2022 data summary tables.
+Subregion Output Emission Rates (eGRID2022)
+CO2CH4N2OCO2eAnnual NOXOzone Season NOXSO2
+AKGDASCC Alaska Grid1,052.10.0880.0121,057.8
