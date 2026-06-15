@@ -620,7 +620,7 @@ instead of raw geometry, see the adapter below.
 are bounded by visible horizontal and vertical lines. It returns `[]Table`, where each
 `Table.Cells[row][col]` holds the text extracted from that cell.
 
-**Stable** (graduated from Experimental in v0.9.0): the Go signature and the `Table` shape
+**Stable** (graduated from Experimental): the Go signature and the `Table` shape
 are frozen (see [API-STABILITY.md](API-STABILITY.md)). `Table.Cells` and its semantics are
 stable; the type may still gain fields additively (for example cell bounding boxes) in a
 future minor release — construct with keyed literals.
