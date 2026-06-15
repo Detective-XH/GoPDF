@@ -9,19 +9,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
-- `Page.Tables()` and the `Table` type graduate from **Experimental to Stable**. The Go
-  signature and the `Table{Cells [][]string}` shape are now frozen — richer cell data (such
-  as bounding boxes) would arrive only as new additive fields, never by changing `Cells`.
-  Reconstruction accuracy on the documented scope is locked by corpus regression tests so it
-  cannot silently drift: EPA eGRID 476/476 cells, IRS SOI 160/160 (including the recovered
-  half-open right column, 32/32), and a 17×2 NIST HB44 grid at 33/34 content. The documented
-  scope is made precise: **ruled (lattice) tables** — interior cells closed by visible rules
-  between rows and columns, plus structurally-recovered half-open edge columns. Borderless
-  and partially-ruled or banded tables (ruled only at group boundaries, rows separated by
-  shading) are out of documented scope — they may return no table or an incomplete grid,
-  best-effort rather than a contract. One text-layer caveat is documented: a superscript
-  extracts as a spaced token (`cm²` → `cm 2`), which never changes which cell a value lands
-  in. See `API-STABILITY.md` and `EXAMPLES.md`.
+- `Page.Tables()` gains blocking accuracy regression gates on the public surface and a
+  precise, honest documented scope; it **remains Experimental**. Reconstruction accuracy is
+  now locked by corpus regression tests so it cannot silently drift: EPA eGRID 476/476 cells,
+  IRS SOI 160/160 (including the recovered half-open right column, 32/32), and a 17×2 NIST
+  HB44 grid at 33/34 content. The documented scope is made precise: **ruled (lattice)
+  tables** — interior cells closed by visible rules between rows and columns, plus
+  structurally-recovered half-open edge columns. Borderless and partially-ruled or banded
+  tables (ruled only at group boundaries, rows separated by shading) are out of scope —
+  best-effort, not a contract: they may return no table or an incomplete grid. A superscript
+  extracts as a spaced token (`cm²` → `cm 2`), a font-extraction limit that never changes
+  which cell a value lands in. Graduation to a Stable API is gated on a forthcoming
+  extraction-quality program. See `API-STABILITY.md` and `EXAMPLES.md`.
 
 ## v0.8.0 — 2026-06-14
 

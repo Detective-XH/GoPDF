@@ -620,10 +620,10 @@ instead of raw geometry, see the adapter below.
 are bounded by visible horizontal and vertical lines. It returns `[]Table`, where each
 `Table.Cells[row][col]` holds the text extracted from that cell.
 
-**Stable** (graduated from Experimental): the Go signature and the `Table` shape
-are frozen (see [API-STABILITY.md](API-STABILITY.md)). `Table.Cells` and its semantics are
-stable; the type may still gain fields additively (for example cell bounding boxes) in a
-future minor release — construct with keyed literals.
+**Experimental:** the API is additive-evolving (see [API-STABILITY.md](API-STABILITY.md)).
+`Table.Cells` is the stable core; the type may gain fields (for example cell bounding boxes)
+in a future minor release, and the reconstruction output may still change as extraction
+quality is stabilized across more table types. Graduates to Stable when that bar is met.
 
 ```go
 f, err := os.Open("report.pdf")
