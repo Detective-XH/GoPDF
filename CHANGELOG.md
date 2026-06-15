@@ -22,6 +22,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   which cell a value lands in. Graduation to a Stable API is gated on a forthcoming
   extraction-quality program. See `API-STABILITY.md` and `EXAMPLES.md`.
 
+### Fixed
+
+- `GetPlainText` no longer emits U+FFFD replacement characters for text drawn with composite
+  (Type0 / Identity-H, two-byte CMap) fonts in two cases:
+  - Text shown after a `q`/`Q` graphics-state save/restore — the active text encoder is now
+    saved on `q` and restored on `Q`, so text that relies on the outer font restored by `Q`
+    (with no fresh `Tf`) decodes through the correct encoder instead of the inner font's.
+  - A `T*` line-move under such a font — the line break is now emitted as a newline instead of
+    being decoded through the two-byte CMap and turning into a replacement character.
+
 ## v0.8.0 — 2026-06-14
 
 ### Added
