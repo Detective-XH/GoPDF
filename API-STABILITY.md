@@ -49,7 +49,7 @@ Page-level extraction primitives:
   `Page.Resources() Value`, `Page.MediaBox()`, `Page.CropBox()`, `Page.Rotate() int`
 - `Page.Content() Content`
 - `Page.Tables() ([]Table, error)` — ruled-lattice table reconstruction; graduated from
-  Experimental in v0.9.0 (see the documented-scope note below)
+  Experimental to Stable (see the documented-scope note below)
 
 Package-level text helpers:
 
