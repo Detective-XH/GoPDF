@@ -21,9 +21,10 @@ performance comparison — see [`BENCHMARKS.md`](../../BENCHMARKS.md).
 
 All fixtures below are real, public-domain documents. Golden-tested entries have
 verified extractable text layers (confirmed end-to-end with `GetPlainText` at
-acquisition time); `hard/` entries are deliberate NEGATIVE fixtures — documents that
-defeat current extraction — committed without goldens to anchor future
-fallback-encoding work.
+acquisition time); most `hard/` entries start as deliberate NEGATIVE fixtures — documents that
+defeat current extraction — committed without goldens to anchor future fallback-encoding
+work. A `hard/` entry is promoted to a golden-tested entry once its underlying bug is
+fixed and the extracted text is confirmed correct.
 
 | File | Script | Source | License | Verified extraction |
 |------|--------|--------|---------|---------------------|
@@ -40,7 +41,7 @@ fallback-encoding work.
 | `tables/irs-soi-inpre-t1-2022.pdf` | English (Latin) | IRS SOI Bulletin (Spring 2024), Table 1 (Individual Income Tax Returns, Preliminary Data, TY2022), p.6 (printed p.8), single-page qpdf excerpt | US-Gov work, public domain (17 U.S.C. §105) | **Held-out RECT-bordered split-column** page-face (cols 1–5 of an 11-col table); 3-tier header. Data fonts are subset TrueType (`CIDFont+F1`) whose ToUnicode declares a 2-byte codespace over 1-byte codes — the regression fixture for **simple-font 1-byte ToUnicode decode** (text was U+FFFD before that fix). Cell-grid ground truth in `.cellgrid.tsv` (51×6) with as-printed asterisks (`* 5,178`)/footnotes/negatives — see "Cell-grid accuracy corpus" below |
 | `multicolumn/fr-2024-06543.pdf` | English (Latin) | Federal Register 89 FR 21528, doc 2024-06543 (Coast Guard ICR notice), govinfo.gov | US-Gov work, public domain (17 U.S.C. §105) | 13,661 normalized chars / 2 pp; dense 3-column body text, zero tables |
 | `multicolumn/fr-2024-01353.pdf` | English (Latin) | Federal Register 89 FR 4633, doc 2024-01353 (NRC notice), govinfo.gov | US-Gov work, public domain (17 U.S.C. §105) | 6,570 normalized chars / 1 pp; dense 3-column body text, zero tables |
-| `hard/bea-dici0724.pdf` | English (unmappable) | BEA — Direct Investment by Country and Industry, July 2024 release | US-Gov work, public domain (17 U.S.C. §105) | NEGATIVE fixture (no golden): subset fonts lack usable ToUnicode — geometry intact, text extracts as U+FFFD |
+| `hard/bea-dici0724.pdf` | English (Latin) | BEA — Direct Investment by Country and Industry, July 2024 release | US-Gov work, public domain (17 U.S.C. §105) | 49,630 chars / 12 pp; subset fonts whose T\* line-moves were previously mis-decoded to U+FFFD under a 2-byte CMap (fixed) — zero replacement runes across all 12 pages; locked by golden snippets + a document-wide no-U+FFFD assertion (`TestCorpusBeaDiciNoReplacementRunes`) |
 | `hard/irs-p1040-tax-tables-excerpt.pdf` | English (partial) | IRS Publication 1040 Tax Tables, pages 3–4, excerpted with qpdf | US-Gov work, public domain (17 U.S.C. §105) | NEGATIVE fixture (no golden): zero-advance glyph widths (W=0) + partial ToUnicode loss |
 | `forms/irs-f1040-2025.pdf` | English (Latin) | IRS Form 1040 (2025 tax year) | US-Gov work, public domain (17 U.S.C. §105) | Blank AcroForm: `Reader.Fields()` → 199 terminal fields (deep dotted LiveCycle names, maxDepth 6); text layer extracts form labels; carries a rotated text run. See "Real AcroForm fixtures" below |
 | `forms/uscourts-cv071-civil-cover.pdf` | English (Latin) | US District Court, C.D. Cal. — Civil Cover Sheet (form CV-071) | US-Gov work, public domain (17 U.S.C. §105) | Blank AcroForm: `Reader.Fields()` → 165 terminal fields with a real `/Parent` tree + `/DA` chains and Acrobat-derived `/T` label names. See "Real AcroForm fixtures" below |
@@ -84,8 +85,9 @@ fallback-encoding work.
   `/ToUnicode`, with a self-contained reproduction recipe:
   [`cyrillic/LEGACY-ENCODING-SEARCH.md`](cyrillic/LEGACY-ENCODING-SEARCH.md).
 - `tables/` and `multicolumn/` are the accuracy and false-positive surfaces for the
-  table-detection spike; `hard/` holds negative fixtures (no goldens) that document
-  current extraction gaps for future fallback-encoding work.
+  table-detection spike; `hard/` holds fixtures for difficult real-world PDFs — some are
+  negative (no golden, documenting current extraction gaps) and some are promoted once the
+  underlying bug is fixed and the text is confirmed fully extractable.
 
 ## Real AcroForm fixtures (`forms/`)
 

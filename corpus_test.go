@@ -152,10 +152,10 @@ var corpusManifest = []corpusEntry{
 	// US-Gov financial PDFs that defeat current extraction; no goldens — they
 	// document the gap until future fallback-encoding work closes it.
 	{
-		Path: "hard/bea-dici0724.pdf", Golden: "",
+		Path: "hard/bea-dici0724.pdf", Golden: "hard/bea-dici0724.golden.txt",
 		Synthetic: false, Compare: compareNormalized, Feature: "hard-pdf",
 		Source: "BEA Direct Investment by Country and Industry (Jul 2024)", License: "US-Gov PD (17 USC 105)",
-		Purpose: "Missing-ToUnicode subset fonts: table geometry intact, text unmappable",
+		Purpose: "Subset fonts; T* line-moves previously mis-decoded to U+FFFD under a 2-byte CMap (fixed) — now extracts with zero replacement runes across all 12 pages; locked by golden snippets + a document-wide no-U+FFFD assertion (TestCorpusBeaDiciNoReplacementRunes)",
 	},
 	{
 		Path: "hard/irs-p1040-tax-tables-excerpt.pdf", Golden: "",
@@ -479,12 +479,6 @@ func TestCorpusNoGoldenFixtures(t *testing.T) {
 func assertNoGoldenGap(t *testing.T, e corpusEntry, r *Reader) {
 	t.Helper()
 	switch e.Path {
-	case "hard/bea-dici0724.pdf":
-		// Documented gap: subset fonts without usable ToUnicode —
-		// text extracts as replacement runes.
-		if !strings.ContainsRune(extractPlainText(t, r), '�') {
-			t.Errorf("%s: documented gap (U+FFFD text) no longer reproduces — promote to a golden-tested entry", e.Path)
-		}
 	case "hard/irs-p1040-tax-tables-excerpt.pdf":
 		// Documented gap: zero-advance glyph widths — words on the
 		// first page carry W == 0 despite non-empty text.

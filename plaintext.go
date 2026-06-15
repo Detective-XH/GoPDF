@@ -10,10 +10,23 @@ import (
 	"fmt"
 )
 
+// plainTextGState captures the text-encoder portion of the graphics state for
+// plainTextState's q/Q save/restore. Only enc and encSource affect text decoding;
+// other gstate fields (CTM, colour, …) are irrelevant to GetPlainText.
+type plainTextGState struct {
+	enc       TextEncoding
+	encSource encSource
+}
+
 // plainTextState holds mutable state for the GetPlainText Interpret callback.
 type plainTextState struct {
 	enc       TextEncoding
-	encSource encSource      // decode-path tag for enc (set with enc on Tf)
+	encSource encSource // decode-path tag for enc (set with enc on Tf)
+	// gstack saves (enc, encSource) on q and restores them on Q, mirroring
+	// contentState.gstack. Without it a Tf inside a q…Q block bleeds the inner
+	// encoder past the Q operator, causing text shown after Q (relying on the
+	// restored outer font) to be decoded through the wrong encoder → U+FFFD.
+	gstack    []plainTextGState
 	counters  decodeCounters // per-decode-path glyph counts for this run
 	fonts     map[string]*Font
 	buf       bytes.Buffer
@@ -33,7 +46,16 @@ func (s *plainTextState) showEncoded(str string) {
 // writeSeparator writes the T* newline without counting it (layout, not content;
 // the content sink emits no such separator, so counting it would make the two
 // sinks' decode-path counters disagree).
-func (s *plainTextState) writeSeparator(sep string) { s.writeDecoded(s.enc.Decode(sep)) }
+func (s *plainTextState) writeSeparator(sep string) {
+	decoded := s.enc.Decode(sep)
+	// A 2-byte-codespace CMap can't decode the 1-byte separator and returns
+	// noRune; emit the raw separator instead, mirroring content.go:appendSeparator,
+	// so a T* line-move doesn't become U+FFFD under a Type0 font.
+	if decoded == string(noRune) {
+		decoded = sep
+	}
+	s.writeDecoded(decoded)
+}
 
 func (s *plainTextState) writeDecoded(decoded string) {
 	for _, ch := range decoded {
@@ -131,6 +153,15 @@ func (s *plainTextState) interpretPlain(stk *Stack, op string) {
 		args[i] = stk.Pop()
 	}
 	switch op {
+	case "q":
+		s.gstack = append(s.gstack, plainTextGState{s.enc, s.encSource})
+	case "Q":
+		if n := len(s.gstack) - 1; n >= 0 {
+			saved := s.gstack[n]
+			s.gstack = s.gstack[:n]
+			s.enc, s.encSource = saved.enc, saved.encSource
+		}
+		// A stray Q with an empty stack is a no-op (leave enc/encSource unchanged).
 	case "Tf":
 		s.handlePlainTf(args)
 	case "BT", "T*", "\"", "'", "Tj", "TJ":
