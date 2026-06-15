@@ -86,11 +86,10 @@ func TestLatticeAccuracyNISTArea(t *testing.T) {
 		nCols = len(grid[0])
 	}
 
-	// --- Tier 1: shape ---
+	// --- Tier 1: shape (BLOCKING gate, v0.9.0 floor = measured live 2026-06-15) ---
 	t.Logf("SHAPE: lattice=%dx%d  golden=%dx%d", nRows, nCols, len(nistAreaGolden), 2)
-	shapeOK := nRows == len(nistAreaGolden) && nCols == 2
-	if !shapeOK {
-		t.Logf("SHAPE MISMATCH — lattice over/under-segmented the grid (headline finding)")
+	if nRows != 17 || nCols != 2 {
+		t.Errorf("NIST shape regressed: got %dx%d want 17x2", nRows, nCols)
 	}
 
 	// --- dump reconstructed grid vs golden for diagnosis ---
@@ -110,27 +109,46 @@ func TestLatticeAccuracyNISTArea(t *testing.T) {
 
 	// --- Tier 2 (verbatim) + Tier 3 (normalized), over the overlapping region ---
 	var verbatim, normalized, loose, total int
-	rmax := min(nRows, len(nistAreaGolden))
-	for ri := range rmax {
-		cmax := min(nCols, 2)
-		for ci := range cmax {
+	// Iterate the FULL golden region (17x2): a missing or ragged grid cell scores as a MISS,
+	// keeping total structurally fixed at 34 so the content gate below cannot pass on a
+	// shrunken denominator (the shape check reads only grid[0]'s width).
+	for ri := range nistAreaGolden {
+		for ci := range 2 {
 			total++
-			if grid[ri][ci] == nistAreaGolden[ri][ci] {
+			var got string
+			if ri < len(grid) && ci < len(grid[ri]) {
+				got = grid[ri][ci]
+			}
+			want := nistAreaGolden[ri][ci]
+			if got == want {
 				verbatim++
 			}
-			if normCell(grid[ri][ci]) == normCell(nistAreaGolden[ri][ci]) {
+			if normCell(got) == normCell(want) {
 				normalized++
 			}
-			if looseCell(grid[ri][ci]) == looseCell(nistAreaGolden[ri][ci]) {
+			if looseCell(got) == looseCell(want) {
 				loose++
 			}
 		}
 	}
-	t.Logf("CELL-EXACT verbatim          = %d/%d (%.1f%%)", verbatim, total, 100*float64(verbatim)/float64(total))
-	t.Logf("CELL-EXACT normalized(ws+sup)= %d/%d (%.1f%%)", normalized, total, 100*float64(normalized)/float64(total))
+	// INTENTIONALLY diagnostic (not a gate): verbatim and normalized have 11 misses due to the
+	// superscript-rendering quirk — GoPDF renders cm² as "cm 2" (spaced separate token) rather
+	// than "cm²". This is a font-extraction limit, NOT a lattice error. Gating on verbatim/normalized
+	// here would penalise the lattice for a text-layer issue; they must NOT gate Page.Tables() stability.
+	// Advisor-confirmed as threshold T for the v0.9.0 graduation.
+	t.Logf("CELL-EXACT verbatim          = %d/%d (%.1f%%) [diagnostic only — superscript quirk, not gated]", verbatim, total, 100*float64(verbatim)/float64(total))
+	t.Logf("CELL-EXACT normalized(ws+sup)= %d/%d (%.1f%%) [diagnostic only — superscript quirk, not gated]", normalized, total, 100*float64(normalized)/float64(total))
 	t.Logf("CONTENT space-insensitive    = %d/%d (%.1f%%)  <- lattice+assignment correctness", loose, total, 100*float64(loose)/float64(total))
 	t.Logf("(in-tree / necessary-not-sufficient; NIST is a genuine full lattice; stroked-carrier" +
 		" end-to-end is IRS p55b — but IRS p55b is semi-bordered, see findings)")
+
+	// --- BLOCKING content gate (v0.9.0 floor = measured live 2026-06-15) ---
+	if total != 34 {
+		t.Errorf("NIST denominator drift: got %d cells, want 34 (17 rows x 2 cols)", total)
+	}
+	if loose < 33 {
+		t.Errorf("NIST content regressed: %d/%d want >=33/34", loose, total)
+	}
 
 	// --- Task C: open-recovery dual-run — HARD FP REGRESSION GATE ---
 	//

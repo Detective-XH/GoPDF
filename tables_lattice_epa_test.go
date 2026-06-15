@@ -10,7 +10,8 @@ import (
 // EPA eGRID Table 1 (p.2) against its companion+render-verified .cellgrid.tsv
 // golden. DATA cells (golden rows after header_rows) are the primary gate; the
 // grid is anchored row-by-row on the leftmost acronym cell, then columns are
-// compared positionally. Diagnostic-only (never t.Errorf) — a measurement.
+// compared positionally. BLOCKING accuracy gates: content and verbatim must not
+// regress below 476/476 (28 data rows x 17 cols, measured live at v0.9.0).
 func TestLatticeAccuracyEPA(t *testing.T) {
 	f, err := os.Open("testdata/corpus/tables/epa-egrid2022-t1.pdf")
 	if err != nil {
@@ -122,6 +123,18 @@ func TestLatticeAccuracyEPA(t *testing.T) {
 	t.Logf("=== EPA DATA-CELL accuracy (28 rows x %d cols, %d missing rows) ===", g.cols, missingRows)
 	t.Logf("CONTENT (space-insensitive) = %d/%d (%.1f%%)  <- the gate metric", content, dataCells, 100*float64(content)/float64(dataCells))
 	t.Logf("VERBATIM (strict)           = %d/%d (%.1f%%)", verbatim, dataCells, 100*float64(verbatim)/float64(dataCells))
+
+	// --- BLOCKING accuracy gates (v0.9.0 floor = measured live, 2026-06-15) ---
+	// Denominator guard: if the golden or parse structure changed, the ratios are no longer comparable.
+	if dataCells != 476 {
+		t.Errorf("EPA denominator drift: got %d data cells, want 476 (28 rows x 17 cols)", dataCells)
+	}
+	if content < 476 {
+		t.Errorf("EPA content regressed: %d/476", content)
+	}
+	if verbatim < 476 {
+		t.Errorf("EPA verbatim regressed: %d/476", verbatim)
+	}
 
 	// --- Task B: open-recovery non-regression ---
 	// latticeTablesOpen must produce an identical grid to the closed-only latticeTables on
