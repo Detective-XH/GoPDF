@@ -4,9 +4,9 @@ package pdf
 // of cell strings. Cells[r][c] holds the text of the cell in row r, column c; an empty
 // cell is the empty string. Rows run top-to-bottom, columns left-to-right in page order.
 //
-// Stable: the Cells field and its semantics are frozen. Table may still gain fields
-// additively (for example cell bounding boxes) in a future minor release — construct
-// with keyed literals. See API-STABILITY.md and EXAMPLES.md.
+// Experimental: the API is additive-evolving (see API-STABILITY.md). Cells is the stable
+// core; Table may gain fields (for example cell bounding boxes) in a future minor release,
+// and the detection output may still change as extraction quality stabilizes. See EXAMPLES.md.
 type Table struct {
 	// Cells is the reconstructed grid indexed Cells[row][col]. Every row has equal length.
 	Cells [][]string
@@ -39,8 +39,10 @@ type Table struct {
 // "cm 2"), a font-extraction limit independent of the lattice; cell content — the right
 // value in the right cell — is unaffected.
 //
-// The Go signature and the Table type are Stable (see API-STABILITY.md). Tables returns
-// the same error as Words. See EXAMPLES.md for usage.
+// Experimental: the detection geometry and the Table type are additive-evolving, and the
+// reconstruction output may still change as extraction quality is stabilized across the
+// real-world table distribution (see API-STABILITY.md). Tables returns the same error as
+// Words. See EXAMPLES.md for usage.
 func (p Page) Tables() ([]Table, error) {
 	words, err := p.Words()
 	if err != nil {

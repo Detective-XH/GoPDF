@@ -48,8 +48,6 @@ Page-level extraction primitives:
 - `Page.Fonts() []string`, `Page.Font(name string) Font`,
   `Page.Resources() Value`, `Page.MediaBox()`, `Page.CropBox()`, `Page.Rotate() int`
 - `Page.Content() Content`
-- `Page.Tables() ([]Table, error)` — ruled-lattice table reconstruction; graduated from
-  Experimental to Stable (see the documented-scope note below)
 
 Package-level text helpers:
 
@@ -59,29 +57,8 @@ Package-level text helpers:
 
 Types backing the above (`Text`, `Word`, `Line`, `Content`, `FontInfo`,
 `LinkRef`, `FormField`, `Attachment`, `Annotation`, `Outline`, `Info`, `Point`,
-`Rect`, `Value`, `Font`, `TextEncoding`, `Table`) — existing fields and methods are
+`Rect`, `Value`, `Font`, `TextEncoding`) — existing fields and methods are
 frozen; fields may be added.
-
-### Ruled-table scope (`Page.Tables`)
-
-`Page.Tables()` is Stable in its Go signature and in the `Table` shape (`Cells [][]string`;
-fields may be added additively). Its **documented scope** is *ruled lattices* — interior
-cells closed by a visible rule between adjacent rows and adjacent columns, **plus** half-open
-edge columns recovered from structural evidence (a row-label or last-data column whose outer
-vertical rule is absent but whose row rules overhang the inner vertical; the IRS SOI gate
-exercises exactly this open-column recovery). On that scope the reconstruction is locked
-against regression by the corpus accuracy gates, so the determinism promise applies (same
-bytes → identical grid, every platform).
-
-Borderless, partially-ruled, and banded tables (ruled only at group boundaries, with rows
-separated by shading rather than rules — common in statistical tables) are **out of
-documented scope**: they may yield no table, or a structurally incomplete or merged grid.
-That output is best-effort, not a contract — treat it as advisory. Detection coverage may
-*expand* additively in a future minor (finding more tables never changes the frozen
-signature or shape), but the documented-scope accuracy floor never regresses. One known
-text-layer caveat applies on every page: a superscript extracts as a spaced token (`cm²` →
-`cm 2`); this is a font-extraction limit, not a lattice error, and never affects cell
-content placement.
 
 ### Drop-in lineage compatibility
 
@@ -191,11 +168,14 @@ a breaking change under Go module semver).
 ## Experimental tier
 
 Intentionally outside the frozen contract: the Go signatures are stable (additive, no
-removals), but the **JSON output / wire format may change** in a minor release as the
-projection is refined. Each is marked `Experimental` in its godoc.
+removals), but the **output may change** in a minor release (a JSON wire format, a
+segmentation heuristic, or a reconstruction result) as these surfaces are refined. Each is
+marked `Experimental` in its godoc.
 
 | Symbol | Status |
 |--------|--------|
+| `Page.Tables() ([]Table, error)` | Experimental — ruled-lattice table reconstruction. Accuracy on the documented scope (fully-ruled lattices + structurally-recovered half-open edge columns) is locked by corpus regression gates and deterministic, but the reconstruction **output may still change** as quality is stabilized across the real-world table distribution: borderless and partially-ruled/banded tables are out of scope today (best-effort, not a contract — they may yield no table or a merged grid). Graduates to Stable when the stable-extraction-quality bar is met. A superscript extracts as a spaced token (`cm²`→`cm 2`) — a font-extraction limit, not a lattice error. |
+| `Table` | Experimental — the grid type returned by `Page.Tables()`. `Cells [][]string` is the stable core; fields (for example cell bounding boxes) may be added additively. |
 | `Page.DebugJSON() ([]byte, error)` | Experimental — PyMuPDF-dict-shaped JSON of the page's text geometry + page-scoped warnings. Wire format may change. |
 | `Reader.DebugJSON() ([]byte, error)` | Experimental — document envelope (pages + fonts + links + warnings). Wire format may change. |
 | `Page.Blocks() ([]Block, error)` | Experimental — column-major visual blocks (gap-grouped lines, the RAG chunking unit). The grouping heuristic may change; the Go signature and field set are additive-stable. |
