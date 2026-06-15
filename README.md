@@ -79,6 +79,7 @@ func main() {
 | Styled text runs (font, size, position) | `Reader.GetStyledTexts` / `Page.Texts` |
 | Words / visual lines with bounding boxes | `Page.Words` / `Page.Lines` |
 | Column-major visual blocks (RAG chunking unit, experimental) | `Page.Blocks` |
+| Ruled (lattice) table reconstruction | `Page.Tables` |
 | Rows / columns of text (legacy, deprecated) | `Page.Lines` / `Page.Words` (`Page.GetTextByRow` / `Page.GetTextByColumn` are deprecated) |
 | Form field values (AcroForms, read-only) | `Reader.Fields` |
 | Embedded file attachments | `Reader.Attachments` |
@@ -105,7 +106,7 @@ several times faster than pure-Python `pypdf` / `pdfminer.six` / `pdfplumber`, a
 ahead of the C-backed `pdftotext` and PyMuPDF on this workload — while staying pure
 Go. These are **speed** numbers only, covering text and word extraction: GoPDF does
 not render pages or decode images, its ruled-table reconstruction (`Page.Tables()`) is
-experimental, and its layout/word-grouping quality is a work in progress and
+not part of these numbers, and its layout/word-grouping quality is a work in progress and
 not benchmarked. See [BENCHMARKS.md](BENCHMARKS.md) for methodology, full tables,
 and caveats.
 
@@ -145,7 +146,7 @@ GoPDF has closed extraction gaps still open upstream:
 - Text grouped by row, plus word-level extraction with bounding boxes via `Page.Words()`.
 - `Page.Blocks()` (experimental) groups lines into **column-major** visual blocks — read down each detected column in full — as the chunking unit for RAG pipelines. See [EXAMPLES.md](EXAMPLES.md).
 - `Page.Content()` exposes the page's vector geometry — drawn rectangles (`Rect`) and stroked ruling lines / cell borders (`Stroke`, experimental) — in display space, the raw signal for table-grid detection without rendering. See [EXAMPLES.md](EXAMPLES.md).
-- `Page.Tables()` (experimental) reconstructs **ruled (lattice) tables** — those drawn with visible cell borders — into a grid of cell strings (`Table.Cells[row][col]`), reading the ruling lines from `Content.Stroke` and thin `Content.Rect`. Borderless and partially-ruled tables are not detected. See [EXAMPLES.md](EXAMPLES.md).
+- `Page.Tables()` reconstructs **ruled (lattice) tables** — those drawn with visible cell borders — into a grid of cell strings (`Table.Cells[row][col]`), reading the ruling lines from `Content.Stroke` and thin `Content.Rect`. Stable as of v0.9.0, with reconstruction accuracy locked by corpus regression gates on the documented scope (fully-ruled lattices plus structurally-recovered half-open edge columns). Borderless and partially-ruled/banded tables are out of scope — best-effort, not a contract: they yield no table or an incomplete grid. See [EXAMPLES.md](EXAMPLES.md).
 - Nested **Form XObject** text is included and reported in page-space coordinates.
 - TJ kerning arrays are interpreted as word gaps when spacing indicates a word boundary.
 - Broad script coverage: Latin, **Cyrillic**, and CJK predefined CMaps.
@@ -222,7 +223,7 @@ screen-space conversion recipe are documented there too.
 - Image content is not decoded; `Page.Images()` reports draw metadata only.
 - AcroForms extraction is read-only field values — no form filling or appearance rendering.
 - `Reader.Attachments()` walks the document-level name tree only; page-level `/FileAttachment` annotations are not scanned.
-- Table reconstruction is limited to **ruled (lattice) tables** via `Page.Tables()` (experimental) — tables with visible cell borders. Borderless and partially-ruled tables are not reconstructed; an earlier text-only spatial heuristic for them was evaluated against a real-document corpus and deferred for not meeting the cell-accuracy bar.
+- Table reconstruction (`Page.Tables()`, Stable as of v0.9.0) is limited to **ruled (lattice) tables** — interior cells closed by visible rules, plus structurally-recovered half-open edge columns. Borderless and partially-ruled/banded tables are out of documented scope (best-effort, not a contract — they may yield no table or an incomplete/merged grid); an earlier text-only spatial heuristic for borderless tables was evaluated against a real-document corpus and deferred for not meeting the cell-accuracy bar.
 - Layout/word-position extraction (`Page.Words`, `Page.Lines`, `GetStyledTexts`) is available and fast, but its grouping **quality is a work in progress**: it is tuned for speed and determinism and has not been benchmarked for layout fidelity against dedicated layout tools (on CJK it currently segments more aggressively). Validate it on your own documents.
 
 ## Accuracy & test corpus

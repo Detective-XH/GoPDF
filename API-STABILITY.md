@@ -48,6 +48,8 @@ Page-level extraction primitives:
 - `Page.Fonts() []string`, `Page.Font(name string) Font`,
   `Page.Resources() Value`, `Page.MediaBox()`, `Page.CropBox()`, `Page.Rotate() int`
 - `Page.Content() Content`
+- `Page.Tables() ([]Table, error)` — ruled-lattice table reconstruction; graduated from
+  Experimental in v0.9.0 (see the documented-scope note below)
 
 Package-level text helpers:
 
@@ -57,8 +59,29 @@ Package-level text helpers:
 
 Types backing the above (`Text`, `Word`, `Line`, `Content`, `FontInfo`,
 `LinkRef`, `FormField`, `Attachment`, `Annotation`, `Outline`, `Info`, `Point`,
-`Rect`, `Value`, `Font`, `TextEncoding`) — existing fields and methods are
+`Rect`, `Value`, `Font`, `TextEncoding`, `Table`) — existing fields and methods are
 frozen; fields may be added.
+
+### Ruled-table scope (`Page.Tables`)
+
+`Page.Tables()` is Stable in its Go signature and in the `Table` shape (`Cells [][]string`;
+fields may be added additively). Its **documented scope** is *ruled lattices* — interior
+cells closed by a visible rule between adjacent rows and adjacent columns, **plus** half-open
+edge columns recovered from structural evidence (a row-label or last-data column whose outer
+vertical rule is absent but whose row rules overhang the inner vertical; the IRS SOI gate
+exercises exactly this open-column recovery). On that scope the reconstruction is locked
+against regression by the corpus accuracy gates, so the determinism promise applies (same
+bytes → identical grid, every platform).
+
+Borderless, partially-ruled, and banded tables (ruled only at group boundaries, with rows
+separated by shading rather than rules — common in statistical tables) are **out of
+documented scope**: they may yield no table, or a structurally incomplete or merged grid.
+That output is best-effort, not a contract — treat it as advisory. Detection coverage may
+*expand* additively in a future minor (finding more tables never changes the frozen
+signature or shape), but the documented-scope accuracy floor never regresses. One known
+text-layer caveat applies on every page: a superscript extracts as a spaced token (`cm²` →
+`cm 2`); this is a font-extraction limit, not a lattice error, and never affects cell
+content placement.
 
 ### Drop-in lineage compatibility
 
