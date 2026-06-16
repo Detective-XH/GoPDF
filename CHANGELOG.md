@@ -7,6 +7,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Fixed, pending release
 
+### Added
+
+- `Page.Tables()` now recovers **rect-bordered** tables — those with full column rules and an
+  outer frame but no horizontal rules between data rows, which previously collapsed every column
+  into a single cell and dropped the open row-label column. The detector infers row boundaries
+  from the data text and recovers the open label column, so a frame-ruled, row-unruled grid
+  extracts with its rows and label column intact. False positives on framed non-table regions
+  (callout boxes, two-column prose, a ruled table's wrapped last row) are guarded against, and
+  existing ruled-table output is unchanged. This **remains Experimental** — it is validated on
+  table geometry, not yet a quality contract for rect-bordered tables generally: a region whose
+  geometry is a single tall multi-line cell (one wrapped row rather than many rows) is
+  indistinguishable from a data grid and will be split into rows.
+
 ### Changed
 
 - `Page.Tables()` gains blocking accuracy regression gates on the public surface and a
