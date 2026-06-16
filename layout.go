@@ -544,20 +544,21 @@ func (p Page) Lines() ([]Line, error) {
 // already-interpreted Content. It may panic on a pathological segment; callers
 // needing the Lines() degrade-to-empty contract use linesFromContentRecovered.
 func linesFromContent(c Content) []Line {
-	lines, _ := linesAndGutters(c)
+	lines, _, _ := linesAndGutters(c)
 	return lines
 }
 
 // linesAndGutters assembles lines (reading order, column-split) from an
-// already-interpreted Content and also returns the detected column gutters, so a
-// caller can re-derive each line's column (columnOf) without recomputing the band
-// and gutter geometry. It backs both linesFromContent and blocksFromContent. It may
-// panic on a pathological segment; callers wrap it (linesFromContentRecovered /
-// blocksFromContentRecovered) for the degrade-to-empty contract.
-func linesAndGutters(c Content) ([]Line, []float64) {
+// already-interpreted Content and also returns the detected column gutters and
+// the colGap width, so callers can re-derive each line's column (columnOf) with
+// the same snapTol used during splitting. It backs both linesFromContent and
+// blocksFromContent. It may panic on a pathological segment; callers wrap it
+// (linesFromContentRecovered / blocksFromContentRecovered) for the
+// degrade-to-empty contract.
+func linesAndGutters(c Content) ([]Line, []float64, float64) {
 	texts := c.Text
 	if len(texts) == 0 {
-		return nil, nil
+		return nil, nil, 0
 	}
 	var rows [][]Word
 	for _, band := range bandsByY(texts) {
@@ -572,7 +573,7 @@ func linesAndGutters(c Content) ([]Line, []float64) {
 			lines = append(lines, lineFromWords(seg))
 		}
 	}
-	return lines, gutters
+	return lines, gutters, colGap
 }
 
 // linesFromContentRecovered wraps linesFromContent in the Lines() panic

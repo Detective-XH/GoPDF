@@ -107,6 +107,28 @@ func TestSplitWordsByGutters(t *testing.T) {
 			t.Fatalf("two-column row must split into two single-word segments, got %v", segs)
 		}
 	})
+	t.Run("short_left_word_near_gutter_still_splits", func(t *testing.T) {
+		// A short LEFT-column word ending BEFORE the gutter (x=195, right=199, gutter=200)
+		// followed by a wide gap (>colGap) to the first right-column word. The left word's
+		// left edge is within snapTol of the gutter, but its body stops before it, so it
+		// must NOT be snapped right — the real crossing must still be detected and split.
+		// Regression for the word-level false-non-split: columnOfLine's occupancy proof
+		// (right>gutter) keeps the short left word in the left column so prev!=w fires.
+		ws := band([2]float64{195, 4}, [2]float64{220, 30})
+		if segs := splitWordsByGutters(ws, []float64{200}, 5); len(segs) != 2 {
+			t.Fatalf("short left-col word near gutter must still split, got %d: %v", len(segs), segs)
+		}
+	})
+	t.Run("barely_overhanging_left_word_still_splits", func(t *testing.T) {
+		// A left-column word that BARELY overhangs the gutter (x=195, right=201, gutter=200)
+		// — majority of its width is still LEFT, so columnOfLine keeps it in the left column
+		// and the wide gap to the right-column word still splits the row. Guards the weaker
+		// right>gutter proof that a 1pt overhang would have defeated.
+		ws := band([2]float64{195, 6}, [2]float64{220, 30})
+		if segs := splitWordsByGutters(ws, []float64{200}, 5); len(segs) != 2 {
+			t.Fatalf("barely-overhanging left word must still split, got %d: %v", len(segs), segs)
+		}
+	})
 }
 
 func TestSplitWordsByGuttersFullWidth(t *testing.T) {
@@ -121,6 +143,34 @@ func TestSplitWordsByGuttersFullWidth(t *testing.T) {
 	segs := splitWordsByGutters(ws, []float64{200}, 10)
 	if len(segs) != 1 {
 		t.Fatalf("continuous full-width row must stay one segment, got %d: %v", len(segs), segs)
+	}
+}
+
+// TestColumnOfLineSnap locks the majority-occupancy bucketing rule: a near-gutter left
+// edge snaps into the opened column ONLY when the MAJORITY of the span lies right of the
+// gutter (midpoint right of it). A short indented/right-aligned LEFT-column span (stops
+// before the gutter) and a span that merely BARELY overhangs the gutter both keep their
+// midpoint left of it and must NOT snap — the two codex-flagged false-assignment cases.
+func TestColumnOfLineSnap(t *testing.T) {
+	gutters := []float64{200}
+	cases := []struct {
+		name     string
+		x, right float64
+		snap     float64
+		want     int
+	}{
+		{"col-start span majority right snaps", 195, 260, 13.33, 1}, // midpoint 227.5 > 200
+		{"short indented left-col span stays", 195, 199, 13.33, 0},  // right edge before gutter
+		{"right-aligned short left-col span stays", 190, 198, 13.33, 0},
+		{"barely-overhanging left span stays", 195, 201, 13.33, 0}, // midpoint 198 < 200: majority LEFT
+		{"span solidly in right column", 210, 260, 13.33, 1},
+		{"span solidly in left column", 50, 150, 13.33, 0},
+		{"snapTol=0 reproduces strict left-edge", 195, 260, 0, 0}, // no snap: 195 < 200 -> col 0
+	}
+	for _, c := range cases {
+		if got := columnOfLine(c.x, c.right, gutters, c.snap); got != c.want {
+			t.Errorf("%s: columnOfLine(%v, %v, _, %v) = %d, want %d", c.name, c.x, c.right, c.snap, got, c.want)
+		}
 	}
 }
 
