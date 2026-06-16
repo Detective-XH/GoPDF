@@ -139,7 +139,7 @@ func (f Font) getEncoder() (TextEncoding, encSource) {
 			// so a (common, Adobe) 2-byte ToUnicode codespacerange cannot make the
 			// width-driven cmap.Decode mis-chunk the 1-byte codes into U+FFFD.
 			if isSimpleFontSubtype(f.V.Key("Subtype").Name()) {
-				return &simpleCmapEncoder{m}, encSourceToUnicode
+				return &simpleCmapEncoder{m: m, fallback: f.encodingByteFallback()}, encSourceToUnicode
 			}
 			return m, encSourceToUnicode
 		}
@@ -168,6 +168,93 @@ func (f Font) getEncoder() (TextEncoding, encSource) {
 		f.V.warn(WarningUnsupportedEncoding, fontRef(f)+": unexpected /Encoding kind")
 		return &byteEncoder{&pdfDocEncoding}, encSourceUnsupported
 	}
+}
+
+// encodingByteFallback returns the font's /Encoding decoded as a byte-table encoder, or nil
+// when there is no CONFIDENT byte mapping. It is the per-byte fallback simpleCmapEncoder uses
+// for ToUnicode entries poisoned to U+FFFD, so it must never fabricate. The governing
+// invariant, defined by getEncoder's OWN encSource confidence: yield a character ONLY where
+// getEncoder's /Encoding branch is confident and warning-free — an explicit /Differences entry,
+// a known base-encoding name (WinAnsi/MacRoman/Standard), or an absent /Encoding (PDFDocEncoding,
+// GoPDF's documented simple-font default, encSourceSimple). Where getEncoder would itself tag
+// encSourceUnsupported/encSourceMissingToUnicode (an unknown / Identity / CJK name, whether at
+// the top level or as a dict /BaseEncoding), decline → the poisoned code stays U+FFFD.
+func (f Font) encodingByteFallback() TextEncoding {
+	enc := f.V.Key("Encoding")
+	switch enc.Kind() {
+	case Name:
+		if e := trustedBaseByteEncoding(enc.Name()); e != nil {
+			return e
+		}
+		return nil // unknown / Identity / CJK name: no confident byte fallback
+	case Dict:
+		return dictByteFallback(enc)
+	case Null:
+		// Absent /Encoding: PDFDocEncoding is GoPDF's simple-font default (getEncoder returns
+		// the same here, encSourceSimple). This is NOT fabrication — a font with no /Encoding
+		// and no ToUnicode already decodes via pdfDoc; declining would make a poisoned-ToUnicode
+		// font decode strictly worse than the identical font without ToUnicode (incoherent: a
+		// poisoned entry should at worst be ignored, falling back to what GoPDF would use anyway).
+		return &byteEncoder{&pdfDocEncoding}
+	default:
+		return nil
+	}
+}
+
+// trustedBaseByteEncoding returns the byte-table encoder for a base-encoding NAME a simple
+// font may genuinely declare (WinAnsi/MacRoman/Standard), or nil for any other name (unknown,
+// Identity-*, or a CJK predefined CMap). It mirrors baseEncodingTable's recognized names but,
+// unlike it (and unlike encoderForCMapName), does NOT default an unknown name to PDFDocEncoding:
+// nil means "no confident byte mapping", so a ToUnicode code poisoned to U+FFFD stays U+FFFD
+// rather than being fabricated from a guessed encoding. Returning a concrete *byteEncoder (never
+// a typed-nil) keeps encodingByteFallback's nil check honest.
+func trustedBaseByteEncoding(name string) *byteEncoder {
+	switch name {
+	case "WinAnsiEncoding":
+		return &byteEncoder{&winAnsiEncoding}
+	case "MacRomanEncoding":
+		return &byteEncoder{&macRomanEncoding}
+	case "StandardEncoding":
+		return &byteEncoder{&standardEncoding}
+	default:
+		return nil
+	}
+}
+
+// dictByteFallback builds the poison-fallback byte encoder for an /Encoding dict. Unlike
+// newDictEncoder it never fabricates from an unknown explicit /BaseEncoding: /Differences
+// entries (authoritative AGL glyph-name → Unicode mappings) always decode, but the base table
+// is confident only for an absent base (PDFDocEncoding default) or a trusted base name; an
+// unknown / Identity / CJK base name contributes an all-U+FFFD base, so a poisoned code that is
+// NOT in /Differences stays U+FFFD instead of being guessed. (The symmetric guard to the Name
+// branch — closes the dict-wrapper fabrication path.)
+func dictByteFallback(enc Value) TextEncoding {
+	table := fallbackBaseTable(enc.Key("BaseEncoding"))
+	applyDifferences(&table, enc.Key("Differences"))
+	return &dictEncoder{table: table}
+}
+
+// fallbackBaseTable returns the base 256-rune table for a poison-fallback dict decode:
+// PDFDocEncoding when /BaseEncoding is absent (GoPDF's simple-font default), the trusted table
+// for a known base name (WinAnsi/MacRoman/Standard), or an all-U+FFFD table for an explicit but
+// unknown / Identity / CJK base name — so an unknown base contributes no fabricated character.
+func fallbackBaseTable(base Value) [256]rune {
+	switch base.Kind() {
+	case Null:
+		return pdfDocEncoding // absent base: GoPDF's documented simple-font default
+	case Name:
+		if e := trustedBaseByteEncoding(base.Name()); e != nil {
+			return *e.table
+		}
+	}
+	// Unknown base name, or a present-but-malformed (non-Name, non-Null) base — neither is a
+	// confident mapping (a malformed base is NOT absent): an all-U+FFFD base, so a poisoned code
+	// not covered by an explicit /Differences entry stays U+FFFD rather than guessing pdfDoc.
+	var t [256]rune
+	for i := range t {
+		t[i] = noRune
+	}
+	return t
 }
 
 // verticalWritingCMap reports whether a predefined PDF CMap/Encoding name selects
