@@ -1,0 +1,62 @@
+# cellgrid v1
+# source=fbi-nics-by-state | pdf_page=1 | dims=56x14 | header_rows=1
+# values=as-printed | snapshot=2026-06-16 | url=https://www.fbi.gov/file-repository/cjis/nics_firearm_checks_-_month_year_by_state.pdf
+# license=US-Gov public domain (FBI NICS statistics)
+# provenance=The FBI overwrites this URL monthly; the committed copy is a frozen snapshot of the 2026-06-16 download (Year 2026, January 1 - May 31, 2026).
+# model=fully-ruled lattice, 14 cols (State/Territory + 12 months + Grand Total). 55 jurisdiction rows (Alabama-Wyoming + DC + Guam + Mariana Islands + Puerto Rico + Virgin Islands). Months June-December are empty (no data yet for this snapshot). GoPDF extracts 57x14 (title merged cell appears as row 0 artifact) vs golden 56x14 (column-header row + 55 data rows). Char-spaced extraction expected (looseCell match; verbatim% low by design).
+State / Territory	January	February	March	April	May	June	July	August	September	October	November	December	Grand Total
+Alabama	40,698	41,886	44,148	36,683	34,764								198,179
+Alaska	4,878	5,005	6,336	6,736	6,074								29,029
+Arizona	40,975	40,927	44,498	38,997	34,925								200,322
+Arkansas	17,147	20,995	21,682	17,980	16,415								94,219
+California	117,993	106,717	136,781	118,578	111,290								591,359
+Colorado	33,193	33,852	40,708	36,786	34,387								178,926
+Connecticut	18,885	16,943	22,055	22,965	25,557								106,405
+Delaware	3,219	3,471	3,995	3,651	3,503								17,839
+District of Columbia	1,248	1,184	1,371	1,337	1,127								6,267
+Florida	104,471	100,779	108,196	96,109	87,898								497,453
+Georgia	52,832	55,691	58,921	47,276	43,605								258,325
+Guam	282	302	359	239	319								1,501
+Hawaii	1,399	1,347	1,786	2,387	2,365								9,284
+Idaho	20,748	20,415	26,584	22,288	20,879								110,914
+Illinois	222,452	195,195	240,594	209,854	208,636								1,076,731
+Indiana	55,930	58,359	64,792	56,118	53,609								288,808
+Iowa	22,792	18,528	22,314	16,744	12,065								92,443
+Kansas	15,053	17,184	17,703	14,030	12,287								76,257
+Kentucky	291,317	31,763	31,106	27,738	24,294								406,218
+Louisiana	20,942	21,930	23,505	19,431	18,467								104,275
+Maine	7,654	7,697	8,873	7,746	5,823								37,793
+Mariana Islands	15	11	14	17	18								75
+Maryland	28,264	29,812	34,445	31,988	30,510								155,019
+Massachusetts	21,351	21,911	28,698	23,826	20,974								116,760
+Michigan	55,431	55,581	67,758	55,140	46,784								280,694
+Minnesota	64,708	69,181	87,398	78,854	64,288								364,429
+Mississippi	19,061	22,372	22,719	17,820	16,763								98,735
+Missouri	40,056	43,244	47,060	39,118	33,804								203,282
+Montana	9,618	9,951	12,092	11,086	10,407								53,154
+Nebraska	7,058	6,881	8,178	6,744	5,663								34,524
+Nevada	12,979	13,068	14,914	12,804	11,797								65,562
+New Hampshire	10,572	11,025	12,426	12,104	10,561								56,688
+New Jersey	10,895	10,178	13,258	11,895	10,013								56,239
+New Mexico	10,582	13,510	11,978	10,200	9,329								55,599
+New York	27,074	25,424	32,167	30,091	26,183								140,939
+North Carolina	60,068	64,006	70,087	58,571	55,211								307,943
+North Dakota	12,114	5,388	6,647	13,696	4,525								42,370
+Ohio	52,100	56,517	63,605	51,234	46,432								269,888
+Oklahoma	28,846	31,596	32,430	29,039	26,767								148,678
+Oregon	34,100	36,528	38,914	32,123	28,919								170,584
+Pennsylvania	91,493	94,405	113,864	96,065	85,277								481,104
+Puerto Rico	8,224	9,295	10,519	10,421	10,085								48,544
+Rhode Island	3,275	2,915	4,013	3,767	4,476								18,446
+South Carolina	26,722	34,499	35,717	32,204	31,125								160,267
+South Dakota	6,129	6,198	6,759	6,034	4,943								30,063
+Tennessee	61,119	64,587	66,628	55,967	43,297								291,598
+Texas	139,446	149,338	160,827	138,075	133,556								721,242
+Utah	70,530	66,593	75,176	73,001	73,526								358,826
+Vermont	2,916	3,014	3,544	3,098	2,466								15,038
+Virgin Islands	255	271	338	331	293								1,488
+Virginia	54,070	65,864	79,846	72,011	75,376								347,167
+Washington	38,438	39,518	41,290	36,217	32,848								188,311
+West Virginia	13,751	16,313	17,515	14,474	12,812								74,865
+Wisconsin	51,714	49,257	58,808	55,917	47,955								263,651
+Wyoming	5,103	5,551	6,155	5,822	4,958								27,589

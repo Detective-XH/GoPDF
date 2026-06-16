@@ -208,10 +208,22 @@ func parseCellGrid(data []byte) (cellGrid, error) {
 // grid was authored against. rows/cols/headerRows are the declared dims —
 // TestCorpusCellGridFixtures asserts the parsed values match these (locking
 // the file against silent drift).
+//
+// class is the table-type taxonomy class ("fully-ruled", "rect-bordered",
+// "group-ruled+banded", "borderless"). heldOut marks a fixture that is NOT a
+// threshold-tuning source: the held-out set is the per-class quality corpus
+// scored by TestPublicTablesQualityCorpus. The 3 tuned fixtures
+// (epa-egrid2022-t1, irs-soi-inpre-t1-2022, nist-hb44-appc-2026) and the two
+// integrity-only fixtures (irs-db, eia-aer) carry heldOut=false; deriving
+// qualityFixtures by filtering heldOut makes orphan held-out entries
+// impossible by construction.
 type cellgridFixture struct {
 	path                   string // .cellgrid.tsv path relative to corpusRoot
 	sourcePDF              string // corpusManifest Path the grid was authored against
 	rows, cols, headerRows int
+	class                  string // table-type taxonomy class
+	heldOut                bool   // true = held-out quality fixture (not a tuning source)
+	anchorCol              int    // 0-based row-label column used to align golden rows to the grid (default 0)
 }
 
 // cellgridFixtures is the single source of truth for all .cellgrid.tsv
@@ -226,21 +238,32 @@ var cellgridFixtures = []cellgridFixture{
 		path:      "tables/irs-db-t4-3-2025.cellgrid.tsv",
 		sourcePDF: "tables/irs-db-t4-3-2025.pdf",
 		rows:      10, cols: 4, headerRows: 1,
+		class: "borderless", heldOut: false, // integrity-only (no accuracy consumer)
 	},
 	{
 		path:      "tables/eia-aer-t3-1-2011.cellgrid.tsv",
 		sourcePDF: "tables/eia-aer-t3-1-2011.pdf",
 		rows:      45, cols: 10, headerRows: 2,
+		class: "group-ruled+banded", heldOut: false, // integrity-only (banded; no accuracy consumer yet)
 	},
 	{
 		path:      "tables/epa-egrid2022-t1.cellgrid.tsv",
 		sourcePDF: "tables/epa-egrid2022-t1.pdf",
 		rows:      31, cols: 17, headerRows: 3,
+		class: "fully-ruled", heldOut: false, // tuning source — gated by TestPublicAccuracyEPA
 	},
 	{
 		path:      "tables/irs-soi-inpre-t1-2022.cellgrid.tsv",
 		sourcePDF: "tables/irs-soi-inpre-t1-2022.pdf",
 		rows:      51, cols: 6, headerRows: 3,
+		class: "rect-bordered", heldOut: false, // tuning source — gated by TestPublicAccuracyIRS
+	},
+	{
+		// Held-out quality fixture #1 (fully-ruled, threshold-naïve).
+		path:      "tables/fbi-nics-by-state-2026.cellgrid.tsv",
+		sourcePDF: "tables/fbi-nics-by-state-2026.pdf",
+		rows:      56, cols: 14, headerRows: 1,
+		class: "fully-ruled", heldOut: true, anchorCol: 0, // col0 = State/Territory (unique)
 	},
 }
 
