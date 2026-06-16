@@ -1,0 +1,15 @@
+# cellgrid v1
+# source=irs-p17zhs-rate-sched-2025 | pdf_page=1 | dims=8x4 | header_rows=1
+# values=as-printed | snapshot=2026-06-16 | url=https://www.irs.gov/pub/irs-pdf/p17zhs.pdf
+# license=US-Gov public domain (17 USC 105)
+# provenance=IRS Publication 17 (Simplified Chinese), 2025, "2025 税率表" Schedule X (单身/single), PDF page 103 of the full p17zhs.pdf; committed copy is a single-page qpdf excerpt. Page also carries Schedules Y-1, Y-2, Z (not transcribed).
+# companion=IRS 2025 tax rate schedules (Rev. Proc. 2024-40); bracket thresholds cross-checked against https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2025; formula amounts independently verified by cumulative-bracket arithmetic.
+# model=fully-ruled lattice (grid complete): every row AND column boundary is ruled (rect-drawn). Content cell-dump of the rendered page shows interior vertical strokes at x=176/306/436 running through every row band, plus per-cell filled rectangles spanning x=42..570 — so all four cells of each row are closed on all sides (an initial visual read mistook the thin interior verticals for whitespace; the cell-dump corrected it). GoPDF detects 4 separate 7x4 schedules (X/Y-1/Y-2/Z); the harness largest-table selection picks the topmost (Schedule X, single filers). CID-font/CJK diagnostic: the col0/col1 bracket columns extract clean, but the tax-formula columns (col2 税额为 / col3 超过以下金额的部分) mis-split — the flat amount and the rate-plus-base land in adjacent detector columns — a partial-extraction CJK measurement. Class confirmed by rendered rule coverage, not detector self-attestation; it is gate-independent (the fully-ruled gate rests on NICS + HHS ASPE).
+如果您的应纳税收入：超过 —	但不超过 —	税额为：	超过以下金额的部分 —
+$0	$11,925	-------10%	$0
+11,925	48,475	$1,192.50 + 12%	11,925
+48,475	103,350	5,578.50 + 22%	48,475
+103,350	197,300	17,651.00 + 24%	103,350
+197,300	250,525	40,199.00 + 32%	197,300
+250,525	626,350	57,231.00 + 35%	250,525
+626,350	-------	188,769.75 + 37%	626,350

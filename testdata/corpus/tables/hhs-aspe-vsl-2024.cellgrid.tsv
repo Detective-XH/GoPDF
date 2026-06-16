@@ -1,0 +1,19 @@
+# cellgrid v1
+# source=hhs-aspe-vsl-2024 | pdf_page=1 | dims=12x4 | header_rows=1
+# values=as-printed | snapshot=2026-06-16 | url=https://aspe.hhs.gov/sites/default/files/documents/cd2a1348ea0777b1aa918089e4965b8c/standard-ria-values.pdf
+# license=US-Gov public domain (17 USC 105)
+# provenance=HHS ASPE "Standard Values for Regulatory Analysis, 2024" (January 2024 Data Point), Table 1 (VSL Estimates by Year, constant 2023 dollars), PDF page 2; committed copy is a single-page qpdf excerpt. Landing page https://aspe.hhs.gov/reports/standard-ria-values
+# companion=ASPE Data Point body text confirms the 2024 row ($6.1M low, $13.1M central, $19.9M high); cross-checked against the rendered page image and pdftotext (poppler, GoPDF-independent)
+# model=fully-ruled lattice (grid complete): every row AND column boundary ruled (visible in the rendered page). GoPDF detects the page as two tables — a 1x4 title fragment and the 12x4 data table — and the harness largest-table selection picks the 12x4 data table. col0=Year unique numeric anchor; data extracts cleanly (content and verbatim both high).
+Year	Low Estimate	Central Estimate	High Estimate
+2023	$6.1 million	$13.0 million	$19.7 million
+2024	$6.1 million	$13.1 million	$19.9 million
+2025	$6.2 million	$13.2 million	$20.1 million
+2026	$6.2 million	$13.4 million	$20.3 million
+2027	$6.3 million	$13.5 million	$20.6 million
+2028	$6.4 million	$13.6 million	$20.8 million
+2029	$6.4 million	$13.8 million	$21.0 million
+2030	$6.5 million	$13.9 million	$21.2 million
+2031	$6.6 million	$14.0 million	$21.4 million
+2032	$6.6 million	$14.2 million	$21.6 million
+2033	$6.7 million	$14.3 million	$21.8 million

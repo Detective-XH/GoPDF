@@ -32,15 +32,36 @@ package pdf
 
 import (
 	"os"
-	"slices"
 	"strings"
 	"testing"
 )
 
+// classGate is an in-scope taxonomy class plus its coverage-gate strength.
+//
+//   - hard:  >=2 held-out fixtures is a BUILD GATE (t.Errorf). The class genuinely
+//     extracts, so under-coverage is a regression, not a TODO.
+//   - !hard (HELD): the class is registered + measured but its capability gap is not yet
+//     closed. >=2 fixtures that score ~0% would otherwise pass green (a fake close), so a
+//     loud held diagnostic fires instead until the fix lands. Accuracy is never gated.
+type classGate struct {
+	name string
+	hard bool
+}
+
 // inScopeQualityClasses are the taxonomy classes currently in scope for the held-out
-// quality corpus. group-ruled+banded, single-axis-ruled, and borderless are not yet
-// in scope (no accuracy consumer / measured FP-unsafe).
-var inScopeQualityClasses = []string{"fully-ruled", "rect-bordered"}
+// quality corpus, with their coverage-gate strength. group-ruled+banded,
+// single-axis-ruled, and borderless are not yet in scope (no accuracy consumer /
+// measured FP-unsafe).
+var inScopeQualityClasses = []classGate{
+	{name: "fully-ruled", hard: true},    // FBI NICS + HHS ASPE both extract -> count<2 is a build error
+	{name: "rect-bordered", hard: false}, // ERP B-1/B-2 registered + measured ~0% to PROVE the gap; HELD
+}
+
+// heldSubstThreshold is the substantive-content %% below which a HELD class is treated as
+// still-broken so its held diagnostic fires. ERP rect-bordered measures ~0%; once the
+// detector fix lifts it well above this the held branch stops firing and the class can be
+// promoted to hard. It is a diagnostic trigger, never an accuracy gate.
+const heldSubstThreshold = 50.0
 
 // tunedFixturePaths are the 3 threshold-tuning sources. They must NEVER appear in the
 // held-out quality set — they are gated exclusively by TestPublicAccuracyEPA/IRS/NIST.
@@ -77,6 +98,10 @@ type perClassQuality struct {
 	substContentHit, substVerbatimHit, substTotal int
 	anchorCount, emptyCount, ceilingCount         int
 	fixtureCount                                  int
+	// gateCount is the number of NON-bonus ("gate-bearing") fixtures in this class. The
+	// coverage gate counts these, not fixtureCount, so a bonus fixture (e.g. a CJK
+	// diagnostic) cannot substitute for a genuinely-extracting gate-bearing fixture.
+	gateCount int
 }
 
 // anchorRow finds the grid row whose anchorCol cell looseCell-matches want. It returns
@@ -288,31 +313,22 @@ func TestPublicTablesQualityCorpus(t *testing.T) {
 			cr.emptyCount += res.emptyCount
 			cr.ceilingCount += res.ceilingCount
 			cr.fixtureCount++
+			if !f.bonus {
+				cr.gateCount++ // only gate-bearing fixtures count toward coverage
+			}
 		})
 	}
 
 	logQualitySummary(t, byClass)
 }
 
-// logQualitySummary emits the per-class diagnostic table. In-scope classes with fewer
-// than 2 fixtures log a LOUD "HELD-OUT CORPUS INCOMPLETE" line (incremental, not a gate).
+// logQualitySummary emits the per-class diagnostic table and enforces each in-scope
+// class's COVERAGE gate via reportClassGate (accuracy itself is never gated).
 func logQualitySummary(t *testing.T, byClass map[string]*perClassQuality) {
 	t.Helper()
-	t.Logf("=== per-class quality summary (DIAGNOSTIC — accuracy not gated) ===")
-	for _, cls := range inScopeQualityClasses {
-		cr := byClass[cls]
-		if cr == nil || cr.fixtureCount == 0 {
-			t.Logf("class=%-18s *** 0 fixtures — HELD-OUT CORPUS INCOMPLETE for this class (need >=2) ***", cls)
-			continue
-		}
-		t.Logf("class=%-18s fixtures=%d SUBSTANTIVE content=%.1f%% verbatim=%.1f%% (n=%d) | all-cells content=%.1f%% verbatim=%.1f%% (anchor=%d empty=%d ceiling=%d total=%d)",
-			cls, cr.fixtureCount,
-			pct(cr.substContentHit, cr.substTotal), pct(cr.substVerbatimHit, cr.substTotal), cr.substTotal,
-			pct(cr.contentHit, cr.total), pct(cr.verbatimHit, cr.total),
-			cr.anchorCount, cr.emptyCount, cr.ceilingCount, cr.total)
-		if cr.fixtureCount < 2 {
-			t.Logf("class=%-18s *** only %d/2 fixtures — HELD-OUT CORPUS INCOMPLETE for this class ***", cls, cr.fixtureCount)
-		}
+	t.Logf("=== per-class quality summary (accuracy DIAGNOSTIC, not gated; COVERAGE gated per classGate) ===")
+	for _, gate := range inScopeQualityClasses {
+		reportClassGate(t, gate, byClass[gate.name])
 	}
 	for cls, cr := range byClass {
 		if isInScopeQualityClass(cls) {
@@ -324,7 +340,57 @@ func logQualitySummary(t *testing.T, byClass map[string]*perClassQuality) {
 	}
 }
 
+// reportClassGate emits one in-scope class's summary line and enforces its coverage gate.
+//
+//   - hard class (fully-ruled): <2 fixtures is a build error (t.Errorf) — coverage is a
+//     real gate once the class genuinely extracts. NICS + HHS ASPE satisfy it.
+//   - held class (rect-bordered): >=2 fixtures whose SUBSTANTIVE content is below
+//     heldSubstThreshold is the count-met-but-broken case the count<2 log never reaches.
+//     It fires a LOUD held diagnostic naming the gap + the fix plan, so a count=2 broken
+//     class does NOT pass silently as a fake close.
+func reportClassGate(t *testing.T, gate classGate, cr *perClassQuality) {
+	t.Helper()
+	if cr == nil || cr.fixtureCount == 0 {
+		if gate.hard {
+			t.Errorf("class=%-18s *** 0 fixtures — coverage gate FAILED (hard class needs >=2 gate-bearing) ***", gate.name)
+		} else {
+			t.Logf("class=%-18s *** 0 fixtures — HELD-OUT CORPUS INCOMPLETE for this class (need >=2) ***", gate.name)
+		}
+		return
+	}
+	t.Logf("class=%-18s fixtures=%d (gate-bearing=%d) SUBSTANTIVE content=%.1f%% verbatim=%.1f%% (n=%d) | all-cells content=%.1f%% verbatim=%.1f%% (anchor=%d empty=%d ceiling=%d total=%d)",
+		gate.name, cr.fixtureCount, cr.gateCount,
+		pct(cr.substContentHit, cr.substTotal), pct(cr.substVerbatimHit, cr.substTotal), cr.substTotal,
+		pct(cr.contentHit, cr.total), pct(cr.verbatimHit, cr.total),
+		cr.anchorCount, cr.emptyCount, cr.ceilingCount, cr.total)
+	// Coverage gate counts only GATE-BEARING (non-bonus) fixtures: a bonus fixture (e.g. the
+	// IRS P17 CJK diagnostic) is scored above but cannot satisfy the >=2 coverage count, so
+	// the fully-ruled hard gate genuinely rests on NICS + HHS ASPE, not on a partial-extraction
+	// bonus that could mask the loss of a real gate-bearing fixture.
+	if cr.gateCount < 2 {
+		if gate.hard {
+			t.Errorf("class=%-18s *** only %d/2 gate-bearing fixtures — coverage gate FAILED (hard class needs >=2) ***", gate.name, cr.gateCount)
+		} else {
+			t.Logf("class=%-18s *** only %d/2 gate-bearing fixtures — HELD-OUT CORPUS INCOMPLETE for this class ***", gate.name, cr.gateCount)
+		}
+		return
+	}
+	// Held branch (the anti-fake-close edit): a HELD class with >=2 gate-bearing fixtures
+	// whose substantive content is still ~0% would otherwise pass green. Fire a loud held
+	// diagnostic naming the gap + the committed fix plan. This fires precisely in the
+	// count-met-but-broken case the count<2 logs above can never reach.
+	if !gate.hard && cr.substTotal > 0 && pct(cr.substContentHit, cr.substTotal) < heldSubstThreshold {
+		t.Logf("class=%-18s *** %d gate-bearing fixtures registered, substantive content %.1f%% — detector drops the open anchor column and collapses data rows; gate HELD, %s NOT closed until the open-anchor-column + row-inference fix ships (plan RECT-BORDERED-ROW-INFERENCE) ***",
+			gate.name, cr.gateCount, pct(cr.substContentHit, cr.substTotal), gate.name)
+	}
+}
+
 // isInScopeQualityClass reports whether cls is an in-scope taxonomy class.
 func isInScopeQualityClass(cls string) bool {
-	return slices.Contains(inScopeQualityClasses, cls)
+	for _, gate := range inScopeQualityClasses {
+		if gate.name == cls {
+			return true
+		}
+	}
+	return false
 }

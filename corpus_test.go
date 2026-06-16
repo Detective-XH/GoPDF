@@ -141,6 +141,34 @@ var corpusManifest = []corpusEntry{
 		License: "US-Gov PD (17 USC 105)",
 		Purpose: "Held-out FULLY-RULED state-labeled cell-grid ground truth (56x14); held-out table-quality corpus (heldOut, scored by TestPublicTablesQualityCorpus). col0=State/Territory unique anchor; per-row checksum sum(months)=Grand Total. Char-spaced lattice extraction (content-clean via looseCell, verbatim-low by design). FBI overwrites the URL monthly — committed copy is a frozen snapshot",
 	},
+	{
+		Path: "tables/hhs-aspe-vsl-2024.pdf", Golden: "tables/hhs-aspe-vsl-2024.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "HHS ASPE Standard Values for Regulatory Analysis 2024 (Jan 2024 Data Point), Table 1 (VSL Estimates by Year), p.2, single-page qpdf excerpt, aspe.hhs.gov/sites/default/files/documents/cd2a1348ea0777b1aa918089e4965b8c/standard-ria-values.pdf",
+		License: "US-Gov PD (17 USC 105)",
+		Purpose: "Held-out FULLY-RULED cell-grid ground truth (12x4); col0=Year unique numeric anchor. Second gate-bearing fully-ruled quality fixture (with FBI NICS) — the fully-ruled coverage gate flips hard on these two. Page yields a 1x4 title fragment + the 12x4 data table; largest-table selection scores the data table. Clean extraction (content+verbatim high)",
+	},
+	{
+		Path: "tables/irs-p17zhs-rate-sched-2025.pdf", Golden: "tables/irs-p17zhs-rate-sched-2025.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "IRS Publication 17 (Simplified Chinese) 2025, Schedule X (single filers) of the 2025 tax rate schedules, PDF p.103, single-page qpdf excerpt, irs.gov/pub/irs-pdf/p17zhs.pdf",
+		License: "US-Gov PD (17 USC 105)",
+		Purpose: "Held-out FULLY-RULED CJK (Simplified Chinese) cell-grid ground truth (8x4); col0=$-bracket lower-bound unique anchor. CID-font/CJK diagnostic: bracket columns extract clean, the tax-formula columns mis-split. Page carries 4 schedules (X/Y-1/Y-2/Z); largest-table selection scores Schedule X. Class confirmed by rendered rule coverage; gate-independent (gate rests on NICS + ASPE)",
+	},
+	{
+		Path: "tables/erp-2024-tb1-gdp-pctchg.pdf", Golden: "tables/erp-2024-tb1-gdp-pctchg.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "Economic Report of the President 2024, Table B-1 (Percent changes in real GDP, 1973-2023), PDF p.413, single-page qpdf excerpt, govinfo.gov/content/pkg/ERP-2024/pdf/ERP-2024.pdf",
+		License: "US-Gov PD (17 USC 105)",
+		Purpose: "Held-out RECT-bordered cell-grid ground truth (minimal 11x2 subset: Year anchor + GDP percent-change column, annual rows 1973-1982). Detector drops the open Year column and collapses the data rows -> ~0% substantive: the measured rect-bordered capability gap (gate HELD until the open-anchor-column + row-inference fix ships)",
+	},
+	{
+		Path: "tables/erp-2024-tb2-gdp-contrib.pdf", Golden: "tables/erp-2024-tb2-gdp-contrib.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "Economic Report of the President 2024, Table B-2 (Contributions to percent change in real GDP, 1973-2023), PDF p.415, single-page qpdf excerpt, govinfo.gov/content/pkg/ERP-2024/pdf/ERP-2024.pdf",
+		License: "US-Gov PD (17 USC 105)",
+		Purpose: "Held-out RECT-bordered cell-grid ground truth (minimal 11x2 subset: Year anchor + GDP percent-change column, annual rows 1973-1982). Same capability gap as Table B-1 (Year column dropped, rows collapsed -> ~0% substantive); second rect-bordered held-out fixture. Single-publisher (both ERP/CEA) — cross-publisher generalization NOT demonstrated",
+	},
 	// Table-detection false-positive gate fixtures: dense 3-column Federal
 	// Register notices with ZERO tables — a detector must return nothing here.
 	{
