@@ -59,11 +59,11 @@ func (p Page) Blocks() ([]Block, error) {
 // Content. It may panic on a pathological segment; callers needing the Blocks()
 // degrade-to-empty contract use blocksFromContentRecovered.
 func blocksFromContent(c Content) []Block {
-	lines, gutters := linesAndGutters(c)
+	lines, gutters, colGap := linesAndGutters(c)
 	if len(lines) == 0 {
 		return nil
 	}
-	return groupLinesIntoBlocks(lines, gutters)
+	return groupLinesIntoBlocks(lines, gutters, colGap)
 }
 
 // blocksFromContentRecovered wraps blocksFromContent in the Blocks() panic
@@ -80,13 +80,19 @@ func blocksFromContentRecovered(c Content) (blocks []Block, err error) {
 
 // groupLinesIntoBlocks reorders lines into column-major reading order and runs a
 // gap-based grouper down each column. Lines are bucketed by the column their left
-// edge falls in (columnOf over the same gutters Lines() used); columns are emitted
+// edge falls in (columnOfLine over the same gutters Lines() used); columns are emitted
 // left-to-right, and within a column lines are read top-to-bottom (Y descending).
 // With no gutters every line is column 0, so the output is one gap-grouped stack.
-func groupLinesIntoBlocks(lines []Line, gutters []float64) []Block {
+// colGap derives the same snapTol Lines() uses, so a column-start line whose left
+// edge sits fractionally left of the gutter mean buckets into the column it opens
+// (Blocks stays column-major). columnOfLine snaps only when the line's body extends
+// past the gutter, so a short indented/right-aligned LEFT-column line is NOT pulled
+// forward (the snap has no gap>colGap gate here). Pass 0 for colGap = strict boundary.
+func groupLinesIntoBlocks(lines []Line, gutters []float64, colGap float64) []Block {
+	snapTol := (colMergeFactor / colGapFactor) * colGap
 	byCol := map[int][]Line{}
 	for _, l := range lines {
-		c := columnOf(l.X, gutters)
+		c := columnOfLine(l.X, l.X+l.W, gutters, snapTol)
 		byCol[c] = append(byCol[c], l)
 	}
 	cols := make([]int, 0, len(byCol))

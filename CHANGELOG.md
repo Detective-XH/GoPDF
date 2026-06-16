@@ -38,6 +38,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `Page.Lines()` and `Page.Blocks()` now keep columns in the correct reading order on dense
+  multi-column pages. Previously a column whose text began slightly left of the detected
+  inter-column gutter was mis-assigned to the previous column, so `Lines()` merged two columns into
+  one line and `Blocks()` (which reads each column top-to-bottom) interleaved them — scrambling the
+  reading order on layouts such as multi-column government, regulatory, and journal pages. A line or
+  word is now assigned to the column a gutter opens only when the majority of it lies to the right of
+  the gutter, so a genuine column start is placed correctly while a short or indented line in the
+  left column stays put. There is no API change; single-column and CJK pages are unaffected. Reading
+  order around a full-width line that spans the gutters (a masthead or heading) remains best-effort.
+
 - `GetPlainText`, `Page.Words()`, and `Page.Tables()` no longer emit U+FFFD replacement
   characters for a simple (Type1/TrueType) font whose embedded `ToUnicode` map marks a glyph as
   U+FFFD — a quirk of some PDF producers (e.g. a decimal point or other punctuation the subsetter

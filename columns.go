@@ -161,11 +161,22 @@ func splitWordsByGutters(ws []Word, gutters []float64, colGap float64) [][]Word 
 	if len(gutters) == 0 {
 		return [][]Word{ws}
 	}
+	// snapTol = colMergeFactor*meanGlyphWidth (the slack columnGutters used to cluster
+	// the gutter), expressed via colGap = colGapFactor*meanGlyphWidth. Both words are
+	// classified by columnOfLine (occupancy-aware): a word is in the opened column only
+	// when its body extends past the gutter, so a column's first word — which can start a
+	// fraction left of the gutter's mean — is snapped right (cross-column test fires),
+	// while a short LEFT-column word that stops before the gutter is NOT snapped (so it
+	// can't hide a real crossing by matching the next column). The gap>colGap gate stays
+	// MANDATORY: it is the full-width-masthead guard (a continuous row never trips it).
+	snapTol := (colMergeFactor / colGapFactor) * colGap
 	out := [][]Word{{ws[0]}}
 	for i := 1; i < len(ws); i++ {
 		prev, w := ws[i-1], ws[i]
 		gap := w.X - (prev.X + prev.W)
-		if gap > colGap && columnOf(prev.X, gutters) != columnOf(w.X, gutters) {
+		prevCol := columnOfLine(prev.X, prev.X+prev.W, gutters, snapTol)
+		wCol := columnOfLine(w.X, w.X+w.W, gutters, snapTol)
+		if gap > colGap && prevCol != wCol {
 			out = append(out, nil)
 		}
 		out[len(out)-1] = append(out[len(out)-1], w)
@@ -173,12 +184,31 @@ func splitWordsByGutters(ws []Word, gutters []float64, colGap float64) [][]Word 
 	return out
 }
 
-// columnOf returns the index of the column that x falls in: 0 left of
-// gutters[0], i+1 in [gutters[i], gutters[i+1]).
-func columnOf(x float64, gutters []float64) int {
+// columnOfLine returns the index of the column a span [x, right] falls in: 0 left of
+// gutters[0], i+1 in [gutters[i], gutters[i+1]). It is the single column classifier for
+// both the word-split path (splitWordsByGutters) and the whole-line bucketing path
+// (groupLinesIntoBlocks). A left edge strictly at/right of a gutter is the next column.
+// A left edge sitting within snapTol just-LEFT of a gutter (the gutter is a
+// support-weighted MEAN, so a column's first word/line can start a fraction left of it)
+// snaps into the opened column ONLY when the MAJORITY of the span's width lies right of
+// the gutter — i.e. its midpoint is right of the gutter. A true column-start fills the
+// opened column, so its midpoint is well right of the mean; a LEFT-column span that
+// merely stops before, or barely overhangs, the gutter keeps its midpoint left of it and
+// is NOT snapped. This majority-occupancy proof means such a span can neither be
+// mis-bucketed forward (Blocks) nor hide a real crossing by matching the next column
+// (splitWordsByGutters). snapTol<=0 reproduces the strict left-edge boundary.
+func columnOfLine(x, right float64, gutters []float64, snapTol float64) int {
 	col := 0
-	for col < len(gutters) && x >= gutters[col]-1e-6 {
-		col++
+	for col < len(gutters) {
+		g := gutters[col]
+		switch {
+		case x >= g-1e-6: // strictly at/right of the gutter: definitely the next column
+			col++
+		case snapTol > 1e-6 && x >= g-snapTol && (x+right)/2 > g: // near-gutter AND majority right
+			col++
+		default:
+			return col
+		}
 	}
 	return col
 }

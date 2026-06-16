@@ -35,7 +35,7 @@ func TestGroupLinesIntoBlocksColumnMajor(t *testing.T) {
 		{S: "L2", X: 10, Y: 86, W: 50, H: 12, FontSize: 12},
 		{S: "R2", X: 250, Y: 86, W: 50, H: 12, FontSize: 12},
 	}
-	blocks := groupLinesIntoBlocks(lines, gutters)
+	blocks := groupLinesIntoBlocks(lines, gutters, 0)
 	if len(blocks) != 2 {
 		t.Fatalf("got %d blocks, want 2 (one per column)", len(blocks))
 	}
