@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // --- geometric types ---
@@ -387,6 +388,7 @@ func latticeTablesOpen(c Content, words []Word, media [4]float64) [][]lCell {
 	tables := latticeTables(c) // closed-only, unchanged
 	for i := range tables {
 		tables[i] = append(tables[i], recoverOpenColumns(tables[i], words, hEdges, media)...)
+		tables[i] = inferRectBorderedRows(tables[i], words, hEdges, media)
 	}
 	return tables
 }
@@ -617,6 +619,271 @@ func clampHi(v, hi float64) float64 {
 		return hi
 	}
 	return v
+}
+
+// --- rect-bordered row inference (columns-ruled, rows-unruled tables) ---
+
+// Rect-bordered tables (e.g. the Economic Report of the President B-1/B-2) have full column
+// verticals and an outer frame but ZERO interior horizontal rules in the data body, so
+// latticeTables collapses every data column into one full-height cell and the data rows are
+// lost. The pass below recovers them by inferring row bands from the data-body word Y-centers.
+//
+// Scope / regression: a normally-ruled table is left unchanged because its cells terminate at
+// interior rules (so they do not reach the bottom as a tall multi-row band), and the guards
+// below — multi-column, body-fraction dominance, interior-rule count, row alignment — reject the
+// rest. This is verified BYTE-IDENTICAL on the corpus: NICS, HHS ASPE, IRS P17, EPA, and IRS-SOI
+// (34 interior data-body rules, 0 collapsed cells) all early-return. It is NOT an absolute
+// guarantee for every conceivable ruled table: one whose GEOMETRY is itself rect-bordered — a
+// short header over a single tall multi-line band that is one wrapped row, not many rows — is
+// indistinguishable from the target and will be row-split. That ambiguity is inherent (the
+// 1-wrapped-row and N-row inputs are byte-identical); see the rect-bordered decision record.
+const (
+	// rectRowSnapTol matches a cell bottom to the table bottom and bounds the interior-rule
+	// exclusion window around the data-body extremes.
+	rectRowSnapTol = 3.0
+	// rectMinRowClusters is the minimum word-Y-rows a full-height cell must hold to count as a
+	// collapsed multi-row data column. It doubles as the multi-row guard: a one- or two-line
+	// framed box (a callout) never reaches it.
+	rectMinRowClusters = 3
+	// rectRowGapTol clusters word Y-centers into row bands. Kept equal to reconstructGrid's row
+	// clustering tol so the synthesized tops re-cluster consistently downstream.
+	rectRowGapTol = 4.0
+	// rectMinBodyFrac is the minimum fraction of the table's vertical extent that the full-height
+	// candidate cells must span. It separates a genuinely collapsed data body (which dominates
+	// the table — ERP B-1 spans ~85%) from a multi-line BOTTOM ROW of an otherwise fully-ruled
+	// table (whose cells also reach the table bottom and can hold >=3 wrapped lines, but span only
+	// a small fraction). Without it, a multi-row ruled table whose last row wraps in >=2 aligned
+	// columns would be wrongly row-split. It does NOT catch a ruled table that is geometrically
+	// rect-bordered (a short header over one tall wrapped row dominating the body) — that input is
+	// indistinguishable from the target; see the rect-bordered decision record.
+	rectMinBodyFrac = 0.6
+)
+
+// inferRectBorderedRows splits each full-height data column (plus a synthesized open anchor
+// column) of a rect-bordered table into rows inferred from word Y-centers. It returns cells
+// unchanged unless the table is genuinely columns-ruled / rows-unruled — the three guards
+// (multi-column, no interior data-body rules, multi-row) make fully-ruled and single-cell
+// framed regions early-return untouched.
+func inferRectBorderedRows(cells []lCell, words []Word, hEdges []lEdge, media [4]float64) []lCell {
+	if len(cells) == 0 {
+		return cells
+	}
+	yTop, tableBot := cellYSpan(cells)
+	full, others := splitFullHeight(cells, words, tableBot)
+	if distinctCols(full) < 2 {
+		return cells // single-cell frame (callout box) or a normally-ruled table — leave it
+	}
+	dataTop := minTop(full)
+	if tableBot-dataTop < rectMinBodyFrac*(tableBot-yTop) {
+		return cells // `full` is a multi-line bottom ROW of a ruled table, not a collapsed body
+	}
+	vMin, vMax := colBounds(full)
+	if interiorHRuleCount(hEdges, dataTop, tableBot, vMin, vMax) > 0 {
+		return cells // interior horizontal rules ⇒ a ruled table; never touch it
+	}
+	bands := rowBands(full, words)
+	if len(bands) < rectMinRowClusters || !rowAligned(full, words, bands) {
+		return cells // too few rows, or independent per-column prose (not a row-aligned grid)
+	}
+	full = append(full, synthOpenColumns(full, words, hEdges, media, dataTop, tableBot)...)
+	out := append([]lCell(nil), others...)
+	for _, c := range full {
+		out = append(out, splitCellAtBands(c, bands)...)
+	}
+	return out
+}
+
+// splitFullHeight partitions cells into the full-height collapsed data columns (bottom at the
+// table bottom AND holding >=rectMinRowClusters word rows) and everything else (header cells,
+// which terminate above the data body). The cluster test is the recon-blessed full-height
+// predicate — a top≈tableTop key is BROKEN because data cells start at the header-band bottom,
+// not the table top.
+func splitFullHeight(cells []lCell, words []Word, tableBot float64) (full, others []lCell) {
+	for _, c := range cells {
+		if math.Abs(c.bottom-tableBot) <= rectRowSnapTol && cellRowClusters(c, words) >= rectMinRowClusters {
+			full = append(full, c)
+		} else {
+			others = append(others, c)
+		}
+	}
+	return full, others
+}
+
+// cellRowClusters counts the distinct word-Y-rows whose anchor falls inside cell c.
+func cellRowClusters(c lCell, words []Word) int {
+	ys := wordYCentersIn(words, c)
+	if len(ys) == 0 {
+		return 0
+	}
+	return len(cluster1D(ys, rectRowGapTol))
+}
+
+// wordYCentersIn returns the top-origin Y-centers of words whose anchor falls inside cell c.
+func wordYCentersIn(words []Word, c lCell) []float64 {
+	var ys []float64
+	for _, w := range words {
+		ax := w.X + w.W/2
+		ay := -(w.Y + w.H/2)
+		if ax >= c.x0 && ax <= c.x1 && ay >= c.top && ay <= c.bottom {
+			ys = append(ys, ay)
+		}
+	}
+	return ys
+}
+
+// distinctCols counts the distinct column x-positions among cells (near-equal x0 within 1pt
+// collapse). >=2 marks a genuine multi-column table, not a single-cell framed box.
+func distinctCols(cells []lCell) int {
+	if len(cells) == 0 {
+		return 0
+	}
+	xs := make([]float64, len(cells))
+	for i, c := range cells {
+		xs[i] = c.x0
+	}
+	return len(cluster1D(xs, 1.0))
+}
+
+// minTop returns the smallest (highest) top over cells. Callers guarantee len(cells) > 0.
+func minTop(cells []lCell) float64 {
+	m := cells[0].top
+	for _, c := range cells[1:] {
+		if c.top < m {
+			m = c.top
+		}
+	}
+	return m
+}
+
+// interiorHRuleCount counts horizontal edges strictly inside the data body (between dataTop
+// and tableBot) that horizontally overlap the column span [vMin,vMax]. The overlap test binds
+// the count to THIS table, so a neighbouring table's rule at the same Y cannot make a
+// rows-unruled table look ruled. Zero ⇒ rows-unruled (the rect-bordered case).
+func interiorHRuleCount(hEdges []lEdge, dataTop, tableBot, vMin, vMax float64) int {
+	n := 0
+	for _, e := range hEdges {
+		if e.top > dataTop+rectRowSnapTol && e.top < tableBot-rectRowSnapTol &&
+			e.x0 <= vMax && e.x1 >= vMin {
+			n++
+		}
+	}
+	return n
+}
+
+// hasDecodableRune reports whether s carries at least one rune that is neither the Unicode
+// replacement character (U+FFFD, an undecodable glyph) nor whitespace.
+func hasDecodableRune(s string) bool {
+	for _, r := range s {
+		if r != '�' && !unicode.IsSpace(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// decodableWords keeps only words carrying decodable text. A word that is entirely replacement
+// characters (e.g. an undecodable per-row leader run set in a symbol font) anchors no
+// extractable content, so it must not seed or fabricate a synthesized open column.
+func decodableWords(ws []Word) []Word {
+	var out []Word
+	for _, w := range ws {
+		if hasDecodableRune(w.S) {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// synthOpenColumns synthesizes a full-height open anchor column on each side whose outer words
+// carry decodable text AND whose frame horizontals overhang the inner boundary at BOTH
+// data-body extremes. Two anti-fabrication guards bind it to a real column: the overhang test
+// (edgeOverhangsLeft/Right) — a page number, footnote, or margin rule cannot fabricate a
+// phantom column — and the decodable-words filter — an undecodable per-row leader run (all
+// U+FFFD) cannot either. Each synthesized column is later split into rows by the shared band set
+// exactly like the closed columns, so it clears the minOpenRows hurdle that rejected it as a
+// single unruled band.
+func synthOpenColumns(full []lCell, words []Word, hEdges []lEdge, media [4]float64, dataTop, tableBot float64) []lCell {
+	vMin, vMax := colBounds(full)
+	llx, urx := media[0], media[2]
+	var out []lCell
+	leftWords := decodableWords(openSideWords(words, dataTop, tableBot, func(ax float64) bool { return ax < vMin }))
+	if len(leftWords) > 0 && edgeOverhangsLeft(hEdges, dataTop, vMin) && edgeOverhangsLeft(hEdges, tableBot, vMin) {
+		if x0 := clampLo(minWordLeft(leftWords)-openPad, llx); vMin-x0 >= minOpenColW {
+			out = append(out, lCell{x0: x0, top: dataTop, x1: vMin, bottom: tableBot})
+		}
+	}
+	rightWords := decodableWords(openSideWords(words, dataTop, tableBot, func(ax float64) bool { return ax > vMax }))
+	if len(rightWords) > 0 && edgeOverhangsRight(hEdges, dataTop, vMax) && edgeOverhangsRight(hEdges, tableBot, vMax) {
+		if x1 := clampHi(maxWordRight(rightWords)+openPad, urx); x1-vMax >= minOpenColW {
+			out = append(out, lCell{x0: vMax, top: dataTop, x1: x1, bottom: tableBot})
+		}
+	}
+	return out
+}
+
+// rowBands clusters the data-body word Y-centers across ALL full-height columns into one shared
+// set of row centers, so every column splits at the same rows (an aligned grid).
+func rowBands(full []lCell, words []Word) []float64 {
+	var ys []float64
+	for _, c := range full {
+		ys = append(ys, wordYCentersIn(words, c)...)
+	}
+	return cluster1D(ys, rectRowGapTol)
+}
+
+// rowAligned reports whether the inferred row bands are shared ACROSS the full-height columns
+// (a genuine data grid) rather than independent per-column text flow (framed multi-column
+// prose — a banded notice or boxed two-column sidebar). It requires a MAJORITY of bands to
+// carry words in >=2 columns: in a data table every row spans columns at the same Y; in a
+// two-column prose box each line sits in one column at its own Y, so few bands are cross-column.
+// This is the framed-multi-column-prose A4 false-positive guard.
+//
+// It counts ONLY words whose anchor lies inside a full-height cell on BOTH axes (wordYCentersIn
+// — the same set that produced the bands). Binding to in-cell words is essential: a plain
+// nearest-band assignment over every page word would let body text above/below the data body —
+// or a neighbouring region sharing an X range — be mapped onto a band by nearestIdx and fake
+// cross-column alignment, defeating the guard.
+func rowAligned(full []lCell, words []Word, bands []float64) bool {
+	if len(bands) == 0 {
+		return false
+	}
+	cols := make([]map[int]struct{}, len(bands))
+	for i := range cols {
+		cols[i] = map[int]struct{}{}
+	}
+	for ci, c := range full {
+		for _, ay := range wordYCentersIn(words, c) {
+			cols[nearestIdx(bands, ay)][ci] = struct{}{}
+		}
+	}
+	crossed := 0
+	for _, set := range cols {
+		if len(set) >= 2 {
+			crossed++
+		}
+	}
+	return crossed*2 >= len(bands)
+}
+
+// splitCellAtBands tiles cell c into one sub-cell per row band, cutting at the midpoints between
+// consecutive band centers (the first sub-cell starts at c.top, the last ends at c.bottom). Each
+// sub-cell inherits c's x-extent, so columns are preserved and the shared cut lines keep tops
+// aligned across columns for reconstructGrid's row clustering.
+func splitCellAtBands(c lCell, bands []float64) []lCell {
+	if len(bands) < 2 {
+		return []lCell{c}
+	}
+	out := make([]lCell, 0, len(bands))
+	top := c.top
+	for i, center := range bands {
+		bottom := c.bottom
+		if i < len(bands)-1 {
+			bottom = (center + bands[i+1]) / 2
+		}
+		out = append(out, lCell{x0: c.x0, top: top, x1: c.x1, bottom: bottom})
+		top = bottom
+	}
+	return out
 }
 
 // --- grid reconstruction ---
