@@ -3,8 +3,7 @@ package pdf
 // tables_lattice_rectrows_test.go — content-validation for rect-bordered row inference
 // (inferRectBorderedRows + its guards). Every fixture is built directly as []lCell + []lEdge +
 // []Word with CLEAN strings, so it validates the row-inference ALGORITHM decoupled from any
-// font / text-decode issue (the ERP corpus fixture cannot do this: its data values and row
-// leaders decode to U+FFFD, which is a font-decode defect orthogonal to table structure). The
+// PDF/font parsing — there is no text-decode step in the loop. The
 // coordinate convention is TOP-ORIGIN throughout — see tables_lattice_opensynth_test.go, whose
 // wordAtBand helper this file reuses.
 

@@ -38,6 +38,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `GetPlainText`, `Page.Words()`, and `Page.Tables()` no longer emit U+FFFD replacement
+  characters for a simple (Type1/TrueType) font whose embedded `ToUnicode` map marks a glyph as
+  U+FFFD — a quirk of some PDF producers (e.g. a decimal point or other punctuation the subsetter
+  could not map back to Unicode). Such a code now falls back to the font's own `/Encoding`,
+  recovering the real character, so values that previously read as `4<U+FFFD>0` now extract as
+  `4.0`. A code genuinely absent from the `ToUnicode` still reads as U+FFFD, and composite (Type0)
+  fonts are unaffected; the fallback is used only where the font's encoding gives a confident
+  mapping (a known base encoding or explicit `/Differences`), never to guess an unknown one.
+
 - `Page.Words()`, `Page.Lines()`, and `Page.Tables()` now correctly segment text from PDFs
   using composite (Type0 / CIDFont) fonts. Previously the glyph advance was always 0 for
   these fonts — GoPDF read only the simple-font `/Widths` array, which does not exist in

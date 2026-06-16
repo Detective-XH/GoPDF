@@ -216,19 +216,36 @@ func (m *cmap) Decode(raw string) (text string) {
 // every 1-byte bfchar, and yield U+FFFD for the whole run. Looking up each byte
 // directly recovers the text. Composite (Type0) fonts keep cmap.Decode, whose
 // codespace-driven width IS authoritative for them.
-type simpleCmapEncoder struct{ m *cmap }
+type simpleCmapEncoder struct {
+	m *cmap
+	// fallback, when non-nil, is the font's /Encoding byte-table encoder. It rescues
+	// codes whose ToUnicode entry is "poisoned" to exactly U+FFFD (Adobe tooling emits
+	// <FFFD> for codes its subsetter could not reverse-map); such a code falls back to
+	// the glyph's true /Encoding character. A genuine miss is NOT rescued — it stays noRune.
+	fallback TextEncoding
+}
 
 func (e *simpleCmapEncoder) Decode(raw string) (text string) {
 	r := make([]rune, 0, len(raw))
 	for i := 0; i < len(raw); i++ {
 		b := raw[i : i+1]
-		if runes, ok := e.m.lookupBfchar(b); ok {
-			r = append(r, runes...)
-		} else if runes, ok := e.m.lookupBfrange(b, 1); ok {
-			r = append(r, runes...)
-		} else {
-			r = append(r, noRune)
+		runes, ok := e.m.lookupBfchar(b)
+		if !ok {
+			runes, ok = e.m.lookupBfrange(b, 1)
 		}
+		if !ok {
+			r = append(r, noRune) // genuine miss: unchanged
+			continue
+		}
+		// A ToUnicode entry mapping a code to exactly U+FFFD is not a real Unicode
+		// target; fall back to the font's own /Encoding for that byte, which carries
+		// the glyph's true character. Multi-rune targets that merely contain U+FFFD
+		// are left untouched.
+		if e.fallback != nil && len(runes) == 1 && runes[0] == noRune {
+			r = append(r, []rune(e.fallback.Decode(b))...)
+			continue
+		}
+		r = append(r, runes...)
 	}
 	return string(r)
 }
