@@ -35,8 +35,9 @@ type Table struct {
 // An open edge column is recovered only where the table's row rules overhang into it; a
 // column whose rules stop at the inner vertical is not recovered (a safe omission).
 //
-// Verbatim caveat: a superscript extracts as a spaced token (for example "cm²" becomes
-// "cm 2"), a font-extraction limit independent of the lattice; cell content — the right
+// Verbatim caveat: a superscript renders at a distinct vertical position and font size, so
+// it extracts as a spaced token (for example "cm²" becomes "cm 2"). This is specific to
+// Y-offset glyph transitions, not a general spacing artifact; cell content — the right
 // value in the right cell — is unaffected.
 //
 // Experimental: the detection geometry and the Table type are additive-evolving, and the

@@ -18,11 +18,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   structurally-recovered half-open edge columns. Borderless and partially-ruled or banded
   tables (ruled only at group boundaries, rows separated by shading) are out of scope —
   best-effort, not a contract: they may return no table or an incomplete grid. A superscript
-  extracts as a spaced token (`cm²` → `cm 2`), a font-extraction limit that never changes
-  which cell a value lands in. Graduation to a Stable API is gated on a forthcoming
-  extraction-quality program. See `API-STABILITY.md` and `EXAMPLES.md`.
+  renders at a distinct vertical position and font size, so it extracts as a spaced token
+  (`cm²` → `cm 2`) — a Y-offset effect specific to superscripts, not a general spacing
+  artifact, and it never changes which cell a value lands in. Graduation to a Stable API is
+  gated on a forthcoming extraction-quality program. See `API-STABILITY.md` and `EXAMPLES.md`.
 
 ### Fixed
+
+- `Page.Words()`, `Page.Lines()`, and `Page.Tables()` now correctly segment text from PDFs
+  using composite (Type0 / CIDFont) fonts. Previously the glyph advance was always 0 for
+  these fonts — GoPDF read only the simple-font `/Widths` array, which does not exist in
+  CIDFont dicts — causing the word segmenter to split every character into its own word and
+  break table cell matching. Glyph advance is now read from the descendant CIDFont's `/DW`
+  entry (falling back to 1000 per PDF spec §9.7.4.3 when absent). Per-CID `/W` lookup is
+  deferred; the uniform `/DW` approximation is sufficient for segmentation and is locked by a
+  corpus regression gate.
 
 - `GetPlainText` no longer emits U+FFFD replacement characters for text drawn with composite
   (Type0 / Identity-H, two-byte CMap) fonts in two cases:
