@@ -134,6 +134,13 @@ var corpusManifest = []corpusEntry{
 		License: "US-Gov PD (17 USC 105)",
 		Purpose: "Held-out RECT-bordered split-column cell-grid ground truth (51x6, cols 1-5 of an 11-col table); 3-tier rule-4 header; as-printed asterisks (* 5,178)/footnotes/negatives. Data fonts are subset TrueType (CIDFont+F1) whose ToUnicode declares a 2-byte codespace over 1-byte codes — the regression fixture for simple-font 1-byte ToUnicode decode; companion 22in01pl.xls",
 	},
+	{
+		Path: "tables/fbi-nics-by-state-2026.pdf", Golden: "tables/fbi-nics-by-state-2026.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "FBI NICS Firearm Background Checks — Month/Year by State (Year 2026, Jan 1–May 31; snapshot 2026-06-16), fbi.gov/file-repository/cjis/nics_firearm_checks_-_month_year_by_state.pdf",
+		License: "US-Gov PD (17 USC 105)",
+		Purpose: "Held-out FULLY-RULED state-labeled cell-grid ground truth (56x14); held-out table-quality corpus (heldOut, scored by TestPublicTablesQualityCorpus). col0=State/Territory unique anchor; per-row checksum sum(months)=Grand Total. Char-spaced lattice extraction (content-clean via looseCell, verbatim-low by design). FBI overwrites the URL monthly — committed copy is a frozen snapshot",
+	},
 	// Table-detection false-positive gate fixtures: dense 3-column Federal
 	// Register notices with ZERO tables — a detector must return nothing here.
 	{
