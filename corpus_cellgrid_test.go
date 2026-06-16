@@ -224,6 +224,11 @@ type cellgridFixture struct {
 	class                  string // table-type taxonomy class
 	heldOut                bool   // true = held-out quality fixture (not a tuning source)
 	anchorCol              int    // 0-based row-label column used to align golden rows to the grid (default 0)
+	// bonus marks a held-out fixture that is SCORED + logged but does NOT count toward its
+	// class's coverage gate (e.g. a gate-independent CJK diagnostic). The hard/held coverage
+	// decision uses only non-bonus ("gate-bearing") fixtures, so a partial-extraction bonus
+	// fixture can never substitute for a genuinely-extracting gate-bearing one.
+	bonus bool
 }
 
 // cellgridFixtures is the single source of truth for all .cellgrid.tsv
@@ -264,6 +269,40 @@ var cellgridFixtures = []cellgridFixture{
 		sourcePDF: "tables/fbi-nics-by-state-2026.pdf",
 		rows:      56, cols: 14, headerRows: 1,
 		class: "fully-ruled", heldOut: true, anchorCol: 0, // col0 = State/Territory (unique)
+	},
+	{
+		// Held-out quality fixture #2 (fully-ruled) — second gate-bearing fully-ruled
+		// fixture; the fully-ruled coverage gate flips hard on NICS + this one.
+		path:      "tables/hhs-aspe-vsl-2024.cellgrid.tsv",
+		sourcePDF: "tables/hhs-aspe-vsl-2024.pdf",
+		rows:      12, cols: 4, headerRows: 1,
+		class: "fully-ruled", heldOut: true, anchorCol: 0, // col0 = Year (unique numeric)
+	},
+	{
+		// Held-out quality fixture (fully-ruled, CJK bonus) — Simplified-Chinese rate
+		// schedule; class confirmed by rendered rule coverage (interior verticals + per-cell
+		// rects), gate-independent (the gate rests on NICS + HHS ASPE).
+		path:      "tables/irs-p17zhs-rate-sched-2025.cellgrid.tsv",
+		sourcePDF: "tables/irs-p17zhs-rate-sched-2025.pdf",
+		rows:      8, cols: 4, headerRows: 1,
+		class: "fully-ruled", heldOut: true, anchorCol: 0, // col0 = $-bracket lower bound (unique)
+		bonus: true, // CJK diagnostic — scored, but NOT counted toward the fully-ruled coverage gate
+	},
+	{
+		// Held-out quality fixture (rect-bordered) — minimal golden proving the detector
+		// gap: the detector drops the open Year column and collapses the rows -> ~0%.
+		path:      "tables/erp-2024-tb1-gdp-pctchg.cellgrid.tsv",
+		sourcePDF: "tables/erp-2024-tb1-gdp-pctchg.pdf",
+		rows:      11, cols: 2, headerRows: 1,
+		class: "rect-bordered", heldOut: true, anchorCol: 0, // col0 = Year (unique); detector drops it
+	},
+	{
+		// Held-out quality fixture (rect-bordered) — second ERP table, same gap. Both
+		// fixtures are ERP/CEA (single publisher); cross-publisher generalization NOT proven.
+		path:      "tables/erp-2024-tb2-gdp-contrib.cellgrid.tsv",
+		sourcePDF: "tables/erp-2024-tb2-gdp-contrib.pdf",
+		rows:      11, cols: 2, headerRows: 1,
+		class: "rect-bordered", heldOut: true, anchorCol: 0, // col0 = Year (unique); detector drops it
 	},
 }
 
@@ -311,6 +350,15 @@ func TestCorpusCellGridFixtures(t *testing.T) {
 				t.Errorf("headerRows: got %d, want %d", g.headerRows, f.headerRows)
 			}
 
+			// 1b. Held-out quality fixtures must have a UNIQUE anchor on covered data rows.
+			// The quality scorer (scoreQualityFixture) aligns each golden data row to the
+			// detector grid by its anchorCol value (anchorRow); a duplicate anchor is scored
+			// as a full-row miss, so a non-unique anchor would silently deflate the
+			// measurement. Lock it here (A6).
+			if f.heldOut {
+				assertAnchorUnique(t, f, g)
+			}
+
 			// 2. Cross-reference: sourcePDF must be in corpusManifest.
 			entry, inManifest := manifestPaths[f.sourcePDF]
 			if !inManifest {
@@ -323,6 +371,36 @@ func TestCorpusCellGridFixtures(t *testing.T) {
 				t.Errorf("NumPage() = %d, want >= pdfPage %d", r.NumPage(), g.pdfPage)
 			}
 		})
+	}
+}
+
+// assertAnchorUnique checks that a held-out fixture's anchor column carries a unique
+// looseCell value on every covered data row. Header rows, empty-anchor section rows, and
+// known-ceiling anchor cells are excluded, mirroring scoreQualityFixture's row loop. A
+// duplicate anchor makes anchorRow drop the row (a full-row miss), so this locks the
+// fixture's scorability (A6). looseCell is the scorer's own folding, so uniqueness here
+// means uniqueness as the scorer sees it.
+func assertAnchorUnique(t *testing.T, f cellgridFixture, g cellGrid) {
+	t.Helper()
+	ceil := make(map[[2]int]bool, len(g.knownCeiling))
+	for _, cm := range g.knownCeiling {
+		ceil[[2]int{cm.row, cm.col}] = true
+	}
+	seen := make(map[string]bool)
+	for gr := g.headerRows; gr < g.rows; gr++ {
+		if f.anchorCol >= len(g.cells[gr]) {
+			continue
+		}
+		raw := strings.TrimSpace(g.cells[gr][f.anchorCol])
+		if raw == "" || ceil[[2]int{gr + 1, f.anchorCol + 1}] {
+			continue
+		}
+		key := looseCell(raw)
+		if seen[key] {
+			t.Errorf("%s: anchor value %q (col %d) is not unique on covered rows — anchorRow would drop it",
+				f.path, raw, f.anchorCol)
+		}
+		seen[key] = true
 	}
 }
 

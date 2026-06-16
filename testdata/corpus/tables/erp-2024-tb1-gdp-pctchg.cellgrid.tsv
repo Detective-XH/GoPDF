@@ -1,0 +1,18 @@
+# cellgrid v1
+# source=erp-2024-tb1-gdp-pctchg | pdf_page=1 | dims=11x2 | header_rows=1
+# values=as-printed | snapshot=2026-06-16 | url=https://www.govinfo.gov/content/pkg/ERP-2024/pdf/ERP-2024.pdf
+# license=US-Gov public domain (17 USC 105)
+# provenance=Economic Report of the President 2024, Table B-1 (PDF p413); committed copy is a single-page qpdf excerpt. MINIMAL subset: col0=Year anchor + col1=GDP percent-change column only, annual rows 1973-1982 (the full ~47-row x ~13-col grid is authored in a separate follow-up). Quarterly sub-rows excluded (their bare I/II/III/IV labels are non-unique anchors).
+# companion=render-only (BEA API and FRED returned HTTP 403/auth errors); pdftotext (poppler) used as independent cross-check and confirms all 10 values; rendered page image is the authoritative published source.
+# model=rect-bordered (full column verticals; NO interior horizontal row rules; the Year label is an OPEN left column). GoPDF detector drops the Year column and collapses the data rows -> ~0% substantive (the measured capability gap). Negative sign printed as en-dash. Authored from the rendered page image, cross-checked with pdftotext.
+Year or quarter	Gross domestic product
+1973	4.0
+1974	–1.9
+1975	2.6
+1976	4.3
+1977	5.0
+1978	6.7
+1979	1.3
+1980	.0
+1981	1.3
+1982	–1.4
