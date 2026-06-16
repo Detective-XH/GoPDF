@@ -103,7 +103,7 @@ func (s *contentState) layoutDecoded(str, decoded string) {
 	for _, ch := range decoded {
 		var w0 float64
 		if n < len(str) {
-			w0 = s.g.Tf.Width(int(str[n]))
+			w0 = s.g.Tf.effectiveWidth(int(str[n]))
 		}
 		n++
 		f := s.g.Tf.BaseFont()

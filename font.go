@@ -53,6 +53,27 @@ func (f Font) Width(code int) float64 {
 	return f.V.Key("Widths").Index(code - first).Float64()
 }
 
+// effectiveWidth returns the horizontal glyph advance for the given character
+// code (in 1/1000 text-space units). For composite (Type0) fonts it reads /DW
+// from the descendant CIDFont dict, falling back to 1000 per PDF spec §9.7.4.3
+// when /DW is absent. Per-CID /W array lookup is not yet implemented: the
+// content-stream decoder advances one byte per rune (n++) rather than one
+// multi-byte CID, so any per-CID lookup would read a garbage CID. /DW is
+// approximate but sufficient for word segmentation, and is locked by the corpus
+// gate; per-CID /W support is deferred behind the n++ two-byte-code fix.
+// Simple fonts always delegate to Width.
+func (f Font) effectiveWidth(code int) float64 {
+	if f.V.Key("Subtype").Name() == "Type0" {
+		desc := f.V.Key("DescendantFonts").Index(0)
+		dw := desc.Key("DW")
+		if dw.Kind() == Integer || dw.Kind() == Real {
+			return dw.Float64()
+		}
+		return 1000
+	}
+	return f.Width(code)
+}
+
 // Encoder returns the encoding between font code point sequences and UTF-8.
 // NOTE: this method has a VALUE receiver; the assignment to f.enc does NOT
 // persist across calls. Internal hot paths (per-page font maps, the content

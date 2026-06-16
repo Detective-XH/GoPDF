@@ -165,10 +165,10 @@ var corpusManifest = []corpusEntry{
 		Purpose: "Subset fonts; T* line-moves previously mis-decoded to U+FFFD under a 2-byte CMap (fixed) — now extracts with zero replacement runes across all 12 pages; locked by golden snippets + a document-wide no-U+FFFD assertion (TestCorpusBeaDiciNoReplacementRunes)",
 	},
 	{
-		Path: "hard/irs-p1040-tax-tables-excerpt.pdf", Golden: "",
+		Path: "hard/irs-p1040-tax-tables-excerpt.pdf", Golden: "hard/irs-p1040-tax-tables-excerpt.golden.txt",
 		Synthetic: false, Compare: compareNormalized, Feature: "hard-pdf",
 		Source: "IRS Pub 1040 Tax Tables pp. 3-4, qpdf excerpt", License: "US-Gov PD (17 USC 105)",
-		Purpose: "Zero-advance glyph widths (W=0) plus partial ToUnicode loss",
+		Purpose: "Type0/CIDFontType2 with /W + /DW: formerly zero-advance widths (Width path ignored CIDFont metrics); fixed by effectiveWidth reading /DW (per-CID /W deferred behind n++ two-byte-code fix).",
 	},
 	// Real, public-domain AcroForm fixtures (acquired 2026-06-11). Both are BLANK
 	// government forms — Reader.Fields() had only ever met hand-crafted synthetic
@@ -486,23 +486,6 @@ func TestCorpusNoGoldenFixtures(t *testing.T) {
 func assertNoGoldenGap(t *testing.T, e corpusEntry, r *Reader) {
 	t.Helper()
 	switch e.Path {
-	case "hard/irs-p1040-tax-tables-excerpt.pdf":
-		// Documented gap: zero-advance glyph widths — words on the
-		// first page carry W == 0 despite non-empty text.
-		words, err := r.Page(1).Words()
-		if err != nil {
-			t.Fatalf("Words: %v", err)
-		}
-		zero := false
-		for _, w := range words {
-			if w.W == 0 && strings.TrimSpace(w.S) != "" {
-				zero = true
-				break
-			}
-		}
-		if !zero {
-			t.Errorf("%s: documented gap (zero-advance widths) no longer reproduces — promote to a golden-tested entry", e.Path)
-		}
 	default:
 		if e.Feature == "hard-pdf" {
 			t.Fatalf("%s: hard-pdf entry without an anchored gap assertion — add one here", e.Path)

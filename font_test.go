@@ -306,6 +306,114 @@ func TestFontWidthEmpty(t *testing.T) {
 	}
 }
 
+// ---- TestFontEffectiveWidth ------------------------------------------------
+
+// TestFontEffectiveWidthType0NoDW verifies that effectiveWidth returns the
+// PDF spec §9.7.4.3 default (1000) for a Type0 font whose descendant CIDFont
+// carries no /DW key.
+func TestFontEffectiveWidthType0NoDW(t *testing.T) {
+	r := fontTestEmptyReader()
+	descendant := dict{name("Subtype"): name("CIDFontType2")}
+	fontDict := dict{
+		name("Subtype"):         name("Type0"),
+		name("DescendantFonts"): array{descendant},
+	}
+	font := fontTestFontValue(r, fontDict)
+	if got := font.effectiveWidth(0); got != 1000 {
+		t.Errorf("effectiveWidth on Type0/no-/DW: got %v, want 1000", got)
+	}
+}
+
+// TestFontEffectiveWidthType0WithDW verifies that effectiveWidth returns the
+// explicit /DW value when present in the descendant CIDFont.
+func TestFontEffectiveWidthType0WithDW(t *testing.T) {
+	r := fontTestEmptyReader()
+	descendant := dict{
+		name("Subtype"): name("CIDFontType2"),
+		name("DW"):      int64(750),
+	}
+	fontDict := dict{
+		name("Subtype"):         name("Type0"),
+		name("DescendantFonts"): array{descendant},
+	}
+	font := fontTestFontValue(r, fontDict)
+	if got := font.effectiveWidth(0); got != 750 {
+		t.Errorf("effectiveWidth on Type0/DW=750: got %v, want 750", got)
+	}
+}
+
+// TestFontEffectiveWidthType0NoDescendants verifies that effectiveWidth falls
+// back to the spec default (1000) when DescendantFonts is absent.
+func TestFontEffectiveWidthType0NoDescendants(t *testing.T) {
+	r := fontTestEmptyReader()
+	fontDict := dict{name("Subtype"): name("Type0")}
+	font := fontTestFontValue(r, fontDict)
+	if got := font.effectiveWidth(0); got != 1000 {
+		t.Errorf("effectiveWidth on Type0/no-DescendantFonts: got %v, want 1000", got)
+	}
+}
+
+// TestFontEffectiveWidthSimple verifies that effectiveWidth delegates to Width
+// for simple (non-Type0) fonts.
+func TestFontEffectiveWidthSimple(t *testing.T) {
+	r := fontTestEmptyReader()
+	widths := array{int64(500), int64(600)}
+	fontDict := dict{
+		name("Subtype"):   name("TrueType"),
+		name("FirstChar"): int64(65),
+		name("LastChar"):  int64(66),
+		name("Widths"):    widths,
+	}
+	font := fontTestFontValue(r, fontDict)
+	if got := font.effectiveWidth(65); got != 500 {
+		t.Errorf("effectiveWidth on TrueType/code=65: got %v, want 500", got)
+	}
+	if got := font.effectiveWidth(99); got != 0 {
+		t.Errorf("effectiveWidth on TrueType/out-of-range: got %v, want 0", got)
+	}
+}
+
+// TestFontEffectiveWidthType0WithWAndDW verifies that effectiveWidth returns /DW
+// even when a /W array is present in the descendant CIDFont. Per-CID /W lookup
+// is deferred (requires the two-byte-code n++ fix); DW is used as a uniform
+// approximation sufficient for word segmentation, locked by the corpus gate.
+func TestFontEffectiveWidthType0WithWAndDW(t *testing.T) {
+	r := fontTestEmptyReader()
+	descendant := dict{
+		name("Subtype"): name("CIDFontType2"),
+		name("DW"):      int64(800),
+		name("W"):       array{int64(32), array{int64(722)}},
+	}
+	fontDict := dict{
+		name("Subtype"):         name("Type0"),
+		name("DescendantFonts"): array{descendant},
+	}
+	font := fontTestFontValue(r, fontDict)
+	if got := font.effectiveWidth(0); got != 800 {
+		t.Errorf("effectiveWidth on Type0/W+DW=800: got %v, want 800 (per-CID /W deferred, DW used)", got)
+	}
+}
+
+// TestFontEffectiveWidthType0WithWNoDW verifies that effectiveWidth returns the
+// spec §9.7.4.3 default 1000 when /W is present but /DW is absent. This is an
+// approximation — the real width is in /W — but per-CID /W lookup is deferred
+// behind the n++ two-byte-code fix; 1000 is preferred over 0 (prior behavior).
+func TestFontEffectiveWidthType0WithWNoDW(t *testing.T) {
+	r := fontTestEmptyReader()
+	descendant := dict{
+		name("Subtype"): name("CIDFontType2"),
+		name("W"):       array{int64(32), array{int64(722)}},
+	}
+	fontDict := dict{
+		name("Subtype"):         name("Type0"),
+		name("DescendantFonts"): array{descendant},
+	}
+	font := fontTestFontValue(r, fontDict)
+	if got := font.effectiveWidth(0); got != 1000 {
+		t.Errorf("effectiveWidth on Type0/W-no-DW: got %v, want 1000 (spec default, /W deferred)", got)
+	}
+}
+
 // ---- TestFontEncoder (caching) ---------------------------------------------
 
 // TestFontEncoderCaching verifies that repeated Encoder() calls return the

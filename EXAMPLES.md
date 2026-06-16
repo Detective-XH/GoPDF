@@ -663,10 +663,11 @@ as advisory:
   energy-statistics table with only group-level vertical rules collapses adjacent
   sub-columns and rows into one cell; do not rely on its grid.
 
-**Verbatim caveat:** a superscript extracts as a spaced token — `cm²` becomes `cm 2`. This
-is a font-extraction limitation independent of the lattice; cell *content* (the right value
-in the right cell) is unaffected, but exact-string matches on superscript-bearing cells
-should fold the space.
+**Verbatim caveat:** a superscript renders at a distinct vertical position and font size, so
+it extracts as a spaced token — `cm²` becomes `cm 2`. This is specific to Y-offset glyph
+transitions (superscripts and subscripts), not a general spacing artifact; cell *content*
+(the right value in the right cell) is unaffected, but exact-string matches on
+superscript-bearing cells should fold the space.
 
 **Open edge columns:** the right data column and left label column of statistical tables
 are often unbounded — their outer vertical rule is absent. `Tables()` recovers these
