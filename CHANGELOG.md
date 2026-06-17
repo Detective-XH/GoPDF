@@ -38,6 +38,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `Page.Tables()` no longer emits tabular **dot-leader filler** — a run of four or more leader
+  dots (`.`) that visually connects a row label to its value — into cell text. Such a run is page
+  typography, not data: a Year label that previously extracted as `1973 ......................` now
+  reads `1973`, and a spurious extra column built from an all-leader overflow run is no longer
+  fabricated. The trim is conservative — it fires only on a token of four or more consecutive `.`
+  and nothing else, so decimals (`4.0`), abbreviations (`U.S.A.`), and three-dot ellipses are
+  untouched, and a cell whose entire content is a dot run is preserved rather than emptied. The
+  contamination was observed across multiple publishers' statistical and regulatory tables. There
+  is no API change and every corpus golden is unchanged.
+
 - `Page.Lines()` and `Page.Blocks()` now keep columns in the correct reading order on dense
   multi-column pages. Previously a column whose text began slightly left of the detected
   inter-column gutter was mis-assigned to the previous column, so `Lines()` merged two columns into

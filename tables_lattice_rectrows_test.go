@@ -245,3 +245,118 @@ func TestInferRectBorderedRowsFullyRuledWrappedLastRow(t *testing.T) {
 		t.Errorf("fully-ruled wrapped last row: got %d cells, want %d unchanged (a ruled table's bottom row must not be row-split)", len(out), len(cells))
 	}
 }
+
+// rectBorderedFixtureWithLeaders builds the same rect-bordered fixture as rectBorderedFixture but
+// injects one dot-leader word per row into the open Year column's x-range, alongside the year
+// word. The leader word (X=162, W=30 → ax=177 < vMin=200) lands in the same open-column cell as
+// the year. Pre-fix, reconstructGrid emits "2001 .........." for row 0; post-fix it emits "2001".
+func rectBorderedFixtureWithLeaders() (cells []lCell, hEdges []lEdge, words []Word, media [4]float64) {
+	cells, hEdges, words, media = rectBorderedFixture()
+	bands := [][2]float64{{100, 120}, {120, 140}, {140, 160}, {160, 180}}
+	for _, b := range bands {
+		// ax = 162 + 30/2 = 177 < vMin(200): lands in the open Year column cell.
+		words = append(words, wordAtBand("..........", 162, 30, b[0], b[1]))
+	}
+	return cells, hEdges, words, media
+}
+
+// TestReconstructGridDropsDotLeaderInAnchor locks locus A of the dot-leader fix: when a
+// tabular dot-leader word co-occupies the open Year column cell with the year token, reconstructGrid
+// must drop the leader and emit bare year text, NOT "2001 ..........".
+// The Year column must still be recovered (4 cols total), because the year word is decodable.
+func TestReconstructGridDropsDotLeaderInAnchor(t *testing.T) {
+	cells, hEdges, words, media := rectBorderedFixtureWithLeaders()
+	out := inferRectBorderedRows(cells, words, hEdges, media)
+	grid := reconstructGrid(out, words)
+
+	if len(grid) == 0 {
+		t.Fatal("empty grid")
+	}
+	if len(grid[0]) != 4 {
+		t.Fatalf("cols: got %d, want 4 (Year column still recovered — year word is decodable)\ngrid=%v", len(grid[0]), grid)
+	}
+	wantCol0 := []string{"2001", "2002", "2003", "2004"}
+	for r := range grid {
+		if grid[r][0] != wantCol0[r] {
+			t.Errorf("grid[%d][0] = %q, want %q (dot-leader must be trimmed, not joined into cell text)", r, grid[r][0], wantCol0[r])
+		}
+	}
+}
+
+// TestSynthOpenColumnDropsPureDotLeader locks locus B of the dot-leader fix: when every word in
+// the open Year column is a pure dot-leader (decodable dots, but no year data), synthOpenColumns
+// must NOT fabricate a column from those leaders. This is the decodable-leader analog of
+// TestInferRectBorderedRowsUndecodableOpenColumn (which tests U+FFFD leaders).
+func TestSynthOpenColumnDropsPureDotLeader(t *testing.T) {
+	cells, hEdges, words, media := rectBorderedFixture()
+	// Replace every open-Year-column word with a pure dot-leader.
+	var modified []Word
+	for _, w := range words {
+		if w.X+w.W/2 < 200 { // open Year column: ax < vMin=200
+			w.S = "......"
+		}
+		modified = append(modified, w)
+	}
+
+	out := inferRectBorderedRows(cells, modified, hEdges, media)
+	grid := reconstructGrid(out, modified)
+	if len(grid) == 0 {
+		t.Fatal("empty grid")
+	}
+	if len(grid[0]) != 3 {
+		t.Errorf("cols: got %d, want 3 (pure dot-leader open column must not be fabricated)\ngrid=%v", len(grid[0]), grid)
+	}
+}
+
+// TestIsDotLeader is a table-driven unit test for the isDotLeader predicate.
+// True: a token of >=4 consecutive '.' and nothing else.
+// False: <4 dots, empty, mixed chars, a space anywhere, single U+2026 ellipsis rune.
+func TestIsDotLeader(t *testing.T) {
+	cases := []struct {
+		s    string
+		want bool
+	}{
+		{"....", true},
+		{"....................", true},   // 20 dots
+		{"......................", true}, // 22 dots
+		{"...", false},                   // only 3 dots — below the >=4 floor
+		{"", false},
+		{".", false},
+		{"4.0", false},    // decimal: mixed chars
+		{"U.S.A.", false}, // abbreviation: mixed chars
+		{". ...", false},  // space breaks the all-'.' invariant
+		{"…", false},      // U+2026 HORIZONTAL ELLIPSIS — not U+002E
+		{"..a..", false},  // non-dot rune in the middle
+	}
+	for _, tc := range cases {
+		got := isDotLeader(tc.s)
+		if got != tc.want {
+			t.Errorf("isDotLeader(%q) = %v, want %v", tc.s, got, tc.want)
+		}
+	}
+}
+
+// TestReconstructGridKeepsDotOnlyCell locks the contextual-trim guard (codex finding): the
+// dot-leader trim fires only when a cell ALSO holds real (non-leader) content. A cell whose
+// ENTIRE content is a dot run is preserved verbatim, never silently erased to empty. col0 here
+// carries a real label and must keep it; col1 holds only a dot run and must survive intact.
+func TestReconstructGridKeepsDotOnlyCell(t *testing.T) {
+	cells := []lCell{
+		{x0: 200, top: 100, x1: 250, bottom: 120},
+		{x0: 250, top: 100, x1: 300, bottom: 120},
+	}
+	words := []Word{
+		wordAtBand("Label", 210, 30, 100, 120),  // ax=225 -> col0 (real content)
+		wordAtBand("......", 260, 30, 100, 120), // ax=275 -> col1 (pure dot-only cell)
+	}
+	grid := reconstructGrid(cells, words)
+	if len(grid) == 0 || len(grid[0]) < 2 {
+		t.Fatalf("unexpected grid shape: %v", grid)
+	}
+	if grid[0][0] != "Label" {
+		t.Errorf("grid[0][0] = %q, want %q (real content unaffected)", grid[0][0], "Label")
+	}
+	if grid[0][1] != "......" {
+		t.Errorf("grid[0][1] = %q, want %q (a dot-only cell must be preserved, not erased)", grid[0][1], "......")
+	}
+}

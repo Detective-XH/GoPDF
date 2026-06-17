@@ -781,13 +781,31 @@ func hasDecodableRune(s string) bool {
 	return false
 }
 
-// decodableWords keeps only words carrying decodable text. A word that is entirely replacement
-// characters (e.g. an undecodable per-row leader run set in a symbol font) anchors no
-// extractable content, so it must not seed or fabricate a synthesized open column.
+// isDotLeader reports whether s is a tabular dot-leader run — a token of >=4
+// consecutive '.' (U+002E) glyphs and nothing else (the filler that visually
+// connects a row label to its value). It carries no data, so the table path
+// drops it. The all-runes-are-'.' test rejects decimals ("4.0"), abbreviations
+// ("U.S.A."), and 3-dot ellipses; the >=4 floor rejects a lone period.
+func isDotLeader(s string) bool {
+	n := 0
+	for _, r := range s {
+		if r != '.' {
+			return false
+		}
+		n++
+	}
+	return n >= 4
+}
+
+// decodableWords keeps only words carrying decodable text that are not dot-leader filler.
+// A word that is entirely replacement characters (e.g. an undecodable per-row leader run set
+// in a symbol font) anchors no extractable content, and a tabular dot-leader run (>=4 consecutive
+// '.' and nothing else) is page typography, not data — both must not seed or fabricate a
+// synthesized open column.
 func decodableWords(ws []Word) []Word {
 	var out []Word
 	for _, w := range ws {
-		if hasDecodableRune(w.S) {
+		if hasDecodableRune(w.S) && !isDotLeader(w.S) {
 			out = append(out, w)
 		}
 	}
@@ -988,7 +1006,34 @@ func reconstructGrid(cells []lCell, words []Word) [][]string {
 		}
 	}
 	for key, ws := range bucket {
-		grid[key[0]][key[1]] = joinReading(ws)
+		grid[key[0]][key[1]] = joinReading(trimDotLeaders(ws))
 	}
 	return grid
+}
+
+// trimDotLeaders drops tabular dot-leader filler words from a cell's word set, but ONLY when the
+// cell also holds real (non-leader) content. A leader visually connects a label to its value, so
+// in a real leader cell the trim leaves the label/value behind; a cell whose ENTIRE content is a
+// dot run is preserved verbatim rather than silently erased to empty (irreversible data loss).
+// The common cases — a cell with no leader (every corpus table) or a dot-only cell — return the
+// input slice unchanged with no allocation; only a genuine mixed leader+content cell allocates.
+func trimDotLeaders(ws []Word) []Word {
+	anyLeader, anyReal := false, false
+	for _, w := range ws {
+		if isDotLeader(w.S) {
+			anyLeader = true
+		} else {
+			anyReal = true
+		}
+	}
+	if !anyLeader || !anyReal {
+		return ws // nothing to trim, or a dot-only cell to preserve — no allocation
+	}
+	out := make([]Word, 0, len(ws)-1)
+	for _, w := range ws {
+		if !isDotLeader(w.S) {
+			out = append(out, w)
+		}
+	}
+	return out
 }

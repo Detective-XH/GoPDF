@@ -38,7 +38,9 @@ type Table struct {
 // Verbatim caveat: a superscript renders at a distinct vertical position and font size, so
 // it extracts as a spaced token (for example "cm²" becomes "cm 2"). This is specific to
 // Y-offset glyph transitions, not a general spacing artifact; cell content — the right
-// value in the right cell — is unaffected.
+// value in the right cell — is unaffected. A run of four or more leader dots ('.') that
+// visually connects a row label to its value is filler, not data, and is dropped from cell text;
+// a cell whose only content is such a run is preserved as-is.
 //
 // Experimental: the detection geometry and the Table type are additive-evolving, and the
 // reconstruction output may still change as extraction quality is stabilized across the
