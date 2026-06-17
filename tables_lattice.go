@@ -1008,7 +1008,129 @@ func reconstructGrid(cells []lCell, words []Word) [][]string {
 	for key, ws := range bucket {
 		grid[key[0]][key[1]] = joinReading(trimDotLeaders(ws))
 	}
-	return grid
+	return dropGutterColumns(grid, cells, colReps)
+}
+
+// A gutter column (a thin cell from a double-wall decorative border rect) is dropped only
+// when it is all-empty AND below BOTH of these gates — a column failing either is preserved:
+//
+//   - gutterFraction (relative): widest cell < gutterFraction × the table's median
+//     data-column width. Targets the actual gutter property — thin RELATIVE to siblings —
+//     so it is scale-robust across document sizes.
+//   - absoluteGutterCap (absolute ceiling): widest cell < absoluteGutterCap pt. A hard
+//     bound so a real, merely-narrow data column is never dropped just because wide sibling
+//     columns inflate the median (the relative-gate-only false-positive class).
+//
+// Measured on all committed fixtures (2026-06-18):
+//   - True gutter widths (double-wall border rects): 4.99–13.02 pt (EPA p1)
+//   - Narrowest real data columns: 24.65 pt (ERP tables), 28.44 pt (HHS-ASPE)
+//   - Normal data columns: 34–647 pt range
+//
+// The cap (16 pt) sits between max-gutter (13.02) and narrowest-real-column (24.65) with
+// margin on both sides; the relative gate (0.25) additionally guards uniformly-narrow tables.
+// A column must fall under both to be a gutter — far outside any observed real layout.
+const (
+	gutterFraction    = 0.25
+	absoluteGutterCap = 16.0
+)
+
+// dropGutterColumns removes columns that are entirely empty AND thin by BOTH the relative
+// (gutterFraction × median data-column width) and absolute (absoluteGutterCap) gates — a
+// gutter cell from a double-wall decorative border rect, e.g. on a report cover or nav
+// frame. A legitimately empty data column has normal width (relative to its neighbours and
+// in absolute terms) and is preserved. The grid is returned unchanged when no column
+// qualifies, or when dropping would leave no columns (degenerate frame guard).
+func dropGutterColumns(grid [][]string, cells []lCell, colReps []float64) [][]string {
+	if len(grid) == 0 || len(colReps) == 0 {
+		return grid
+	}
+	colW := columnWidths(cells, colReps)
+	empty := emptyColumns(grid, len(colReps))
+	median, ok := medianDataWidth(colW, empty)
+	if !ok {
+		return grid // no data columns to derive a threshold from — leave unchanged
+	}
+	threshold := gutterFraction * median
+	keep := make([]bool, len(colReps))
+	nKeep := 0
+	for cc := range colReps {
+		// Drop only if empty AND positive-width AND thin by BOTH the absolute cap
+		// and the relative (median-fraction) gate.
+		gutter := empty[cc] && colW[cc] > 0 && colW[cc] < absoluteGutterCap && colW[cc] < threshold
+		keep[cc] = !gutter
+		if keep[cc] {
+			nKeep++
+		}
+	}
+	if nKeep == len(colReps) || nKeep == 0 {
+		return grid // nothing to drop, or a drop would empty the grid
+	}
+	return compactColumns(grid, keep, nKeep)
+}
+
+// columnWidths returns the widest cell width per column, keyed by nearestIdx into
+// colReps. The widest-cell representative is conservative: a column counts as thin
+// only when even its widest cell is thin.
+func columnWidths(cells []lCell, colReps []float64) []float64 {
+	colW := make([]float64, len(colReps))
+	for _, c := range cells {
+		cc := nearestIdx(colReps, c.x0)
+		if w := c.x1 - c.x0; w > colW[cc] {
+			colW[cc] = w
+		}
+	}
+	return colW
+}
+
+// emptyColumns reports, per column index, whether every row is empty at that column.
+func emptyColumns(grid [][]string, nCols int) []bool {
+	empty := make([]bool, nCols)
+	for cc := range empty {
+		empty[cc] = true
+	}
+	for _, row := range grid {
+		for cc, cell := range row {
+			if cc < nCols && cell != "" {
+				empty[cc] = false
+			}
+		}
+	}
+	return empty
+}
+
+// medianDataWidth returns the median width over the non-empty (data) columns and
+// whether any data column exists.
+func medianDataWidth(colW []float64, empty []bool) (float64, bool) {
+	var dataWidths []float64
+	for cc, w := range colW {
+		if cc < len(empty) && !empty[cc] {
+			dataWidths = append(dataWidths, w)
+		}
+	}
+	if len(dataWidths) == 0 {
+		return 0, false
+	}
+	slices.Sort(dataWidths)
+	n := len(dataWidths)
+	if n%2 == 0 {
+		return (dataWidths[n/2-1] + dataWidths[n/2]) / 2, true
+	}
+	return dataWidths[n/2], true
+}
+
+// compactColumns rebuilds grid keeping only the columns marked keep[cc].
+func compactColumns(grid [][]string, keep []bool, nKeep int) [][]string {
+	out := make([][]string, len(grid))
+	for r, row := range grid {
+		kept := make([]string, 0, nKeep)
+		for cc, cell := range row {
+			if cc < len(keep) && keep[cc] {
+				kept = append(kept, cell)
+			}
+		}
+		out[r] = kept
+	}
+	return out
 }
 
 // trimDotLeaders drops tabular dot-leader filler words from a cell's word set, but ONLY when the

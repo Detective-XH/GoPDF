@@ -35,6 +35,13 @@ type Table struct {
 // An open edge column is recovered only where the table's row rules overhang into it; a
 // column whose rules stop at the inner vertical is not recovered (a safe omission).
 //
+// A thin, entirely empty column produced by a decorative double-wall border rule (the two
+// parallel walls of a frame, common on report cover and navigation pages) is dropped as a
+// layout artifact. The drop is gated on column width — both relative to the table's median
+// data column and an absolute ceiling — so a normal-width empty column is preserved; a real
+// data column narrower than that ceiling is, in the rare case it is also entirely blank on
+// the page, the documented limit of this best-effort cleanup.
+//
 // Verbatim caveat: a superscript renders at a distinct vertical position and font size, so
 // it extracts as a spaced token (for example "cm²" becomes "cm 2"). This is specific to
 // Y-offset glyph transitions, not a general spacing artifact; cell content — the right

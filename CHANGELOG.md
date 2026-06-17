@@ -38,6 +38,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `Page.Tables()` no longer emits phantom empty columns from **decorative double-wall borders**.
+  A frame drawn with two close-set parallel rules — common on report cover and navigation pages —
+  leaves a thin gap that the lattice detector turned into an entirely empty column in the grid (a
+  cover frame could reconstruct with eight such phantom columns). A thin, entirely empty gutter
+  column is now dropped. The drop is width-gated: a column is removed only when it is both entirely
+  empty AND narrow — below both a fraction of the table's median column width and an absolute
+  ceiling — so a legitimately empty, normal-width data column is always preserved. There is no API
+  change, and every ruled data table is unchanged.
+
 - `Page.Tables()` no longer emits tabular **dot-leader filler** — a run of four or more leader
   dots (`.`) that visually connects a row label to its value — into cell text. Such a run is page
   typography, not data: a Year label that previously extracted as `1973 ......................` now

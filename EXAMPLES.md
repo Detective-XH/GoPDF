@@ -675,6 +675,12 @@ half-open columns when the table's row rules overhang into them by more than 6 p
 the overhang contains at least two bands of words. A column whose rules stop at the inner
 vertical is not recovered (a safe omission).
 
+**Decorative border gutters:** a thin, entirely empty column produced by a *double-wall*
+border rule (the two close-set walls of a decorative frame, common on report covers and
+navigation pages) is dropped as a layout artifact, so it does not appear as a phantom empty
+column in the grid. The drop is width-gated — both relative to the table's median data
+column and an absolute ceiling — so a normal-width empty column is always preserved.
+
 **Error handling:** `Tables()` returns the same error type as `Words()`. A page with no
 extractable text returns `(nil, nil)`.
 
