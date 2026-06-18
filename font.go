@@ -155,6 +155,13 @@ func (f Font) getEncoder() (TextEncoding, encSource) {
 	if e := f.identityUCS2Encoder(toUnicode); e != nil {
 		return e, encSourceToUnicode
 	}
+	// A Type0 font with /Encoding /Identity-H|V, a genuine Adobe CID ordering (Japan1/…), and
+	// NO usable /ToUnicode has 2-byte codes that are CIDs (Identity ⇒ code==CID), not Unicode.
+	// Map them through the Adobe CID→Unicode table. adobeCIDToUnicodeTable's default→nil keeps
+	// the PR #71 Identity-ordering case and every non-Adobe font off this path.
+	if e := f.adobeOrderingCIDEncoder(); e != nil {
+		return e, encSourceCIDMap
+	}
 	enc := f.V.Key("Encoding")
 	switch enc.Kind() {
 	case Name:
@@ -313,6 +320,60 @@ func wantsIdentityUCS2(subtype, encName, toUniName, ordering string) bool {
 // isIdentityHVName reports whether n is the Identity-H or Identity-V CMap name.
 func isIdentityHVName(n string) bool {
 	return n == "Identity-H" || n == "Identity-V"
+}
+
+// adobeOrderingCIDEncoder returns an Adobe CID→Unicode decoder for a Type0 font whose /Encoding
+// is /Identity-H|V and whose DescendantFonts CIDSystemInfo identifies a supported Adobe CID
+// collection — /Registry (Adobe) AND a supported /Ordering (currently Japan1). Reached from
+// getEncoder ONLY when /ToUnicode is absent/unparseable and the PR #71 Name-Identity path
+// declined, so the 2-byte codes are CIDs. Returns nil (getEncoder continues unchanged) for any
+// other font. The Registry gate plus the ordering switch's default→nil are the FP-safety gates: a
+// custom collection that merely reuses the name "Japan1" under a non-Adobe registry, an Identity
+// ordering (PR #71's territory), and every non-Adobe font all fall through to nil.
+func (f Font) adobeOrderingCIDEncoder() TextEncoding {
+	// Cheap early-out for the common simple (non-composite) font — this runs on every encoder
+	// selection lacking a ToUnicode stream; the DescendantFonts/CIDSystemInfo walk must not be
+	// paid for a WinAnsi/TrueType font.
+	if f.V.Key("Subtype").Name() != "Type0" {
+		return nil
+	}
+	encName := f.V.Key("Encoding").Name()
+	if !isIdentityHVName(encName) {
+		return nil
+	}
+	// Registry+Ordering together name a CID collection: a non-Adobe registry that reuses the name
+	// "Japan1" is a DIFFERENT (custom) ordering whose CIDs the Adobe table would mis-decode, so
+	// require the genuine Adobe registry before trusting the ordering.
+	cidSystemInfo := f.V.Key("DescendantFonts").Index(0).Key("CIDSystemInfo")
+	if cidSystemInfo.Key("Registry").Text() != "Adobe" {
+		return nil
+	}
+	ordering := cidSystemInfo.Key("Ordering").Text()
+	table := adobeCIDToUnicodeTable(ordering)
+	if table == nil {
+		return nil
+	}
+	// Preserve the vertical-writing diagnostic that namedEncoder would otherwise have fired:
+	// this early return bypasses namedEncoder, the only other site that flags Identity-V.
+	if verticalWritingCMap(encName) {
+		f.V.warn(WarningVerticalWritingMode, fontRef(f)+": vertical writing-mode CMap "+clampDetail(encName))
+	}
+	f.V.warn(WarningFallbackEncoding,
+		fontRef(f)+": Adobe-"+ordering+" Identity CMap decoded via CID→Unicode map (no ToUnicode)")
+	return &adobeCIDEncoder{table: table}
+}
+
+// adobeCIDToUnicodeTable returns the CID→Unicode table for a supported Adobe ordering, or nil.
+// Extensible: GB1/CNS1/Korea1 slot in as new cases once their generated tables + fixtures land.
+// The default→nil is the FP-safety gate (excludes Ordering=="Identity" and all non-Adobe orderings
+// without an explicit "Identity" check).
+func adobeCIDToUnicodeTable(ordering string) []uint16 {
+	switch ordering {
+	case "Japan1":
+		return adobeJapan1CIDToUnicode
+	default:
+		return nil
+	}
 }
 
 // namedEncoder resolves a named /Encoding via encoderForCMapName, emits the

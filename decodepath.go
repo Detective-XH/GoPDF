@@ -3,7 +3,11 @@
 // mapping, …) and tally silently-unmapped glyphs, without extending the
 // TextEncoding interface. The per-page counters here feed the extraction quality
 // ratios; the classification mirrors the encoder-selection warnings 1:1 so a
-// counter and the warning that fires never disagree.
+// counter and the warning that fires never disagree. (encSourceCIDMap and
+// encSourceFallback both ride the WarningFallbackEncoding warning: the invariant
+// is that a counter and its warning never disagree, not a strict source↔warning
+// bijection — both belong to the "approximation, not the document's own
+// ToUnicode" family, encSourceCIDMap being the higher-confidence member.)
 
 package pdf
 
@@ -21,6 +25,7 @@ const (
 	encSourceDict                              // /Encoding dictionary (BaseEncoding + Differences)
 	encSourceUnsupported                       // unknown/odd /Encoding → PDFDocEncoding fallback
 	encSourceSimple                            // declared base byte encoding (WinAnsi/MacRoman/PDFDoc)
+	encSourceCIDMap                            // Adobe CID→Unicode table (Identity-H/V, no ToUnicode, Adobe ordering)
 	numEncSource
 )
 

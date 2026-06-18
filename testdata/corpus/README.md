@@ -237,6 +237,7 @@ they appear in `DocumentSummary().Warnings` / `Reader.Warnings()`, not in
 | `encoding/unknown-name.pdf` | unknown name → pdfDoc | text + `unsupported_encoding` | `unknown` |
 | `encoding/unmapped-glyph.pdf` | ToUnicode under-coverage | text, U+FFFD in output (silent) | `A` + U+FFFD |
 | `encoding/identity-tounicode-ucs2.pdf` | Type0 `/ToUnicode` AS A NAME `/Identity-H` (Identity ordering) → 2-byte codes are UCS-2 BE Unicode | text (no `missing_tounicode`; was garbled ~50% U+FFFD) | `Faktura Łódź` |
+| `encoding/cid-japan1-no-tounicode.pdf` | Type0 `/Identity-H`, Adobe-Japan1 ordering, **no** `/ToUnicode` → 2-byte codes are CIDs, decoded via the Adobe-Japan1 CID→Unicode map | text + `fallback_encoding` (was garbled) | `わたくしといふ現象` |
 | `geometry/rotated-90.pdf` | 90°-rotated Tm | text + `rotated_text` (FontSize→0) | — |
 | `geometry/vertical-cmap.pdf` | vertical `-V` CMap | text + `fallback_encoding` + `vertical_writing_mode` | — |
 | `geometry/page-rotate-90.pdf` | same Tm + page `/Rotate 90` | text, **no** `rotated_text` (/Rotate cancels it) | — |

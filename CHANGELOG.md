@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Fixed
+
+- Type0 CJK fonts that use `/Encoding /Identity-H` or `/Identity-V` with an Adobe-Japan1 CID
+  ordering (`/Registry (Adobe) /Ordering (Japan1)`) and **no `/ToUnicode`** are no longer garbled.
+  Their 2-byte show-string codes are Adobe-Japan1 CIDs, not Unicode; GoPDF now decodes them through
+  Adobe's published CID→Unicode table instead of mangling each CID into two replacement characters.
+  On real Japanese government/academic PDFs this took the U+FFFD replacement-character rate from
+  ~30–46% to 0, recovering coherent Japanese that matches an independent extractor character for
+  character. Font selection stays byte-identical for every other font: the path requires Type0 +
+  Identity-H/V + the genuine Adobe registry and ordering + no usable `/ToUnicode`, so private CID
+  collections, `Identity`-ordering fonts, and non-CJK fonts are unaffected. Vertical-writing fonts
+  still raise the vertical-writing-mode warning (reading order for vertical text is unchanged). The
+  Adobe-Japan1 mapping data is derived from Adobe's `cid2code.txt` (BSD-3-Clause; see `NOTICE`).
+
+### Changed
+
+- `DocumentSummary`'s `DecodeRatios.FallbackRatio` now also counts glyphs decoded through the Adobe
+  CID→Unicode table described above (it already counted predefined-CMap charset approximations).
+  Both decode paths share the `fallback_encoding` warning, so the ratio and the warning stay
+  consistent. Documents without such fonts are unaffected.
+
+---
+
 ## v0.8.1 — 2026-06-18
 
 ### Added

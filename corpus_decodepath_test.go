@@ -48,12 +48,13 @@ type decodePathExpect struct {
 // hypothesis: every encoding/ fixture extracts deterministic text and fires the
 // listed document-scoped warning; unmapped-glyph and rotated-90 are silent today.
 var decodePathExpectations = map[string]decodePathExpect{
-	"encoding/predefined-identity.pdf": {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningMissingToUnicode}},
-	"encoding/charset-shiftjis.pdf":    {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningFallbackEncoding}},
-	"encoding/ucs2-be.pdf":             {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningFallbackEncoding}},
-	"encoding/differences-partial.pdf": {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningMissingGlyphMapping}, detailSubstr: "Differences"},
-	"encoding/unknown-name.pdf":        {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningUnsupportedEncoding}},
-	"encoding/unmapped-glyph.pdf":      {signal: SignalText, hasUnmapped: true}, // silent today
+	"encoding/predefined-identity.pdf":     {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningMissingToUnicode}},
+	"encoding/charset-shiftjis.pdf":        {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningFallbackEncoding}},
+	"encoding/ucs2-be.pdf":                 {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningFallbackEncoding}},
+	"encoding/differences-partial.pdf":     {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningMissingGlyphMapping}, detailSubstr: "Differences"},
+	"encoding/unknown-name.pdf":            {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningUnsupportedEncoding}},
+	"encoding/unmapped-glyph.pdf":          {signal: SignalText, hasUnmapped: true}, // silent today
+	"encoding/cid-japan1-no-tounicode.pdf": {signal: SignalText, docWarnings: []ExtractionWarningCode{WarningFallbackEncoding}},
 	"geometry/rotated-90.pdf": {
 		signal: SignalText, degenerateRun: true, wantRotatedWarning: true,
 		notWarnings: []ExtractionWarningCode{WarningVerticalWritingMode},

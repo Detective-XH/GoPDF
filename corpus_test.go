@@ -311,6 +311,12 @@ var corpusManifest = []corpusEntry{
 		Purpose: "Type0 /Encoding /Identity-H with /ToUnicode AS A NAME /Identity-H (Identity ordering): 2-byte codes are UCS-2 BE Unicode → decoded directly (else garbled ~50% U+FFFD). Public-surface lock for the Identity-H ToUnicode-Name fix.",
 	},
 	{
+		Path: "encoding/cid-japan1-no-tounicode.pdf", Golden: "encoding/cid-japan1-no-tounicode.golden.txt",
+		Synthetic: true, Compare: compareExact, Feature: "signal-decode-path",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Type0 /Encoding /Identity-H, Adobe-Japan1 ordering, NO /ToUnicode: 2-byte codes are CIDs → decoded via the Adobe-Japan1 CID→Unicode map (encSourceCIDMap), else garbled. Public-surface lock for the CID-map fix.",
+	},
+	{
 		Path: "encoding/differences-partial.pdf", Golden: "encoding/differences-partial.golden.txt",
 		Synthetic: true, Compare: compareExact, Feature: "signal-decode-path",
 		Source: "synthetic", License: "synthetic",

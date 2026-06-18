@@ -603,17 +603,24 @@ func TestFontGetEncoderIdentityToUnicodeUCS2(t *testing.T) {
 	}
 }
 
-// TestFontGetEncoderIdentityCJKOrderingNotUCS2 is the FP-safety end-to-end negative: a Type0
-// Identity-H font with the SAME ToUnicode-as-Name shape but an Adobe-Japan1 ordering (a genuine
-// CJK CIDFont) must NOT be UCS-2-decoded — it stays on the missing-ToUnicode byte path.
+// TestFontGetEncoderIdentityCJKOrderingNotUCS2 is the FP-safety check separating the PR #71
+// UCS-2 case (Ordering "Identity") from a genuine Adobe-Japan1 CIDFont: a Type0 Identity-H font
+// with a ToUnicode-as-Name shape but an Adobe-Japan1 ordering must NOT be UCS-2-decoded. Since the
+// Adobe-Japan1 CID→Unicode table shipped, such a font (whose codes are CIDs, and whose Name
+// /ToUnicode /Identity-H is not a usable CMap) is now recovered through the CID→Unicode map
+// (encSourceCIDMap) instead of being left to garble on the missing-ToUnicode byte path — strictly
+// better, and still never the ucs2BEEncoder path.
 func TestFontGetEncoderIdentityCJKOrderingNotUCS2(t *testing.T) {
 	font := fontTestFontValue(fontTestEmptyReader(), identityUCS2FontDict("Identity-H", "Japan1"))
 	enc, src := font.getEncoder()
 	if _, ok := enc.(*ucs2BEEncoder); ok {
 		t.Fatalf("Adobe-Japan1 CIDFont was UCS-2-decoded; the ordering FP-guard failed")
 	}
-	if src != encSourceMissingToUnicode {
-		t.Errorf("encSource = %v, want encSourceMissingToUnicode (existing CJK path)", src)
+	if _, ok := enc.(*adobeCIDEncoder); !ok {
+		t.Fatalf("getEncoder returned %T, want *adobeCIDEncoder (Adobe-Japan1 CID→Unicode recovery)", enc)
+	}
+	if src != encSourceCIDMap {
+		t.Errorf("encSource = %v, want encSourceCIDMap", src)
 	}
 }
 
@@ -641,6 +648,183 @@ func TestFontGetEncoderIdentityNoToUnicodeNotUCS2(t *testing.T) {
 	enc, src := font.getEncoder()
 	if _, ok := enc.(*ucs2BEEncoder); ok {
 		t.Fatalf("Identity-H without ToUnicode was UCS-2-decoded; ToUnicode-Name gate failed")
+	}
+	if src != encSourceMissingToUnicode {
+		t.Errorf("encSource = %v, want encSourceMissingToUnicode", src)
+	}
+}
+
+// adobeCIDFontDict builds a Type0 font dict with /Encoding <enc>, the given CIDSystemInfo
+// ordering, and (optionally) a /ToUnicode Name. No /ToUnicode key when toUni == "".
+func adobeCIDFontDict(enc, toUni, ordering string) dict {
+	descendant := dict{
+		name("Subtype"): name("CIDFontType0"),
+		name("CIDSystemInfo"): dict{
+			name("Registry"):   "Adobe",
+			name("Ordering"):   ordering,
+			name("Supplement"): int64(2),
+		},
+	}
+	d := dict{
+		name("Subtype"):         name("Type0"),
+		name("Encoding"):        name(enc),
+		name("DescendantFonts"): array{descendant},
+	}
+	if toUni != "" {
+		d[name("ToUnicode")] = name(toUni)
+	}
+	return d
+}
+
+// TestFontGetEncoderAdobeJapan1CIDMap: Type0 Identity-H, Japan1 ordering, NO ToUnicode →
+// dispatches to *adobeCIDEncoder with encSourceCIDMap and decodes a known CID to its Unicode.
+func TestFontGetEncoderAdobeJapan1CIDMap(t *testing.T) {
+	font := fontTestFontValue(fontTestEmptyReader(), adobeCIDFontDict("Identity-H", "", "Japan1"))
+	enc, src := font.getEncoder()
+	ce, ok := enc.(*adobeCIDEncoder)
+	if !ok {
+		t.Fatalf("getEncoder returned %T, want *adobeCIDEncoder", enc)
+	}
+	if src != encSourceCIDMap {
+		t.Errorf("encSource = %v, want encSourceCIDMap", src)
+	}
+	// CID 2434 (0x0982) → 序 (U+5E8F) in the committed Adobe-Japan1 table.
+	if got := ce.Decode("\x09\x82"); got != "序" {
+		t.Errorf("Decode(CID 2434) = %q, want %q", got, "序")
+	}
+}
+
+// TestFontGetEncoderAdobeJapan1IdentityVPreservesVerticalWarning: Identity-V + Japan1 + no
+// ToUnicode → CID map AND WarningVerticalWritingMode still fires (the early return must not drop it).
+func TestFontGetEncoderAdobeJapan1IdentityVPreservesVerticalWarning(t *testing.T) {
+	r := fontTestEmptyReader()
+	font := fontTestFontValue(r, adobeCIDFontDict("Identity-V", "", "Japan1"))
+	enc, src := font.getEncoder()
+	if _, ok := enc.(*adobeCIDEncoder); !ok {
+		t.Fatalf("getEncoder returned %T, want *adobeCIDEncoder", enc)
+	}
+	if src != encSourceCIDMap {
+		t.Errorf("encSource = %v, want encSourceCIDMap", src)
+	}
+	if !hasWarning(r.Warnings(), WarningVerticalWritingMode) {
+		t.Errorf("Identity-V matched the CID map but WarningVerticalWritingMode was dropped")
+	}
+}
+
+// TestFontGetEncoderIdentityOrderingNotCIDMap: Ordering=="Identity" is PR #71's territory — it
+// must NOT reach the CID map. With ToUnicode absent it stays on the missing-ToUnicode byte path.
+func TestFontGetEncoderIdentityOrderingNotCIDMap(t *testing.T) {
+	font := fontTestFontValue(fontTestEmptyReader(), adobeCIDFontDict("Identity-H", "", "Identity"))
+	enc, src := font.getEncoder()
+	if _, ok := enc.(*adobeCIDEncoder); ok {
+		t.Fatalf("Identity ordering reached the CID map; mutual-exclusion with PR #71 failed")
+	}
+	if src != encSourceMissingToUnicode {
+		t.Errorf("encSource = %v, want encSourceMissingToUnicode", src)
+	}
+}
+
+// TestFontGetEncoderUnsupportedOrderingNotCIDMap: GB1/CNS1/Korea1/absent are out of v1 scope →
+// nil table → stay on the existing missing-ToUnicode path.
+func TestFontGetEncoderUnsupportedOrderingNotCIDMap(t *testing.T) {
+	for _, ord := range []string{"GB1", "CNS1", "Korea1", "" /* absent */} {
+		font := fontTestFontValue(fontTestEmptyReader(), adobeCIDFontDict("Identity-H", "", ord))
+		enc, src := font.getEncoder()
+		if _, ok := enc.(*adobeCIDEncoder); ok {
+			t.Fatalf("ordering %q reached the CID map (out of v1 scope)", ord)
+		}
+		if src != encSourceMissingToUnicode {
+			t.Errorf("ordering %q: encSource = %v, want encSourceMissingToUnicode", ord, src)
+		}
+	}
+}
+
+// TestFontGetEncoderJapan1WithToUnicodeStreamWins: a Japan1 font WITH a parseable /ToUnicode
+// stream must take the ToUnicode path (encSourceToUnicode), never the CID map.
+func TestFontGetEncoderJapan1WithToUnicodeStreamWins(t *testing.T) {
+	toUni := fontTestCMapStream([]byte(fontTestBuildCMap(0x48, 'H')))
+	descendant := dict{
+		name("Subtype"): name("CIDFontType0"),
+		name("CIDSystemInfo"): dict{
+			name("Registry"): "Adobe", name("Ordering"): "Japan1", name("Supplement"): int64(2),
+		},
+	}
+	fontDict := dict{
+		name("Subtype"):         name("Type0"),
+		name("Encoding"):        name("Identity-H"),
+		name("DescendantFonts"): array{descendant},
+		name("ToUnicode"):       toUni.data,
+	}
+	font := Font{V: Value{toUni.r, objptr{}, fontDict}}
+	enc, src := font.getEncoder()
+	if _, ok := enc.(*adobeCIDEncoder); ok {
+		t.Fatalf("Japan1 font with a parseable ToUnicode stream reached the CID map; ToUnicode must win")
+	}
+	if src != encSourceToUnicode {
+		t.Errorf("encSource = %v, want encSourceToUnicode", src)
+	}
+}
+
+// TestFontGetEncoderSimpleFontNotCIDMap: a non-Type0 font early-outs (Type1/TrueType).
+func TestFontGetEncoderSimpleFontNotCIDMap(t *testing.T) {
+	d := dict{name("Subtype"): name("TrueType"), name("Encoding"): name("Identity-H")}
+	font := fontTestFontValue(fontTestEmptyReader(), d)
+	if enc, _ := font.getEncoder(); func() bool { _, ok := enc.(*adobeCIDEncoder); return ok }() {
+		t.Fatalf("simple font reached the CID map")
+	}
+}
+
+// TestAdobeJapan1CIDToUnicodeKnownPairs is the CI lock on table correctness: CID→rune pairs whose
+// rune is confirmed by pdftotext (an independent engine) on the rendered jo.pdf and whose CID is
+// the raw 2-byte stream value — NEITHER side is read from the table under test, so a wrong-column
+// or off-by-one generator bug fails here. Stable global Adobe-Japan1 data; runs in CI.
+func TestAdobeJapan1CIDToUnicodeKnownPairs(t *testing.T) {
+	pairs := []struct {
+		cid  uint16
+		want rune
+	}{
+		{2434, '序'}, {920, 'わ'}, {872, 'た'}, {856, 'く'}, {864, 'し'},
+		{881, 'と'}, {845, 'い'}, {894, 'ふ'}, {1905, '現'}, {2501, '象'},
+		{888, 'は'}, {1824, '景'}, {7923, 'っ'}, {7926, 'ょ'},
+		// Radical-skip lock: these CIDs are "radical,ideograph" in cid2code (e.g. CID 1200 =
+		// "2f00,4e00"); without the non-radical preference the table would map them to the Kangxi
+		// radical (⼀ U+2F00), not the unified ideograph. pdftotext emits the ideographs on
+		// jo/nlp2004/kampo (一/日/人 all present), so this stays an independent-engine anchor.
+		{1200, '一'}, {3284, '日'}, {2579, '人'},
+	}
+	for _, p := range pairs {
+		got := rune(0)
+		if int(p.cid) < len(adobeJapan1CIDToUnicode) {
+			got = rune(adobeJapan1CIDToUnicode[p.cid])
+		}
+		if got != p.want {
+			t.Errorf("adobeJapan1CIDToUnicode[%d] = U+%04X, want %q (U+%04X)", p.cid, got, p.want, p.want)
+		}
+	}
+}
+
+// TestFontGetEncoderNonAdobeRegistryNotCIDMap is the FP-safety guard that a custom CID
+// collection reusing the ordering name "Japan1" under a non-Adobe /Registry does NOT reach the
+// Adobe-Japan1 table — Registry+Ordering together name a collection, so a non-Adobe registry is a
+// different (custom) ordering whose CIDs the Adobe table would mis-decode.
+func TestFontGetEncoderNonAdobeRegistryNotCIDMap(t *testing.T) {
+	descendant := dict{
+		name("Subtype"): name("CIDFontType0"),
+		name("CIDSystemInfo"): dict{
+			name("Registry"):   "Custom",
+			name("Ordering"):   "Japan1",
+			name("Supplement"): int64(0),
+		},
+	}
+	d := dict{
+		name("Subtype"):         name("Type0"),
+		name("Encoding"):        name("Identity-H"),
+		name("DescendantFonts"): array{descendant},
+	}
+	font := fontTestFontValue(fontTestEmptyReader(), d)
+	enc, src := font.getEncoder()
+	if _, ok := enc.(*adobeCIDEncoder); ok {
+		t.Fatalf("non-Adobe registry reached the CID map; Registry FP-guard failed")
 	}
 	if src != encSourceMissingToUnicode {
 		t.Errorf("encSource = %v, want encSourceMissingToUnicode", src)

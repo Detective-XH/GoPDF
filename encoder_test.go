@@ -357,3 +357,30 @@ func TestEncoderMacRomanMultiByte(t *testing.T) {
 	// 0x80 (U+00C4 Ä) + 0x41 ('A') + 0xB9 (U+03C0 π)
 	encoderAssertDecode(t, enc, "\x80\x41\xB9", "ÄAπ")
 }
+
+// TestEncoderAdobeCID covers the adobeCIDEncoder decode contract on a tiny inline table:
+// known CIDs → runes, zero-entry and out-of-range CID → U+FFFD, odd trailing byte ignored.
+func TestEncoderAdobeCID(t *testing.T) {
+	enc := &adobeCIDEncoder{table: []uint16{0, 0x65E5, 0, 0x672C}} // CID1→日, CID3→本; CID0/2 unmapped
+	if got := enc.Decode("\x00\x01"); got != "日" {
+		t.Errorf("Decode(CID 1) = %q, want 日", got)
+	}
+	if got := enc.Decode("\x00\x03"); got != "本" {
+		t.Errorf("Decode(CID 3) = %q, want 本", got)
+	}
+	if got := enc.Decode("\x00\x01\x00\x03"); got != "日本" {
+		t.Errorf("Decode(CID 1,3) = %q, want 日本", got)
+	}
+	if got := enc.Decode("\x00\x02"); got != string(noRune) {
+		t.Errorf("Decode(zero-entry CID 2) = %q, want U+FFFD", got)
+	}
+	if got := enc.Decode("\xff\xff"); got != string(noRune) {
+		t.Errorf("Decode(out-of-range CID) = %q, want U+FFFD", got)
+	}
+	if got := enc.Decode("\x00\x01\x00"); got != "日" {
+		t.Errorf("Decode(odd trailing byte) = %q, want 日", got)
+	}
+	if got := enc.Decode(""); got != "" {
+		t.Errorf("Decode(empty) = %q, want empty", got)
+	}
+}
