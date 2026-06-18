@@ -526,3 +526,123 @@ func TestFontGetEncoderDebugUnexpectedKind(t *testing.T) {
 		t.Errorf("unexpected-kind fallback (DebugOn): Decode(%q) = %q; want %q", "OK", got, "OK")
 	}
 }
+
+// ---- Identity-H /ToUnicode-as-Name → UCS-2 BE -------------------------------
+
+// TestWantsIdentityUCS2 locks the FP-safety discriminator: ONLY a Type0 font with
+// Identity-H|V encoding AND ToUnicode-as-Name Identity-H|V AND an Identity/absent ordering
+// dispatches to the UCS-2 BE decoder. The Japan1/GB1/CNS1/Korea1 rows are the load-bearing
+// negatives — a genuine CJK CIDFont (Identity-H codes are CIDs, not Unicode) must NOT match.
+func TestWantsIdentityUCS2(t *testing.T) {
+	cases := []struct {
+		name                              string
+		subtype, encName, toUni, ordering string
+		want                              bool
+	}{
+		{"positive identity ordering", "Type0", "Identity-H", "Identity-H", "Identity", true},
+		{"positive vertical", "Type0", "Identity-V", "Identity-V", "Identity", true},
+		{"absent/malformed ordering excluded", "Type0", "Identity-H", "Identity-H", "", false},
+		{"CJK Adobe-Japan1 excluded", "Type0", "Identity-H", "Identity-H", "Japan1", false},
+		{"CJK Adobe-GB1 excluded", "Type0", "Identity-H", "Identity-H", "GB1", false},
+		{"CJK Adobe-CNS1 excluded", "Type0", "Identity-H", "Identity-H", "CNS1", false},
+		{"CJK Adobe-Korea1 excluded", "Type0", "Identity-H", "Identity-H", "Korea1", false},
+		{"ToUnicode absent (real CJK-no-ToUnicode pattern)", "Type0", "Identity-H", "", "Identity", false},
+		{"non-Identity encoding", "Type0", "WinAnsiEncoding", "Identity-H", "Identity", false},
+		{"simple font excluded", "TrueType", "Identity-H", "Identity-H", "Identity", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := wantsIdentityUCS2(tc.subtype, tc.encName, tc.toUni, tc.ordering); got != tc.want {
+				t.Errorf("wantsIdentityUCS2(%q,%q,%q,%q) = %v, want %v",
+					tc.subtype, tc.encName, tc.toUni, tc.ordering, got, tc.want)
+			}
+		})
+	}
+}
+
+// identityUCS2FontDict builds a Type0 font dict with the given CIDSystemInfo ordering,
+// /Encoding /Identity-H and /ToUnicode <toUni> (a Name; omitted when toUni == ""). Mirrors
+// the effectiveWidth-test idiom (direct dicts, empty Reader).
+func identityUCS2FontDict(toUni, ordering string) dict {
+	descendant := dict{
+		name("Subtype"): name("CIDFontType2"),
+		name("CIDSystemInfo"): dict{
+			name("Registry"):   "Adobe",
+			name("Ordering"):   ordering,
+			name("Supplement"): int64(0),
+		},
+	}
+	d := dict{
+		name("Subtype"):         name("Type0"),
+		name("Encoding"):        name("Identity-H"),
+		name("DescendantFonts"): array{descendant},
+	}
+	if toUni != "" {
+		d[name("ToUnicode")] = name(toUni)
+	}
+	return d
+}
+
+// TestFontGetEncoderIdentityToUnicodeUCS2 verifies the positive path end-to-end through
+// getEncoder: an Identity ToUnicode-as-Name Type0 font decodes its 2-byte codes as UCS-2 BE.
+func TestFontGetEncoderIdentityToUnicodeUCS2(t *testing.T) {
+	font := fontTestFontValue(fontTestEmptyReader(), identityUCS2FontDict("Identity-H", "Identity"))
+	enc, src := font.getEncoder()
+	if _, ok := enc.(*ucs2BEEncoder); !ok {
+		t.Fatalf("getEncoder returned %T, want *ucs2BEEncoder", enc)
+	}
+	if src != encSourceToUnicode {
+		t.Errorf("encSource = %v, want encSourceToUnicode", src)
+	}
+	if got := enc.Decode("\x00H\x00i"); got != "Hi" {
+		t.Errorf("Decode(UCS-2 BE 'Hi') = %q, want %q", got, "Hi")
+	}
+	// High-byte path (diacritics): U+0141 U+00F3 U+0064 U+017A = "Łódź".
+	if got := enc.Decode("\x01\x41\x00\xf3\x00\x64\x01\x7a"); got != "Łódź" {
+		t.Errorf("Decode(UCS-2 BE 'Łódź') = %q, want %q", got, "Łódź")
+	}
+}
+
+// TestFontGetEncoderIdentityCJKOrderingNotUCS2 is the FP-safety end-to-end negative: a Type0
+// Identity-H font with the SAME ToUnicode-as-Name shape but an Adobe-Japan1 ordering (a genuine
+// CJK CIDFont) must NOT be UCS-2-decoded — it stays on the missing-ToUnicode byte path.
+func TestFontGetEncoderIdentityCJKOrderingNotUCS2(t *testing.T) {
+	font := fontTestFontValue(fontTestEmptyReader(), identityUCS2FontDict("Identity-H", "Japan1"))
+	enc, src := font.getEncoder()
+	if _, ok := enc.(*ucs2BEEncoder); ok {
+		t.Fatalf("Adobe-Japan1 CIDFont was UCS-2-decoded; the ordering FP-guard failed")
+	}
+	if src != encSourceMissingToUnicode {
+		t.Errorf("encSource = %v, want encSourceMissingToUnicode (existing CJK path)", src)
+	}
+}
+
+// TestFontGetEncoderIdentityAbsentOrderingNotUCS2 is the codex-HIGH FP guard: a Type0
+// Identity-H font with /ToUnicode /Identity-H (Name) but NO usable CIDSystemInfo /Ordering
+// (chained Key/Index collapses missing DescendantFonts / CIDSystemInfo / Ordering to "") must
+// NOT be UCS-2-decoded — an incompletely-described CJK CIDFont whose codes are CIDs would
+// otherwise be garbled. Requires explicit Ordering == "Identity".
+func TestFontGetEncoderIdentityAbsentOrderingNotUCS2(t *testing.T) {
+	font := fontTestFontValue(fontTestEmptyReader(), identityUCS2FontDict("Identity-H", ""))
+	enc, src := font.getEncoder()
+	if _, ok := enc.(*ucs2BEEncoder); ok {
+		t.Fatalf("Identity-H with absent /Ordering was UCS-2-decoded; the explicit-Identity gate failed")
+	}
+	if src != encSourceMissingToUnicode {
+		t.Errorf("encSource = %v, want encSourceMissingToUnicode", src)
+	}
+}
+
+// TestFontGetEncoderIdentityNoToUnicodeNotUCS2 covers the real CJK-without-ToUnicode pattern:
+// Identity-H + Identity ordering but NO ToUnicode → must stay on the missing-ToUnicode path
+// (the ToUnicode-is-Name signal is the producer's explicit "codes are Unicode" claim).
+func TestFontGetEncoderIdentityNoToUnicodeNotUCS2(t *testing.T) {
+	font := fontTestFontValue(fontTestEmptyReader(), identityUCS2FontDict("", "Identity"))
+	enc, src := font.getEncoder()
+	if _, ok := enc.(*ucs2BEEncoder); ok {
+		t.Fatalf("Identity-H without ToUnicode was UCS-2-decoded; ToUnicode-Name gate failed")
+	}
+	if src != encSourceMissingToUnicode {
+		t.Errorf("encSource = %v, want encSourceMissingToUnicode", src)
+	}
+}

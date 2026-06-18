@@ -148,6 +148,13 @@ func (f Font) getEncoder() (TextEncoding, encSource) {
 		}
 		f.V.warn(WarningMissingToUnicode, fontRef(f)+": ToUnicode CMap failed to parse")
 	}
+	// A Type0 font that declares /ToUnicode /Identity-H (or -V) as a NAME (not a stream)
+	// is a real producer pattern (e.g. some LibreOffice/FreeType output): its 2-byte codes
+	// are UCS-2 big-endian Unicode, not glyph/CID indices. Decode them directly. The
+	// dual gate (wantsIdentityUCS2) keeps genuine CJK CIDFonts off this path.
+	if e := f.identityUCS2Encoder(toUnicode); e != nil {
+		return e, encSourceToUnicode
+	}
 	enc := f.V.Key("Encoding")
 	switch enc.Kind() {
 	case Name:
@@ -262,6 +269,50 @@ func fallbackBaseTable(base Value) [256]rune {
 // the name: a "-V" suffix is vertical; "-H" (or no suffix) is horizontal.
 func verticalWritingCMap(name string) bool {
 	return strings.HasSuffix(name, "-V")
+}
+
+// identityUCS2Encoder returns a UCS-2 big-endian decoder for the (nonstandard but real)
+// pattern where a Type0 font declares /Encoding /Identity-H (2-byte codes) and /ToUnicode
+// /Identity-H AS A NAME, signalling that its 2-byte codes are UCS-2 BE Unicode code points
+// rather than glyph/CID indices. Returns nil (getEncoder continues unchanged) unless every
+// gate in wantsIdentityUCS2 passes. Without this, getEncoder falls through to the byte path
+// and decodes each 2-byte code as two 1-byte codes (the high byte -> U+FFFD), garbling the
+// entire document.
+func (f Font) identityUCS2Encoder(toUnicode Value) TextEncoding {
+	// Cheap early-out for the common simple (non-composite) font: this branch runs on
+	// every encoder selection that lacks a ToUnicode stream, so the DescendantFonts/
+	// CIDSystemInfo walk must not be paid for a WinAnsi/TrueType font.
+	if f.V.Key("Subtype").Name() != "Type0" {
+		return nil
+	}
+	ordering := f.V.Key("DescendantFonts").Index(0).Key("CIDSystemInfo").Key("Ordering").Text()
+	if wantsIdentityUCS2("Type0", f.V.Key("Encoding").Name(), toUnicode.Name(), ordering) {
+		return &ucs2BEEncoder{}
+	}
+	return nil
+}
+
+// wantsIdentityUCS2 is the FP-safety discriminator for identityUCS2Encoder. All four gates
+// must hold: a Type0 font (composite, 2-byte-capable); /Encoding Identity-H|V (2-byte codes);
+// /ToUnicode Identity-H|V as a Name (the "codes are Unicode" producer signal); and an EXPLICIT
+// Identity CIDSystemInfo ordering. The ordering gate is load-bearing and requires the literal
+// "Identity" — an ABSENT or malformed /Ordering (chained Key/Index collapses all of those to "")
+// is NOT trusted, because a genuine but incompletely-described CJK CIDFont (Adobe-Japan1/GB1/
+// CNS1/Korea1) whose Identity-H codes are CIDs could otherwise slip through and be garbled as
+// if its CIDs were Unicode. A real CJK CIDFont fails the ToUnicode-is-Name gate (its /ToUnicode
+// is absent) AND, even if mislabelled, the explicit-Identity-ordering gate, so it stays on the
+// missing-ToUnicode path with its WarningMissingToUnicode. (Reopen trigger: real evidence of a
+// producer that omits /Ordering yet needs this path.)
+func wantsIdentityUCS2(subtype, encName, toUniName, ordering string) bool {
+	return subtype == "Type0" &&
+		isIdentityHVName(encName) &&
+		isIdentityHVName(toUniName) &&
+		ordering == "Identity"
+}
+
+// isIdentityHVName reports whether n is the Identity-H or Identity-V CMap name.
+func isIdentityHVName(n string) bool {
+	return n == "Identity-H" || n == "Identity-V"
 }
 
 // namedEncoder resolves a named /Encoding via encoderForCMapName, emits the
