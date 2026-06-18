@@ -35,13 +35,10 @@ func recoverIntentionalParserPanic(t *testing.T) {
 	if r == nil {
 		return
 	}
-	if _, ok := r.(runtime.Error); ok {
-		panic(r) // genuine runtime fault — let the fuzz engine flag it
+	if !isIntentionalParserPanic(r) {
+		panic(r) // genuine runtime fault or unknown value — let the fuzz engine flag it
 	}
-	if _, ok := r.(error); ok {
-		return // intentional errorf(error) panic on malformed input — expected
-	}
-	panic(r) // unknown panic value — treat conservatively as a real fault
+	// intentional errorf(error) panic on malformed input — expected, swallow.
 }
 
 // indexInto reads s[i]. It is a separate function so the static analyzers

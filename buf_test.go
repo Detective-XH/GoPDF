@@ -286,3 +286,35 @@ func TestBufNewBuffer(t *testing.T) {
 		t.Error("newBuffer: allowStream should be true")
 	}
 }
+
+// TestBufIsIntentionalParserPanic locks the discriminator that parser recover
+// boundaries (cachedReadCmap, the fuzz shim) depend on: ONLY the lexer's
+// intentional errorf(error) signal may be swallowed. A runtime fault or any
+// non-error panic value must be reported as NOT intentional, so the boundary
+// re-panics it and a genuine bug fails loudly instead of masquerading as
+// malformed input.
+func TestBufIsIntentionalParserPanic(t *testing.T) {
+	// A plain error (what buffer.errorf raises) is the intentional signal.
+	if !isIntentionalParserPanic(errors.New("malformed input")) {
+		t.Error("plain error must be classified intentional (swallowed)")
+	}
+
+	// A runtime.Error (a real out-of-range fault via indexInto, which survives
+	// static analysis) is a genuine bug and must NOT be classified intentional.
+	var rec any
+	func() {
+		defer func() { rec = recover() }()
+		_ = indexInto([]int{}, 1)
+	}()
+	if rec == nil {
+		t.Fatal("expected a runtime panic to capture")
+	}
+	if isIntentionalParserPanic(rec) {
+		t.Errorf("runtime.Error (%T) must NOT be classified intentional", rec)
+	}
+
+	// A non-error panic value (a bare string) is unexpected and must re-panic.
+	if isIntentionalParserPanic("bare string") {
+		t.Error("non-error panic value must NOT be classified intentional")
+	}
+}

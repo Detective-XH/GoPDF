@@ -5,6 +5,7 @@
 package pdf
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -105,7 +106,17 @@ func (f *Font) cachedEncoder() (TextEncoding, encSource) {
 // Reader is reachable (a detached Font value) or the stream has no stable object
 // pointer (always indirect in a conformant PDF, but a zero ptr is guarded so a
 // pathological direct stream can never alias the cache).
-func (f Font) cachedReadCmap(toUnicode Value) *cmap {
+func (f Font) cachedReadCmap(toUnicode Value) (m *cmap) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			if !isIntentionalParserPanic(rec) {
+				panic(rec) // runtime fault or unknown value — a real bug, fail loudly
+			}
+			f.V.warn(WarningMalformedToUnicode,
+				fontRef(f)+": ToUnicode CMap parse panicked: "+fmt.Sprintf("%v", rec))
+			m = nil
+		}
+	}()
 	r := f.V.r
 	if r == nil || toUnicode.ptr == (objptr{}) {
 		return readCmap(toUnicode)

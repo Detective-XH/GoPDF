@@ -426,3 +426,24 @@ func TestObjectMaybeDecryptTokenRC4(t *testing.T) {
 		t.Errorf("maybeDecryptToken RC4 round-trip: got %q, want %q", decrypted, original)
 	}
 }
+
+// malformedDictInner is the inner content of the malformed /CIDSystemInfo
+// dict literal: a stray bare "def" keyword in key-position after the first
+// key-value pair. This is what readDict sees after the leading "<<" is
+// already consumed. Both the direct unit test and the fixture builder
+// reference this constant to guarantee they exercise the same bytes.
+const malformedDictInner = `/Registry (Adobe) def /Ordering (UCS) /Supplement 0 >>`
+
+// TestReadDictMalformedCMapKeyPanics verifies that the stray "def" keyword
+// in key-position inside a CMap /CIDSystemInfo dict literal causes readDict
+// to panic (via buffer.errorf). This is the low-level mechanism that
+// cachedReadCmap's recover catches. The constant malformedDictInner is shared
+// with buildMalformedToUnicodePDF so both tests exercise the same bytes.
+func TestReadDictMalformedCMapKeyPanics(t *testing.T) {
+	// readDict is called after "<<" is consumed; feed only the inner content.
+	b := objectMakeBuffer([]byte(malformedDictInner))
+	err := objectPanicToError(func() { b.readDict() })
+	if err == nil {
+		t.Error("readDict on malformed CMap dict inner bytes: expected panic, got none")
+	}
+}
