@@ -213,8 +213,8 @@ func parseCellGrid(data []byte) (cellGrid, error) {
 // "group-ruled+banded", "borderless"). heldOut marks a fixture that is NOT a
 // threshold-tuning source: the held-out set is the per-class quality corpus
 // scored by TestPublicTablesQualityCorpus. The 3 tuned fixtures
-// (epa-egrid2022-t1, irs-soi-inpre-t1-2022, nist-hb44-appc-2026) and the two
-// integrity-only fixtures (irs-db, eia-aer) carry heldOut=false; deriving
+// (epa-egrid2022-t1, irs-soi-inpre-t1-2022, nist-hb44-appc-2026) and the three
+// integrity-only fixtures (irs-db, eia-aer, bea-scb-gdp) carry heldOut=false; deriving
 // qualityFixtures by filtering heldOut makes orphan held-out entries
 // impossible by construction.
 type cellgridFixture struct {
@@ -250,6 +250,12 @@ var cellgridFixtures = []cellgridFixture{
 		sourcePDF: "tables/eia-aer-t3-1-2011.pdf",
 		rows:      45, cols: 10, headerRows: 2,
 		class: "group-ruled+banded", heldOut: false, // integrity-only (banded; no accuracy consumer yet)
+	},
+	{
+		path:      "tables/bea-scb-gdp-2024-t1.cellgrid.tsv",
+		sourcePDF: "tables/bea-scb-gdp-2024-t1.pdf",
+		rows:      36, cols: 11, headerRows: 3,
+		class: "group-ruled+banded", heldOut: false, // 2nd banded fixture, cross-publisher (BEA, not EIA); integrity-only held-out target, no accuracy consumer yet
 	},
 	{
 		path:      "tables/epa-egrid2022-t1.cellgrid.tsv",
