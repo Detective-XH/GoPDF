@@ -1,0 +1,40 @@
+# cellgrid v1
+# source=bea-scb-gdp-2024-t1 | pdf_page=1 | dims=36x11 | header_rows=3
+# values=as-printed | companion=none (blind-authored from the rendered page; values cross-verified by two independent transcribers, sample 11 of 33 data rows at 100% agreement)
+# model=11 cols: Line / Series / Share of current-dollar GDP (percent; 2024 Q4) / Change from preceding period (percent; 2024 Q1-Q4) x4 / Contribution to percent change in real GDP (percentage points; 2024 Q1-Q4) x4. Three-tier header (header_rows=3): tier1 group labels in the leftmost spanned col (others empty); tier2 year "2024" banner over the two quarterly groups placed in col4, with the Share col carrying no year cell; tier3 quarter labels Q4 then Q1-Q4 then Q1-Q4; Line and Series span all header tiers (text in tier1, empty below). Negatives normalized to ASCII "-" (printed glyph is a visually-ambiguous minus/en-dash); "---" is not-available as printed; footnote superscripts rendered as [n] (GDP[1], GDI[2]); series-label indentation trimmed uniformly; "Addenda:" is a full-width section-label row with empty data cells; bold rows transcribed as plain text.
+Line	Series	Share of current-dollar GDP (percent)	Change from preceding period (percent)				Contribution to percent change in real GDP (percentage points)			
+			2024							
+		Q4	Q1	Q2	Q3	Q4	Q1	Q2	Q3	Q4
+1	GDP[1]	100.0	1.6	3.0	3.1	2.4	1.6	3.0	3.1	2.4
+2	Personal consumption expenditures	68.1	1.9	2.8	3.7	4.0	1.30	1.90	2.48	2.70
+3	Goods	21.4	-1.2	3.0	5.6	6.2	-0.25	0.63	1.18	1.30
+4	Durable goods	7.5	-1.8	5.5	7.6	12.4	-0.13	0.40	0.54	0.87
+5	Nondurable goods	13.9	-0.8	1.7	4.6	3.1	-0.12	0.23	0.63	0.42
+6	Services	46.8	3.4	2.7	2.8	3.0	1.55	1.27	1.31	1.41
+7	Gross private domestic investment	17.8	3.6	8.3	0.8	-5.6	0.64	1.47	0.16	-1.03
+8	Fixed investment	17.7	6.5	2.3	2.1	-1.1	1.14	0.42	0.38	-0.20
+9	Nonresidential	13.7	4.5	3.9	4.0	-3.0	0.61	0.53	0.55	-0.41
+10	Structures	3.1	6.3	0.2	-5.0	2.9	0.20	0.01	-0.16	0.09
+11	Equipment	5.1	0.3	9.8	10.8	-8.7	0.02	0.49	0.54	-0.47
+12	Intellectual property products	5.5	7.5	0.7	3.1	-0.5	0.40	0.04	0.17	-0.03
+13	Residential	4.0	13.7	-2.8	-4.3	5.5	0.53	-0.11	-0.18	0.22
+14	Change in private inventories	0.0	---	---	---	---	-0.49	1.05	-0.22	-0.84
+15	Net exports of goods and services	-3.1	---	---	---	---	-0.61	-0.90	-0.43	0.26
+16	Exports	10.8	1.9	1.0	9.6	-0.2	0.21	0.12	1.01	-0.01
+17	Goods	6.9	-0.2	0.9	10.3	-4.6	-0.02	0.07	0.70	-0.33
+18	Services	3.9	6.1	1.2	8.4	8.5	0.23	0.05	0.31	0.32
+19	Imports	13.9	6.1	7.6	10.7	-1.9	-0.82	-1.01	-1.44	0.27
+20	Goods	11.1	6.5	8.4	10.7	-4.9	-0.69	-0.90	-1.14	0.57
+21	Services	2.9	4.8	4.3	11.0	10.9	-0.13	-0.12	-0.29	-0.30
+22	Government consumption expenditures and gross investment	17.2	1.8	3.1	5.1	3.1	0.30	0.52	0.86	0.52
+23	Federal	6.5	-0.4	4.3	8.9	4.0	-0.02	0.27	0.55	0.25
+24	National defense	3.7	-2.5	6.4	13.9	4.8	-0.09	0.23	0.48	0.18
+25	Nondefense	2.7	2.6	1.5	2.6	2.9	0.07	0.04	0.07	0.08
+26	State and local	10.7	3.1	2.3	2.9	2.5	0.32	0.25	0.31	0.27
+	Addenda:									
+27	GDI[2]	---	3.0	2.0	1.4	4.5	---	---	---	---
+28	Average of GDP and GDI	---	2.3	2.5	2.2	3.5	---	---	---	---
+29	Final sales of domestic product	---	2.1	1.9	3.3	3.3	---	---	---	---
+30	Goods	29.9	-3.6	5.2	4.7	0.7	-1.12	1.56	1.41	0.23
+31	Services	61.3	3.2	2.4	3.2	3.0	1.91	1.48	1.92	1.81
+32	Structures	8.8	9.9	-0.6	-2.9	4.7	0.85	-0.05	-0.26	0.41

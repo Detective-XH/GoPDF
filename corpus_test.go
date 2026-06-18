@@ -121,6 +121,13 @@ var corpusManifest = []corpusEntry{
 		Purpose: "Two-tier spanning-header cell-grid ground truth (45x10); special tokens R/(s)/2011P/en-dash; clean text layer",
 	},
 	{
+		Path: "tables/bea-scb-gdp-2024-t1.pdf", Golden: "tables/bea-scb-gdp-2024-t1.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "BEA Survey of Current Business, 'GDP and the Economy: Third Estimates for the Fourth Quarter of 2024' (April 2025), Table 1 Real Gross Domestic Product and Related Measures, apps.bea.gov/scb/issues/2025/04-april/pdf/0425-gdp-economy.pdf (page 3)",
+		License: "US-Gov PD (17 USC 105)",
+		Purpose: "Cross-publisher (non-EIA) banded/group-ruled cell-grid ground truth (36x11, 3-tier header); alternating-fill row bands, group-only verticals; currently row-over-merged by Tables() — held-out Q2 generalization target",
+	},
+	{
 		Path: "tables/epa-egrid2022-t1.pdf", Golden: "tables/epa-egrid2022-t1.golden.txt",
 		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
 		Source:  "EPA eGRID2022 Summary Tables, Table 1 (Subregion Output Emission Rates) p.2, epa.gov/system/files/documents/2024-01/egrid2022_summary_tables.pdf",
