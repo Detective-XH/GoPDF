@@ -38,6 +38,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `GetPlainText`, `Page.Words()`, and `Page.Tables()` no longer garble a composite (Type0) font
+  that declares `/Encoding /Identity-H` and `/ToUnicode` as the **name** `/Identity-H` (rather than
+  a CMap stream) — a pattern produced by some tools (e.g. certain LibreOffice/FreeType output) whose
+  two-byte codes are in fact UCS-2 big-endian Unicode. Such a font previously decoded each two-byte
+  code as two single bytes, emitting a U+FFFD before every character (roughly half the output), so a
+  whole document came out unreadable; it now decodes directly to text. The recovery is narrowly
+  gated — it applies only when the font is Type0, both `/Encoding` and `/ToUnicode` name
+  `Identity-H`/`Identity-V`, **and** the descendant CIDSystemInfo ordering is explicitly `Identity`
+  — so a genuine CJK CIDFont (Adobe-Japan1/GB1/CNS1/Korea1), whose Identity-H codes are glyph
+  identifiers rather than Unicode, is unaffected and continues to report a missing-ToUnicode warning.
+  There is no API change and every existing corpus golden is unchanged.
+
 - `Page.Tables()` no longer emits phantom empty columns from **decorative double-wall borders**.
   A frame drawn with two close-set parallel rules — common on report cover and navigation pages —
   leaves a thin gap that the lattice detector turned into an entirely empty column in the grid (a

@@ -305,6 +305,12 @@ var corpusManifest = []corpusEntry{
 		Purpose: "UCS-2 BE predefined CMap (/UniGB-UCS2-H) → fallback_encoding",
 	},
 	{
+		Path: "encoding/identity-tounicode-ucs2.pdf", Golden: "encoding/identity-tounicode-ucs2.golden.txt",
+		Synthetic: true, Compare: compareExact, Feature: "signal-decode-path",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Type0 /Encoding /Identity-H with /ToUnicode AS A NAME /Identity-H (Identity ordering): 2-byte codes are UCS-2 BE Unicode → decoded directly (else garbled ~50% U+FFFD). Public-surface lock for the Identity-H ToUnicode-Name fix.",
+	},
+	{
 		Path: "encoding/differences-partial.pdf", Golden: "encoding/differences-partial.golden.txt",
 		Synthetic: true, Compare: compareExact, Feature: "signal-decode-path",
 		Source: "synthetic", License: "synthetic",
