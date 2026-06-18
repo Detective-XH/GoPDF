@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- A font whose `/ToUnicode` CMap is malformed — for example, a stray PostScript `def` keyword
+  inside a dictionary literal — no longer empties the entire document. Previously the malformed
+  CMap raised a parse error that propagated up through font loading and left every page's text
+  empty; GoPDF now recovers, discards only the broken CMap, and falls back to the same handling as
+  a font with no `/ToUnicode` (so Adobe CID and Identity fonts still decode correctly). A new
+  `malformed_tounicode` warning is raised — alongside the existing `missing_tounicode` — so the
+  degraded font stays visible rather than failing silently. A genuine internal fault is still
+  re-raised rather than being masked as malformed input, and valid PDFs are unaffected.
+
 - Type0 CJK fonts that use `/Encoding /Identity-H` or `/Identity-V` with an Adobe-Japan1 CID
   ordering (`/Registry (Adobe) /Ordering (Japan1)`) and **no `/ToUnicode`** are no longer garbled.
   Their 2-byte show-string codes are Adobe-Japan1 CIDs, not Unicode; GoPDF now decodes them through

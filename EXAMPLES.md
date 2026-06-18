@@ -391,8 +391,8 @@ for _, warning := range r.Warnings() {
 
 `warning.Code` is an `ExtractionWarningCode`; codes are additive across minor
 versions, so callers must tolerate unrecognised values. Decode-path codes flag
-text whose Unicode may be approximate — `missing_tounicode`, `fallback_encoding`,
-`unsupported_encoding`, `missing_glyph_mapping`. Two geometry routing signals flag
+text whose Unicode may be approximate — `missing_tounicode`, `malformed_tounicode`,
+`fallback_encoding`, `unsupported_encoding`, `missing_glyph_mapping`. Two geometry routing signals flag
 runs whose layout geometry is unreliable: `rotated_text` (a text run with a
 rotated, non-horizontal baseline — synthetic-italic shear is *not* flagged) and
 `vertical_writing_mode` (a vertical `-V` CMap whose advances are not honored). Both

@@ -46,6 +46,7 @@ func clampDetail(s string) string {
 // (font, CMap, and filter names; deterministic counts).
 var warningMessages = map[ExtractionWarningCode]string{
 	WarningMissingToUnicode:    "font lacks a usable ToUnicode CMap; extracted text may not be accurate Unicode",
+	WarningMalformedToUnicode:  "font ToUnicode CMap parse panicked; CMap discarded, fell back to missing-ToUnicode path",
 	WarningFallbackEncoding:    "text decoded via an approximate fallback encoding",
 	WarningUnsupportedEncoding: "font encoding is unsupported; bytes decoded as PDFDocEncoding",
 	WarningMissingGlyphMapping: "some glyphs cannot be mapped to Unicode",
@@ -143,6 +144,12 @@ const (
 	// for an Identity CMap, or present but unparseable), so extracted bytes
 	// may not be accurate Unicode.
 	WarningMissingToUnicode ExtractionWarningCode = "missing_tounicode"
+	// WarningMalformedToUnicode: a font's /ToUnicode CMap stream contains a
+	// structural malformation (e.g. a stray PostScript keyword inside a dict
+	// literal) that caused a parse panic. The CMap was discarded; extraction
+	// fell back to the same path as a missing ToUnicode. Extracted text for
+	// this font may not be accurate Unicode.
+	WarningMalformedToUnicode ExtractionWarningCode = "malformed_tounicode"
 	// WarningFallbackEncoding: a predefined CMap was decoded via a charset
 	// approximation (e.g. 90ms-RKSJ-H via Shift-JIS) rather than the real
 	// CMap program.

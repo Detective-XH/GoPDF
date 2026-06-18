@@ -6,6 +6,8 @@ package pdf
 
 import (
 	"bytes"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -828,5 +830,145 @@ func TestFontGetEncoderNonAdobeRegistryNotCIDMap(t *testing.T) {
 	}
 	if src != encSourceMissingToUnicode {
 		t.Errorf("encSource = %v, want encSourceMissingToUnicode", src)
+	}
+}
+
+// buildMalformedToUnicodePDF returns a minimal 2-page PDF with a Type0
+// font whose /ToUnicode stream contains a stray "def" inside a dict literal,
+// triggering the parse-panic path on every page. Both pages reference the
+// same font so the ToUnicode object is looked up twice (once per
+// Page.Content() call), exercising the multipage re-lookup path.
+//
+// Structure:
+//
+//	1 0 obj  Catalog → Pages 2 0 R
+//	2 0 obj  Pages   → [3 0 R, 8 0 R] /Count 2
+//	3 0 obj  Page 1  → Contents 4 0 R, Resources (Font/F1 = 5 0 R)
+//	4 0 obj  Content stream: BT /F1 12 Tf <0041> Tj ET  (shared by both pages)
+//	5 0 obj  Font (Type0, /Encoding /Identity-H, /ToUnicode 6 0 R,
+//	          /DescendantFonts [7 0 R])
+//	6 0 obj  ToUnicode stream (malformed: stray "def" inside << >>)
+//	7 0 obj  CIDFont (Type2, CIDSystemInfo, /DW 1000)
+//	8 0 obj  Page 2  → Contents 4 0 R, Resources (Font/F1 = 5 0 R)
+func buildMalformedToUnicodePDF(t *testing.T) []byte {
+	t.Helper()
+
+	// The malformed CMap stream. /CIDSystemInfo embeds malformedDictInner
+	// (with its enclosing << >>) so the same raw bytes drive the panic
+	// in both the direct unit test (TestReadDictMalformedCMapKeyPanics) and here.
+	// malformedDictInner already contains the closing >>; readDict sees it
+	// after the leading << is consumed by the PS interpreter.
+	cmapStream := `/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << ` + malformedDictInner + ` def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 1 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+1 beginbfchar
+<0041> <0041>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end`
+
+	// Content stream: set font F1 at 12pt, show 2-byte code 0x0041.
+	const contentStream = "BT /F1 12 Tf <0041> Tj ET"
+
+	var buf strings.Builder
+	buf.WriteString("%PDF-1.4\n")
+
+	// Track byte offsets for xref. Index = object number (1-based).
+	offsets := make([]int, 9) // objects 1..8
+
+	// Object 1: Catalog
+	offsets[1] = buf.Len()
+	buf.WriteString("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
+
+	// Object 2: Pages — 2 pages
+	offsets[2] = buf.Len()
+	buf.WriteString("2 0 obj\n<< /Type /Pages /Kids [3 0 R 8 0 R] /Count 2 >>\nendobj\n")
+
+	// Object 3: Page 1
+	offsets[3] = buf.Len()
+	buf.WriteString("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]" +
+		" /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n")
+
+	// Object 4: Content stream (shared by both pages)
+	offsets[4] = buf.Len()
+	fmt.Fprintf(&buf, "4 0 obj\n<< /Length %d >>\nstream\n%s\nendstream\nendobj\n",
+		len(contentStream)+1, contentStream)
+
+	// Object 5: Type0 font with /ToUnicode 6 0 R
+	offsets[5] = buf.Len()
+	buf.WriteString("5 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /TestFont" +
+		" /Encoding /Identity-H /ToUnicode 6 0 R /DescendantFonts [7 0 R] >>\nendobj\n")
+
+	// Object 6: malformed ToUnicode CMap stream
+	offsets[6] = buf.Len()
+	fmt.Fprintf(&buf, "6 0 obj\n<< /Length %d >>\nstream\n%s\nendstream\nendobj\n",
+		len(cmapStream)+1, cmapStream)
+
+	// Object 7: CIDFont descriptor (minimal)
+	offsets[7] = buf.Len()
+	buf.WriteString("7 0 obj\n<< /Type /Font /Subtype /CIDFontType2 /BaseFont /TestFont" +
+		" /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>" +
+		" /DW 1000 >>\nendobj\n")
+
+	// Object 8: Page 2 — same Resources and Contents as Page 1
+	offsets[8] = buf.Len()
+	buf.WriteString("8 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]" +
+		" /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n")
+
+	// xref table
+	xrefOff := buf.Len()
+	fmt.Fprintf(&buf, "xref\n0 9\n0000000000 65535 f \n")
+	for i := 1; i <= 8; i++ {
+		fmt.Fprintf(&buf, "%010d 00000 n \n", offsets[i])
+	}
+	fmt.Fprintf(&buf, "trailer\n<< /Size 9 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xrefOff)
+	return []byte(buf.String())
+}
+
+// TestMalformedToUnicodeCMapGracefulDegradation verifies that a /ToUnicode
+// CMap stream with a stray "def" inside a dict literal does not panic, and
+// that across both pages:
+//
+//	(a) Page.Content().Text is non-empty — the whole-doc-empty symptom does
+//	    not recur, confirming the recover is the load-bearing change.
+//	(b) Reader.Warnings() contains WarningMalformedToUnicode — the warning
+//	    is emitted, confirming silent swallowing does not occur.
+//
+// The 2-page fixture also confirms no deadlock on the second lookup of the
+// same ToUnicode object (encoderCache multipage re-lookup path).
+func TestMalformedToUnicodeCMapGracefulDegradation(t *testing.T) {
+	data := buildMalformedToUnicodePDF(t)
+	r, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+
+	// (a) Both pages must return non-empty Content().Text.
+	// Page numbers are 1-indexed (Reader.Page(num int) Page, page.go:23).
+	for _, pageNum := range []int{1, 2} {
+		got := r.Page(pageNum).Content()
+		if len(got.Text) == 0 {
+			t.Errorf("page %d: Content().Text is empty; expected at least one text element after malformed-ToUnicode recovery", pageNum)
+		}
+	}
+
+	// (b) WarningMalformedToUnicode must appear in Reader.Warnings().
+	var found bool
+	for _, w := range r.Warnings() {
+		if w.Code == WarningMalformedToUnicode {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("WarningMalformedToUnicode not found in Warnings(); got: %v", r.Warnings())
 	}
 }

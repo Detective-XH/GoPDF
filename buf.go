@@ -9,6 +9,7 @@ package pdf
 import (
 	"fmt"
 	"io"
+	"runtime"
 )
 
 // A buffer holds buffered input bytes from the PDF file.
@@ -54,6 +55,23 @@ func (b *buffer) readByte() byte {
 
 func (b *buffer) errorf(format string, args ...any) {
 	panic(fmt.Errorf(format, args...))
+}
+
+// isIntentionalParserPanic reports whether a recovered panic value is the
+// lexer's intentional malformed-input signal — a plain error raised by
+// buffer.errorf — rather than a genuine fault that must propagate. Order
+// matters: runtime.Error (nil deref, index-out-of-range, bad type assertion,
+// integer divide) embeds error, so it is checked first and classified as a
+// real fault; any non-error panic value is likewise a real fault. A parser
+// boundary that recovers (e.g. cachedReadCmap, or the fuzz shim) uses this to
+// swallow ONLY malformed-input panics and re-panic everything else, so an
+// internal bug still fails loudly instead of masquerading as malformed input.
+func isIntentionalParserPanic(rec any) bool {
+	if _, ok := rec.(runtime.Error); ok {
+		return false
+	}
+	_, ok := rec.(error)
+	return ok
 }
 
 func (b *buffer) reload() bool {
