@@ -1,0 +1,9 @@
+Principal Crops Area Planted and Harvested
+Area planted
+Area harvested
+(1,000 acres)
+Alabama
+Arkansas
+California
+Iowa
+United States

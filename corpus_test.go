@@ -176,6 +176,13 @@ var corpusManifest = []corpusEntry{
 		License: "US-Gov PD (17 USC 105)",
 		Purpose: "Held-out RECT-bordered cell-grid ground truth (minimal 11x2 subset: Year anchor + GDP percent-change column, annual rows 1973-1982). Same capability gap as Table B-1 (Year column dropped, rows collapsed -> ~0% substantive); second rect-bordered held-out fixture. Single-publisher (both ERP/CEA) — cross-publisher generalization NOT demonstrated",
 	},
+	{
+		Path: "tables/nass-cropan-2024-planted-harvested.pdf", Golden: "tables/nass-cropan-2024-planted-harvested.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "USDA NASS Crop Production 2024 Summary (January 2025), 'Principal Crops Area Planted and Harvested - States and United States: 2022-2024', page 7, nass.usda.gov/Publications/Todays_Reports/reports/cropan25.pdf (single-page excerpt)",
+		License: "US-Gov PD (17 USC 105)",
+		Purpose: "Cross-publisher (USDA, non-CEA/ERP) held-out RECT-bordered cell-grid ground truth (53x7, 3-tier header); open dot-leader State anchor, vertical column rules + outer frame, zero interior row rules; clean text layer",
+	},
 	// Table-detection false-positive gate fixtures: dense 3-column Federal
 	// Register notices with ZERO tables — a detector must return nothing here.
 	{
