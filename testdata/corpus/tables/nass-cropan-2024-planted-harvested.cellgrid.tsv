@@ -1,0 +1,57 @@
+# cellgrid v1
+# source=nass-cropan-2024-planted-harvested | pdf_page=1 | dims=53x7 | header_rows=3
+# values=as-printed | companion=none (blind-authored from the rendered page; numeric values cross-verified against the PDF clean text layer, mismatches re-judged from raster)
+# model=7 cols: col1=State (open dot-leader anchor); cols2-4=Area Planted (1,000 acres) 2022/2023/2024; cols5-7=Area Harvested (1,000 acres) 2022/2023/2024. Three-tier header (header_rows=3): r1 group labels "Area planted" (col2, leftmost spanned) and "Area harvested" (col5), State in col1; r2 year subheaders; r3 units "(1,000 acres)" per data col. Comma-thousands as-printed; dot-leaders trimmed from State labels; United States total carries footnote rendered "United States[1]"; all 51 data rows fully populated (no withheld cells).
+State	Area planted			Area harvested		
+	2022	2023	2024	2022	2023	2024
+	(1,000 acres)	(1,000 acres)	(1,000 acres)	(1,000 acres)	(1,000 acres)	(1,000 acres)
+Alabama	2,120	2,120	2,020	2,042	2,034	1,947
+Alaska	26	27	31	25	26	29
+Arizona	629	597	562	624	592	558
+Arkansas	6,990	7,211	7,053	6,826	7,072	6,936
+California	2,230	2,411	2,402	1,814	2,044	2,152
+Colorado	5,651	5,950	5,933	4,697	5,245	5,482
+Connecticut	76	77	74	75	73	70
+Delaware	432	438	421	398	415	393
+Florida	1,075	1,087	1,060	1,060	1,073	1,046
+Georgia	3,366	3,296	3,185	3,164	3,115	3,008
+Idaho	4,034	4,057	4,137	3,894	3,852	4,003
+Illinois	22,800	22,855	22,865	22,530	22,647	22,642
+Indiana	11,910	11,885	11,790	11,820	11,775	11,680
+Iowa	24,300	24,250	24,095	23,980	23,915	23,823
+Kansas	24,047	25,024	23,880	21,753	21,506	22,826
+Kentucky	5,853	6,147	6,113	5,668	5,967	5,913
+Louisiana	3,204	3,214	3,087	3,127	3,136	2,999
+Maine	253	242	232	245	234	223
+Maryland	1,538	1,526	1,486	1,311	1,343	1,304
+Massachusetts	74	68	63	71	65	60
+Michigan	6,240	6,270	6,101	6,125	6,160	6,014
+Minnesota	19,067	19,444	19,227	18,785	19,117	18,857
+Mississippi	4,202	4,209	4,151	4,140	4,112	4,076
+Missouri	13,852	14,657	13,518	13,417	14,284	13,182
+Montana	9,394	9,707	9,390	8,564	9,214	8,881
+Nebraska	19,268	19,473	19,467	18,378	18,763	19,032
+Nevada	412	393	370	411	391	367
+New Hampshire	55	54	51	53	53	50
+New Jersey	313	305	272	303	298	264
+New Mexico	787	855	796	469	509	556
+New York	2,755	2,730	2,733	2,648	2,659	2,685
+North Carolina	4,404	4,397	4,222	4,219	4,237	4,028
+North Dakota	21,596	24,077	23,297	21,108	23,512	22,786
+Ohio	9,870	9,850	9,800	9,720	9,705	9,665
+Oklahoma	9,616	10,724	9,760	6,647	7,914	7,693
+Oregon	1,739	1,852	1,875	1,693	1,803	1,838
+Pennsylvania	3,523	3,395	3,289	3,206	3,111	3,044
+Rhode Island	9	8	8	8	7	7
+South Carolina	1,462	1,423	1,367	1,413	1,385	1,306
+South Dakota	16,617	17,222	16,836	15,974	16,420	16,232
+Tennessee	4,910	5,000	4,818	4,780	4,865	4,708
+Texas	21,728	22,135	21,144	10,721	13,559	15,084
+Utah	860	856	889	832	834	869
+Vermont	255	254	244	247	245	235
+Virginia	2,441	2,583	2,347	2,322	2,458	2,196
+Washington	3,609	3,807	3,679	3,539	3,733	3,609
+West Virginia	605	654	648	604	649	642
+Wisconsin	7,909	7,875	7,937	7,499	7,400	7,486
+Wyoming	1,442	1,416	1,191	1,395	1,360	1,144
+United States[1]	310,857	319,542	311,216	284,510	295,044	293,800

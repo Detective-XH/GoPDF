@@ -310,6 +310,12 @@ var cellgridFixtures = []cellgridFixture{
 		rows:      11, cols: 2, headerRows: 1,
 		class: "rect-bordered", heldOut: true, anchorCol: 0, // col0 = Year (unique); detector drops it
 	},
+	{
+		path:      "tables/nass-cropan-2024-planted-harvested.cellgrid.tsv",
+		sourcePDF: "tables/nass-cropan-2024-planted-harvested.pdf",
+		rows:      53, cols: 7, headerRows: 3,
+		class: "rect-bordered", heldOut: true, anchorCol: 0, // col0 = State (unique); cross-publisher (USDA) generalization fixture for the rect-bordered gate
+	},
 }
 
 // TestCorpusCellGridFixtures is the primary integrity gate for the cell-grid
