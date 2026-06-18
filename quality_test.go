@@ -277,6 +277,18 @@ func TestDecodeRatiosRollupIsWeighted(t *testing.T) {
 	}
 }
 
+// TestDecodeRatiosCIDMapCountsAsFallback locks that encSourceCIDMap glyphs (an Adobe
+// CID→Unicode decode, which fires WarningFallbackEncoding) are reported in FallbackRatio,
+// so the public ratio never disagrees with that warning.
+func TestDecodeRatiosCIDMapCountsAsFallback(t *testing.T) {
+	var c decodeCounters
+	c.glyphs[encSourceCIDMap] = 3
+	c.glyphs[encSourceSimple] = 1
+	if got := decodeRatiosFrom(c); got.Glyphs != 4 || got.FallbackRatio != 0.75 {
+		t.Errorf("DecodeRatios = %+v, want Glyphs:4 FallbackRatio:0.75 (CID-map counts as fallback)", got)
+	}
+}
+
 // TestDocumentSummaryDecodeRatios proves DocumentSummary wires the per-page ratio
 // and the single-page rollup end to end on a real fallback fixture, and that a
 // NONZERO ratio is deterministic across two passes (the all-simple determinism

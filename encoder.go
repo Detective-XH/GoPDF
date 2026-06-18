@@ -57,6 +57,29 @@ func (e *ucs2BEEncoder) Decode(raw string) (text string) {
 	return string(r)
 }
 
+// adobeCIDEncoder decodes content-stream bytes for a Type0 Identity-H/V CIDFont with a genuine
+// Adobe CID ordering and NO /ToUnicode: the 2-byte big-endian codes ARE CIDs (Identity ⇒
+// code==CID), mapped to Unicode via an Adobe-published CID→Unicode table (cid2code.txt). Like
+// ucs2BEEncoder it strides exactly 2 bytes; unlike it, each 16-bit value is a CID looked up in
+// the table, not a Unicode scalar. CIDs outside the table or with no Adobe Unicode mapping
+// (supplementary-plane or unmapped) decode to noRune (U+FFFD). BMP-only — the table is uint16.
+type adobeCIDEncoder struct {
+	table []uint16 // CID → BMP Unicode; an index past len or a zero entry means "no mapping"
+}
+
+func (e *adobeCIDEncoder) Decode(raw string) (text string) {
+	r := make([]rune, 0, len(raw)/2)
+	for i := 0; i+1 < len(raw); i += 2 {
+		cid := uint16(raw[i])<<8 | uint16(raw[i+1])
+		if int(cid) < len(e.table) && e.table[cid] != 0 {
+			r = append(r, rune(e.table[cid]))
+		} else {
+			r = append(r, noRune)
+		}
+	}
+	return string(r)
+}
+
 type byteEncoder struct {
 	table *[256]rune
 }

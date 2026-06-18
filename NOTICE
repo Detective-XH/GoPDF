@@ -1,0 +1,52 @@
+GoPDF — third-party attributions
+================================
+
+GoPDF is distributed under the terms in LICENSE. In addition, it includes
+data generated from the third-party source listed below.
+
+----------------------------------------------------------------------
+Adobe-Japan1 CID -> Unicode mapping data
+----------------------------------------------------------------------
+
+The generated file `cidunicode_japan1.go` (the `adobeJapan1CIDToUnicode`
+table used to decode Identity-H/V Adobe-Japan1 CIDFonts that lack a
+/ToUnicode CMap) is derived from the Adobe-Japan1-7 character collection's
+`cid2code.txt`, distributed by Adobe in the adobe-type-tools/cmap-resources
+repository. Only the CID, UniJIS-UCS2 and UniJIS-UTF32 columns are used; no
+Adobe source code is incorporated.
+
+  Source:  https://github.com/adobe-type-tools/cmap-resources
+  File:    Adobe-Japan1-7/cid2code.txt
+  Commit:  f5cf3bca7fdfeaceb77aa82847e974f2306c20b4 (2023-11-15)
+  SHA-256: 5c4bc3adfecc348e67c36c8572d247b1ab3b42f281c6aedddf82bcf1db847a00
+
+Licensed under the BSD 3-Clause License:
+
+Copyright 1990-2023 Adobe. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+Redistributions of source code must retain the above copyright notice,
+this list of conditions and the following disclaimer.
+
+Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+Neither the name of Adobe nor the names of its contributors may be
+used to endorse or promote products derived from this software without
+specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

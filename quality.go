@@ -146,8 +146,12 @@ type DecodeRatios struct {
 	// MissingToUnicodeRatio is the fraction of Glyphs decoded through an Identity
 	// or byte-table path with no usable /ToUnicode: the code points may be wrong.
 	MissingToUnicodeRatio float64
-	// FallbackRatio is the fraction of Glyphs decoded through a predefined-CMap
-	// charset approximation rather than the font's own /ToUnicode.
+	// FallbackRatio is the fraction of Glyphs decoded NOT through the font's own
+	// /ToUnicode but through an approximation that fires WarningFallbackEncoding:
+	// a predefined-CMap charset decode (encSourceFallback) or an Adobe CID→Unicode
+	// table for an Identity CIDFont lacking /ToUnicode (encSourceCIDMap). Both are
+	// summed here so the ratio never disagrees with the warning; an ingestion
+	// pipeline can still tell them apart via the warning Detail if needed.
 	FallbackRatio float64
 	// UnmappedRatio is the fraction of Glyphs that decoded to the Unicode
 	// replacement character U+FFFD (a glyph the decode path could not map).
@@ -172,7 +176,7 @@ func decodeRatiosFrom(c decodeCounters) DecodeRatios {
 	}
 	denom := float64(total)
 	dr.MissingToUnicodeRatio = float64(c.glyphs[encSourceMissingToUnicode]) / denom
-	dr.FallbackRatio = float64(c.glyphs[encSourceFallback]) / denom
+	dr.FallbackRatio = float64(c.glyphs[encSourceFallback]+c.glyphs[encSourceCIDMap]) / denom
 	dr.UnmappedRatio = float64(c.unmapped) / denom
 	return dr
 }
