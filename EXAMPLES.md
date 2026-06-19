@@ -669,6 +669,14 @@ transitions (superscripts and subscripts), not a general spacing artifact; cell 
 (the right value in the right cell) is unaffected, but exact-string matches on
 superscript-bearing cells should fold the space.
 
+**Dot-leader caveat:** a row label connected to its value by a run of leader dots
+(`Item ........ 42`) has the leader treated as filler, not data — it is dropped from the cell.
+When a producer renders the leader's glyphs *interleaved* into the label so it fuses into the
+label token (e.g. `Alabama` arriving as `Alaba...m...a....`), the fused dots are likewise stripped,
+recovering the label. Only this fused signature — a run of three or more dots flanked by a letter
+on both sides — triggers the strip; decimal points, abbreviations (`U.S.`), a trailing ellipsis
+(`continued...`), and a dot-separated range (`1...3`) are preserved verbatim.
+
 **Open edge columns:** the right data column and left label column of statistical tables
 are often unbounded — their outer vertical rule is absent. `Tables()` recovers these
 half-open columns when the table's row rules overhang into them by more than 6 pt, and

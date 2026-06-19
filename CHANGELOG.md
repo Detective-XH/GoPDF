@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `Page.Tables()` now recovers row labels whose dot leader is rendered with its glyphs *interleaved*
+  into the label text. Some publishers (for example USDA statistical tables) lay out a row label and
+  its trailing dot leader as overlapping glyphs, so the label arrived fused with filler dots —
+  `Alabama` extracting as `Alaba...m...a....`. GoPDF now detects this fused-leader signature (a run
+  of three or more dots flanked by a letter on both sides) and strips the filler dots, recovering
+  the label. Legitimate data text is left untouched: decimal points, abbreviations such as `U.S.`, a
+  trailing ellipsis (`continued...`), and a dot-separated range (`1...3`) are all preserved. The
+  change affects only `Page.Tables()` cell text; plain text extraction (`Words`/`Lines`) is
+  unaffected.
+
 - `Page.Tables()` no longer splits a cell value across adjacent columns when the PDF renders the
   token with an embedded zero-advance space — for example a comma-grouped number laid out as
   `2,1`+`20` (`2,120`), or a character-spaced word laid out as `addr`+`ess` (`address`). Such tokens

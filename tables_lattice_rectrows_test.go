@@ -442,3 +442,65 @@ func TestReconstructGridKeepsDotOnlyCell(t *testing.T) {
 		t.Errorf("grid[0][1] = %q, want %q (a dot-only cell must be preserved, not erased)", grid[0][1], "......")
 	}
 }
+
+// TestStripLeaderDots locks the fused-leader repair AND its anti-false-positive gate. A cell whose
+// dot leader was glyph-interleaved into the row label (a >= leaderDotRunFloor dot run flanked by
+// letters on both sides) has its non-decimal dots dropped, recovering the label. The gate must NOT
+// fire on legitimate data text: a trailing ellipsis, a digit-flanked range, a version string, an
+// abbreviation, a space-separated ellipsis, a decimal, or a no-dot cell are all returned verbatim.
+// This is the locus that lifts the USDA NASS rect-bordered fixture 0/300 -> 294/300 (logged by
+// TestPublicTablesQualityCorpus); the data-text cases are the Codex adversarial-review findings.
+func TestStripLeaderDots(t *testing.T) {
+	cases := []struct{ in, want string }{
+		// Fused-leader signature (>=3 dot run flanked by letters): repaired.
+		{"Alaba...m...a....", "Alabama"},
+		{"Ida.h...o....", "Idaho"},
+		{"Iow...a...", "Iowa"}, // exact 3-dot runs — the floor of 3 must fire
+		{"Uta...h...", "Utah"},
+		{"a...b", "ab"}, // minimal fused signature
+		// Legitimate data text — gate must NOT fire (Codex adversarial cases).
+		{"U.S.", "U.S."},                   // only single-dot runs (< floor)
+		{"U.S.A.", "U.S.A."},               // abbreviation preserved
+		{"823.1", "823.1"},                 // decimal point preserved
+		{"$1,234.56", "$1,234.56"},         // thousands + decimal preserved
+		{"Mr.", "Mr."},                     // trailing single dot
+		{"continued...", "continued..."},   // TRAILING ellipsis — no letter after the run
+		{"1...3", "1...3"},                 // digit-flanked range — flanks are not letters
+		{"1.2.3", "1.2.3"},                 // version — runs shorter than the floor
+		{"see ... below", "see ... below"}, // space-separated ellipsis — run abuts a space
+		{"2,120", "2,120"},                 // no dots — fast path, unchanged
+		{"", ""},
+		{".................", "................."}, // pure-dot cell — no letter flanks, gate does not fire
+	}
+	for _, c := range cases {
+		if got := stripLeaderDots(c.in); got != c.want {
+			t.Errorf("stripLeaderDots(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestReconstructGridStripsFusedLeaderNotData locks both halves of the stripLeaderDots gate end to
+// end through reconstructGrid: a fused-leader label cell ("Alaba...m...a....") is repaired to its
+// label, while a DATA cell holding a legitimate trailing ellipsis ("continued...") is preserved
+// verbatim. The data-cell half is the Codex adversarial-review finding — the strip must never touch
+// ordinary three-dot data text.
+func TestReconstructGridStripsFusedLeaderNotData(t *testing.T) {
+	cells := []lCell{
+		{x0: 200, top: 100, x1: 250, bottom: 120},
+		{x0: 250, top: 100, x1: 300, bottom: 120},
+	}
+	words := []Word{
+		wordAtBand("Alaba...m...a....", 205, 40, 100, 120), // ax=225 -> col0 (fused leader)
+		wordAtBand("continued...", 255, 40, 100, 120),      // ax=275 -> col1 (legit trailing ellipsis)
+	}
+	grid := reconstructGrid(cells, words)
+	if len(grid) == 0 || len(grid[0]) < 2 {
+		t.Fatalf("unexpected grid shape: %v", grid)
+	}
+	if grid[0][0] != "Alabama" {
+		t.Errorf("grid[0][0] = %q, want %q (fused dot-leader stripped from label)", grid[0][0], "Alabama")
+	}
+	if grid[0][1] != "continued..." {
+		t.Errorf("grid[0][1] = %q, want %q (legit trailing ellipsis in a data cell preserved)", grid[0][1], "continued...")
+	}
+}

@@ -53,14 +53,15 @@ type classGate struct {
 // single-axis-ruled, and borderless are not yet in scope (no accuracy consumer /
 // measured FP-unsafe).
 var inScopeQualityClasses = []classGate{
-	{name: "fully-ruled", hard: true},    // FBI NICS + HHS ASPE both extract -> count<2 is a build error
-	{name: "rect-bordered", hard: false}, // ERP B-1/B-2 registered + measured ~0% to PROVE the gap; HELD
+	{name: "fully-ruled", hard: true},   // FBI NICS + HHS ASPE both extract -> count<2 is a build error
+	{name: "rect-bordered", hard: true}, // ERP B-1/B-2 + NASS (cross-publisher, 98.1% substantive) extract -> count<2 is a build error
 }
 
 // heldSubstThreshold is the substantive-content %% below which a HELD class is treated as
-// still-broken so its held diagnostic fires. ERP rect-bordered measures ~0%; once the
-// detector fix lifts it well above this the held branch stops firing and the class can be
-// promoted to hard. It is a diagnostic trigger, never an accuracy gate.
+// still-broken so its held diagnostic fires. It is a diagnostic trigger, never an accuracy gate.
+// rect-bordered crossed it (0% -> 98.1% once the fused-leader strip landed) and was promoted to
+// hard; the threshold now arms the held diagnostic for the next class registered below hard
+// (group-ruled+banded et al., not yet in scope).
 const heldSubstThreshold = 50.0
 
 // tunedFixturePaths are the 3 threshold-tuning sources. They must NEVER appear in the
