@@ -241,7 +241,7 @@ for the full provenance table and fixture inventory.
 
 Versions are published as **signed git tags** (mirrored as GitHub Releases —
 Go module resolution only needs the tag). Tags are signed with one of the
-maintainer's hardware-backed SSH keys; v0.8.0 was signed with:
+maintainer's hardware-backed SSH keys; v0.8.2 was signed with:
 
 ```
 256 SHA256:duCP4h22hb2oNAZMaFhUlpq0j8+qBbZuaXnS99yUhkY (ED25519-SK)
@@ -254,7 +254,7 @@ which key signed it, and nothing needs to be copied from this README:
 ```bash
 curl -s https://api.github.com/users/Detective-XH/ssh_signing_keys \
   | python3 -c "import json,sys; [print('*', k['key']) for k in json.load(sys.stdin)]" > allowed_signers
-git -c gpg.ssh.allowedSignersFile=./allowed_signers tag -v v0.8.1
+git -c gpg.ssh.allowedSignersFile=./allowed_signers tag -v v0.8.2
 # expect: Good "git" signature for * with ED25519-SK key SHA256:duCP4h2...
 ```
 
