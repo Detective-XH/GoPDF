@@ -47,7 +47,13 @@ type Table struct {
 // Y-offset glyph transitions, not a general spacing artifact; cell content — the right
 // value in the right cell — is unaffected. A run of four or more leader dots ('.') that
 // visually connects a row label to its value is filler, not data, and is dropped from cell text;
-// a cell whose only content is such a run is preserved as-is.
+// a cell whose only content is such a run is preserved as-is. When a dot leader's glyphs are
+// interleaved with the label's own letters — so the leader fuses into the label token rather than
+// forming a separate run, as in some statistical row labels — the fused filler dots are likewise
+// stripped from that cell, recovering the label. Only this fused signature (a run of three or more
+// dots flanked by a letter on BOTH sides) triggers the strip, so legitimate data text is left
+// verbatim: decimal points, abbreviations ("U.S."), a trailing ellipsis ("continued..."), and a
+// dot-separated range ("1...3") are all preserved.
 //
 // Experimental: the detection geometry and the Table type are additive-evolving, and the
 // reconstruction output may still change as extraction quality is stabilized across the

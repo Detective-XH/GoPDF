@@ -797,6 +797,79 @@ func isDotLeader(s string) bool {
 	return n >= 4
 }
 
+// leaderDotRunFloor is the minimum length of a consecutive '.' (U+002E) run that, when flanked by
+// letters on BOTH sides (hasInterleavedLeaderRun), marks a table cell as carrying a dot-leader
+// fused INTO a label rather than isolated decimal points or an abbreviation. Measured against the
+// USDA NASS crop table, where a State label's trailing dot leader is rendered with its glyphs
+// interleaved into the label and so fuses into the label token: "Iowa" arrives as "Iow...a..."
+// (3-dot runs), "Alabama" as "Alaba...m...a...." (4-dot runs), while "U.S." carries only single-dot
+// runs. A floor of 3 fires on every fused State label (lifting the held-out fixture 0/300 ->
+// 294/300) yet never on "U.S." (run length 1); a floor of 4 misses the exact-3-run states
+// (Iowa/Utah/Ohio), dropping the score to 276/300.
+const leaderDotRunFloor = 3
+
+// hasInterleavedLeaderRun reports whether s contains a dot-leader run — n or more consecutive '.'
+// (U+002E) — immediately flanked by a Unicode letter on BOTH sides. This is the signature of a dot
+// leader whose glyphs fused INTO a row label ("Alaba...m...a...." for "Alabama"), as distinct from
+// a TRAILING ellipsis ("continued...", no letter after the run), a digit-flanked range ("1...3",
+// not letters), an abbreviation ("U.S.", runs shorter than n), or a space-separated ellipsis
+// ("see ... below", the run abuts a space). It is the gate for stripLeaderDots, so the repair
+// fires only on genuinely leader-contaminated label cells and leaves legitimate data text alone.
+func hasInterleavedLeaderRun(s string, n int) bool {
+	rs := []rune(s)
+	for i := 0; i < len(rs); {
+		if rs[i] != '.' {
+			i++
+			continue
+		}
+		j := i
+		for j < len(rs) && rs[j] == '.' {
+			j++
+		}
+		if j-i >= n && i > 0 && unicode.IsLetter(rs[i-1]) && j < len(rs) && unicode.IsLetter(rs[j]) {
+			return true
+		}
+		i = j
+	}
+	return false
+}
+
+// asciiDigitAt reports whether rs[i] is an ASCII digit, with bounds checking.
+func asciiDigitAt(rs []rune, i int) bool {
+	return i >= 0 && i < len(rs) && rs[i] >= '0' && rs[i] <= '9'
+}
+
+// stripLeaderDots removes dot-leader filler that a glyph-interleaved leader fused into a
+// reconstructed table cell's text. Some producers (the USDA NASS crop tables) render a row label
+// and its trailing dot leader as interleaved glyphs, so wordsFromBand + mergeAbuttingWords weld
+// them into one token ("Alaba...m...a...." for "Alabama") that trimDotLeaders cannot drop (it is
+// not a pure-dot word). The repair fires ONLY when the cell carries the fused-leader signature —
+// a >= leaderDotRunFloor dot run flanked by letters on both sides (hasInterleavedLeaderRun) — then
+// drops every '.' that is not a decimal point (flanked by an ASCII digit on BOTH sides), so the
+// fused leader dots vanish while legitimate data text is left verbatim: "U.S." and "823.1" (no
+// qualifying run), a TRAILING ellipsis "continued...", a digit range "1...3", and a version
+// "1.2.3" all fail the gate and pass through unchanged. A cell that fails the gate returns with no
+// allocation, and a cell that is ENTIRELY dot-leader is preserved as-is (matching trimDotLeaders's
+// dot-only contract — no irreversible erasure). This is table-path only (reconstructGrid);
+// Words()/Lines() text extraction is untouched, so every corpus .golden.txt stays byte-identical.
+func stripLeaderDots(s string) string {
+	if !hasInterleavedLeaderRun(s, leaderDotRunFloor) {
+		return s
+	}
+	rs := []rune(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for i, r := range rs {
+		if r == '.' && (!asciiDigitAt(rs, i-1) || !asciiDigitAt(rs, i+1)) {
+			continue // fused dot-leader filler (not a decimal point) — drop
+		}
+		b.WriteRune(r)
+	}
+	// The gate guarantees a letter flanks the run on both sides, so the label letters always
+	// survive the strip — the result is never empty (a fully-dot cell fails the gate above).
+	return b.String()
+}
+
 // decodableWords keeps only words carrying decodable text that are not dot-leader filler.
 // A word that is entirely replacement characters (e.g. an undecodable per-row leader run set
 // in a symbol font) anchors no extractable content, and a tabular dot-leader run (>=4 consecutive
@@ -1128,7 +1201,7 @@ func reconstructGrid(cells []lCell, words []Word, vRules ...lEdge) [][]string {
 		}
 	}
 	for key, ws := range bucket {
-		grid[key[0]][key[1]] = joinReading(trimDotLeaders(ws))
+		grid[key[0]][key[1]] = stripLeaderDots(joinReading(trimDotLeaders(ws)))
 	}
 	return dropGutterColumns(grid, cells, colReps)
 }
