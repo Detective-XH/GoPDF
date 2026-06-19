@@ -283,6 +283,88 @@ func TestReconstructGridDropsDotLeaderInAnchor(t *testing.T) {
 	}
 }
 
+// TestReconstructGridRejoinsCommaSplitAcrossBoundary locks the comma-bleed fix: a value a
+// zero-advance space glyph fragmented into two OVERLAPPING words ("2,1"+"20", gap -1 mirroring the
+// observed NASS -0.03) that straddle a column boundary must be re-joined whole by mergeAbuttingWords
+// before assignment, landing in ONE cell as "2,120". Pre-fix it bleeds (A="2,1", B="20"). A vertical
+// rule is placed AT the boundary to prove the rule-guard never blocks a genuine fragment pair: a
+// rule cannot lie between two overlapping boxes, so the merge proceeds. No real fixture scores this
+// (NASS's anchor labels block row alignment), so this synthetic test is the only guard on the fix.
+func TestReconstructGridRejoinsCommaSplitAcrossBoundary(t *testing.T) {
+	const top, bot = 100.0, 120.0
+	cells := []lCell{
+		{x0: 200, top: top, x1: 250, bottom: bot}, // cell A
+		{x0: 250, top: top, x1: 300, bottom: bot}, // cell B
+	}
+	words := []Word{
+		wordAtBand("2,1", 224, 24, top, bot), // right edge 248, center 236 -> A
+		wordAtBand("20", 247, 16, top, bot),  // left 247 < 248 (overlap, gap -1), center 255 -> B
+	}
+	rule := lEdge{orient: 'v', x0: 248, x1: 248, top: top, bottom: bot} // at the overlap, cannot lie "between"
+	grid := reconstructGrid(cells, words, rule)
+	if len(grid) != 1 || len(grid[0]) != 2 {
+		t.Fatalf("grid shape: got %d rows; want 1x2\ngrid=%v", len(grid), grid)
+	}
+	if grid[0][0] != "2,120" {
+		t.Errorf("grid[0][0] = %q, want %q (overlapping fragments re-joined whole despite a coincident rule)", grid[0][0], "2,120")
+	}
+	if grid[0][1] != "" {
+		t.Errorf("grid[0][1] = %q, want \"\" (right fragment must not bleed into the next cell)", grid[0][1])
+	}
+}
+
+// TestReconstructGridKeepsRuledColumnsSeparate is the ruled-table FP-guard: two distinct values
+// that abut at a cell border with ZERO whitespace padding ("100"|"200", gap 0) but are divided by a
+// real vertical rule must NOT be welded. Whitespace is not the only visual separator — a column rule
+// is — so mergeAbuttingWords forbids a merge across a rule (ruleBetween). Without the guard the gap-0
+// pair would concatenate to "100200" in one cell; the rule keeps them in their own columns.
+func TestReconstructGridKeepsRuledColumnsSeparate(t *testing.T) {
+	const top, bot = 100.0, 120.0
+	cells := []lCell{
+		{x0: 200, top: top, x1: 250, bottom: bot},
+		{x0: 250, top: top, x1: 300, bottom: bot},
+	}
+	words := []Word{
+		wordAtBand("100", 230, 20, top, bot), // right edge 250, center 240 -> A
+		wordAtBand("200", 250, 20, top, bot), // left 250, gap 0 (touches the border), center 260 -> B
+	}
+	rule := lEdge{orient: 'v', x0: 250, x1: 250, top: top, bottom: bot} // the column rule between A and B
+	grid := reconstructGrid(cells, words, rule)
+	if len(grid) != 1 || len(grid[0]) != 2 {
+		t.Fatalf("grid shape: got %d rows; want 1x2\ngrid=%v", len(grid), grid)
+	}
+	if grid[0][0] != "100" || grid[0][1] != "200" {
+		t.Errorf("grid = [%q %q], want [\"100\" \"200\"] (a real column rule must keep zero-padding values separate)", grid[0][0], grid[0][1])
+	}
+}
+
+// TestReconstructGridKeepsDistinctValuesSeparate is the FP-guard for the comma-bleed fix: two
+// genuinely separate column values must NOT be welded. The gap here is 2.0pt — a REALISTIC minimal
+// inter-value separation (a single word space advances the pen ~this far, and real columns are a
+// whole column's padding apart), well above wordJoinGapTol(0.25) yet far below it. This is the
+// load-bearing case (a 30pt gap would be a happy path); it proves the threshold sits below real
+// spacing, so only fragments — which abut at gap <= 0 — are re-joined. The residual: two distinct
+// values rendered with < tol visual separation (a degenerate zero-padding layout that renders as
+// one visual run) would weld; faithful to the page, no corpus instance.
+func TestReconstructGridKeepsDistinctValuesSeparate(t *testing.T) {
+	const top, bot = 100.0, 120.0
+	cells := []lCell{
+		{x0: 200, top: top, x1: 250, bottom: bot},
+		{x0: 250, top: top, x1: 300, bottom: bot},
+	}
+	words := []Word{
+		wordAtBand("100", 228, 20, top, bot), // right edge 248, center 238 -> A
+		wordAtBand("200", 250, 20, top, bot), // left edge 250, gap 2.0 > tol -> NOT merged, center 260 -> B
+	}
+	grid := reconstructGrid(cells, words)
+	if len(grid) != 1 || len(grid[0]) != 2 {
+		t.Fatalf("grid shape: got %d rows; want 1x2\ngrid=%v", len(grid), grid)
+	}
+	if grid[0][0] != "100" || grid[0][1] != "200" {
+		t.Errorf("grid = [%q %q], want [\"100\" \"200\"] (a real 2pt inter-value gap must stay separate, not over-merged)", grid[0][0], grid[0][1])
+	}
+}
+
 // TestSynthOpenColumnDropsPureDotLeader locks locus B of the dot-leader fix: when every word in
 // the open Year column is a pure dot-leader (decodable dots, but no year data), synthOpenColumns
 // must NOT fabricate a column from those leaders. This is the decodable-leader analog of
