@@ -60,10 +60,11 @@ func (p Page) Tables() ([]Table, error) {
 	}
 	c := p.Content()
 	media := p.MediaBox()
+	vRules := verticalRules(c)
 	lattices := latticeTablesOpen(c, words, media)
 	tables := make([]Table, 0, len(lattices))
 	for _, cells := range lattices {
-		grid := reconstructGrid(cells, words)
+		grid := reconstructGrid(cells, words, vRules...)
 		if len(grid) == 0 {
 			continue
 		}

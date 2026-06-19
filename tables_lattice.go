@@ -975,10 +975,132 @@ func joinReading(ws []Word) string {
 	return strings.Join(parts, " ")
 }
 
+// wordJoinGapTol (points) bounds the inter-word horizontal gap below which two same-row words
+// are treated as one fragmented token. The true discriminator is gap <= 0 (the runs touch or
+// overlap — the fragmented NASS values overlap at gap -0.03); the small positive margin only
+// absorbs float noise. A genuine word space advances the pen well past this, and distinct column
+// values are a whole column's padding apart, so the re-join is a no-op on correct cells: two
+// words can only reach this gap when they are fragments of one token (or a degenerate zero-padding
+// layout that renders as a single visual run anyway).
+const wordJoinGapTol = 0.25
+
+// mergeAbuttingWords re-joins words that a zero-advance space glyph fragmented mid-token before
+// reconstructGrid assigns them to cells. wordsFromBand emits a new Word at every isAllSpace glyph;
+// some producers lay a token out with an embedded space carrying zero horizontal advance — a
+// comma value as "2,1"<sp>"20" (the motivating NASS case), or a char-spaced word as "addr"<sp>"ess"
+// — so one token arrives as two abutting Words (the fragments overlap or touch). Assigned by center, the
+// fragments fall into adjacent cells and bleed across the column boundary (and even within one
+// cell joinReading would wedge a stray space into the number). Candidates are words whose row band
+// lies within the table's vertical extent; X is intentionally unbounded so a right-aligned value
+// in an OPEN edge column whose trailing fragment overflows the synthesized column boundary still
+// re-joins (the gap condition, not an X bound, is what keeps the merge from reaching unrelated
+// same-row text). Candidates are clustered into row bands (joinReading's 5pt tolerance), each band
+// sorted by X, then consecutive words with gap <= wordJoinGapTol are concatenated WITHOUT a space,
+// left-to-right — UNLESS a real vertical rule (vRules) separates them: in a ruled table two
+// distinct column values can abut at the cell border with zero whitespace padding, so a rule
+// between the words forbids the merge (ruleBetween). A genuine fragment pair overlaps (gap < 0),
+// and a rule can never lie between two overlapping boxes, so this guard never blocks the bug it
+// targets. The input slice is not mutated (Tables() reuses words across lattices);
+// cells/colReps/rowReps are untouched, so on a no-op table the grid shape is byte-identical.
+func mergeAbuttingWords(cells []lCell, words []Word, vRules []lEdge) []Word {
+	if len(words) < 2 || len(cells) == 0 {
+		return words
+	}
+	btop, bbot := cells[0].top, cells[0].bottom
+	for _, c := range cells {
+		btop, bbot = min(btop, c.top), max(bbot, c.bottom)
+	}
+	topOf := func(w Word) float64 { return -(w.Y + w.H/2) }
+	var cand, out []Word
+	for _, w := range words {
+		// Words outside the table's vertical extent, and dot-leader fillers, pass through
+		// untouched: a dot-leader must stay a separate word so trimDotLeaders can drop it
+		// (TestReconstructGridDropsDotLeaderInAnchor) rather than be welded onto a label.
+		if ay := topOf(w); ay >= btop && ay <= bbot && !isDotLeader(w.S) {
+			cand = append(cand, w)
+		} else {
+			out = append(out, w)
+		}
+	}
+	if len(cand) < 2 {
+		return words
+	}
+	sort.SliceStable(cand, func(i, j int) bool { return topOf(cand[i]) < topOf(cand[j]) })
+	for i := 0; i < len(cand); {
+		j := i + 1
+		for j < len(cand) && topOf(cand[j])-topOf(cand[i]) <= 5 { // row band
+			j++
+		}
+		out = appendMergedBand(out, cand[i:j], vRules)
+		i = j
+	}
+	return out
+}
+
+// appendMergedBand sorts one row band by X and appends its words to out, concatenating each run of
+// consecutive abutting words (gap <= wordJoinGapTol, no real rule between) into a single token.
+func appendMergedBand(out, band []Word, vRules []lEdge) []Word {
+	sort.SliceStable(band, func(a, b int) bool { return band[a].X < band[b].X })
+	cur := band[0]
+	for k := 1; k < len(band); k++ {
+		w := band[k]
+		if w.X-(cur.X+cur.W) <= wordJoinGapTol && !ruleBetween(cur, w, vRules) {
+			cur = unionWord(cur, w)
+			continue
+		}
+		out = append(out, cur)
+		cur = w
+	}
+	return append(out, cur)
+}
+
+// unionWord concatenates w's text onto cur (the band is X-ascending, so this is reading order) and
+// widens cur's bounding box to cover both.
+func unionWord(cur, w Word) Word {
+	cur.S += w.S
+	left := math.Min(cur.X, w.X)
+	right := math.Max(cur.X+cur.W, w.X+w.W)
+	bottom := math.Min(cur.Y, w.Y)
+	top := math.Max(cur.Y+cur.H, w.Y+w.H)
+	cur.X, cur.W = left, right-left
+	cur.Y, cur.H = bottom, top-bottom
+	return cur
+}
+
+// ruleBetween reports whether a real vertical rule separates left from right: a v-edge whose x
+// lies in [left.right, right.left] and whose span covers left's row. Two abutting distinct column
+// values in a ruled table are divided by such a rule, so the re-join must not cross it. Overlapping
+// fragments (right.left < left.right) yield an empty x-interval, so a genuine split is never blocked.
+func ruleBetween(left, right Word, vRules []lEdge) bool {
+	lr := left.X + left.W
+	ay := -(left.Y + left.H/2) // top-origin row of the left word
+	for _, e := range vRules {
+		if e.x0 >= lr && e.x0 <= right.X && e.top <= ay && ay <= e.bottom {
+			return true
+		}
+	}
+	return false
+}
+
+// verticalRules returns the stroked vertical rules of c (the same edge pool latticeTablesOpen
+// builds), consumed by mergeAbuttingWords to forbid welding values a real column rule separates.
+func verticalRules(c Content) []lEdge {
+	var v []lEdge
+	for _, e := range mergeEdges(edgesFromContent(c), 3, 3) {
+		if e.orient == 'v' {
+			v = append(v, e)
+		}
+	}
+	return v
+}
+
 // reconstructGrid bands a table's cells into (row,col) by their own bbox geometry (top->row,
 // x0->col — the banding IS the geometric mapping) and fills each cell with the reading-order
-// join of the words geometrically contained in it.
-func reconstructGrid(cells []lCell, words []Word) [][]string {
+// join of the words geometrically contained in it. vRules are the page's vertical rules (empty
+// in unit tests that build cells directly); mergeAbuttingWords uses them to avoid welding across
+// a real column rule.
+func reconstructGrid(cells []lCell, words []Word, vRules ...lEdge) [][]string {
+	words = mergeAbuttingWords(cells, words, vRules) // re-join zero-advance-space-fragmented tokens
 	tops := make([]float64, len(cells))
 	x0s := make([]float64, len(cells))
 	for i, c := range cells {

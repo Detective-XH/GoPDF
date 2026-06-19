@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `Page.Tables()` no longer splits a cell value across adjacent columns when the PDF renders the
+  token with an embedded zero-advance space — for example a comma-grouped number laid out as
+  `2,1`+`20` (`2,120`), or a character-spaced word laid out as `addr`+`ess` (`address`). Such tokens
+  previously fragmented at the space, with the tail bleeding into the neighbouring cell; GoPDF now
+  re-joins same-row pieces that abut with no real gap, so the value lands whole in one cell. Two
+  genuinely distinct values that meet at a ruled cell border are kept apart — the re-join never
+  crosses a vertical rule — and tables with normal column spacing are byte-for-byte unchanged.
+
 - A font whose `/ToUnicode` CMap is malformed — for example, a stray PostScript `def` keyword
   inside a dictionary literal — no longer empties the entire document. Previously the malformed
   CMap raised a parse error that propagated up through font loading and left every page's text
