@@ -54,25 +54,95 @@ func (f Font) Width(code int) float64 {
 	return f.V.Key("Widths").Index(code - first).Float64()
 }
 
-// effectiveWidth returns the horizontal glyph advance for the given character
-// code (in 1/1000 text-space units). For composite (Type0) fonts it reads /DW
-// from the descendant CIDFont dict, falling back to 1000 per PDF spec §9.7.4.3
-// when /DW is absent. Per-CID /W array lookup is not yet implemented: the
-// content-stream decoder advances one byte per rune (n++) rather than one
-// multi-byte CID, so any per-CID lookup would read a garbage CID. /DW is
-// approximate but sufficient for word segmentation, and is locked by the corpus
-// gate; per-CID /W support is deferred behind the n++ two-byte-code fix.
-// Simple fonts always delegate to Width.
+// effectiveWidth returns the horizontal glyph advance for code (1/1000 text-space
+// units). Composite (Type0) fonts return the uniform /DW; a degenerate /DW of 0
+// (or an absent /DW) maps to the spec default 1000 so glyphs never all stack at one
+// x. This is the path layoutDecoded uses, where code may be a partial byte of a
+// multi-byte CID, so a per-CID /W lookup would be wrong. The full-CID per-/W path
+// lives in cidWidth, reached via layoutComposite for DW==0 fonts that have a code
+// decoder (e.g. BEA's Bold-Cambria); the 1000 fallback here covers the rare DW==0
+// font that cannot be code-decoded (no corpus fixture hits it). Simple fonts
+// delegate to Width.
 func (f Font) effectiveWidth(code int) float64 {
 	if f.V.Key("Subtype").Name() == "Type0" {
-		desc := f.V.Key("DescendantFonts").Index(0)
-		dw := desc.Key("DW")
-		if dw.Kind() == Integer || dw.Kind() == Real {
+		dw := f.V.Key("DescendantFonts").Index(0).Key("DW")
+		if (dw.Kind() == Integer || dw.Kind() == Real) && dw.Float64() != 0 {
 			return dw.Float64()
 		}
 		return 1000
 	}
 	return f.Width(code)
+}
+
+// cidWidth returns the advance for a full CID in a composite (Type0) font. When the
+// descendant /DW is the degenerate 0 (the Bold-Cambria stacking bug) it consults the
+// per-CID /W array (PDF 32000-1 §9.7.4.3), falling back to 1000 for CIDs absent from
+// /W — never 0. A non-zero /DW is returned uniformly. Only layoutComposite calls this,
+// always with a full multi-byte CID (so the /W index is correct).
+func (f Font) cidWidth(cid int) float64 {
+	desc := f.V.Key("DescendantFonts").Index(0)
+	dw := 1000.0
+	if d := desc.Key("DW"); d.Kind() == Integer || d.Kind() == Real {
+		dw = d.Float64()
+	}
+	if dw == 0 {
+		if w := cidWidthFromW(desc.Key("W"), cid); w >= 0 {
+			return w
+		}
+		return 1000
+	}
+	return dw
+}
+
+// needsPerCIDWidth reports whether this Type0 font has a degenerate /DW of 0 — the
+// only case where per-CID /W widths must be read (otherwise every CID advances 0
+// and the run stacks at one x). The content interpreter keeps the cheap
+// one-byte-per-rune width path for all other fonts. Checked once per text-show.
+func (f Font) needsPerCIDWidth() bool {
+	if f.V.Key("Subtype").Name() != "Type0" {
+		return false
+	}
+	d := f.V.Key("DescendantFonts").Index(0).Key("DW")
+	return (d.Kind() == Integer || d.Kind() == Real) && d.Float64() == 0
+}
+
+// cidWidthFromW returns the width of cid from a CIDFont /W array, or -1 if the
+// array does not cover cid. /W mixes two entry forms: `c [w1 w2 …]` (consecutive
+// CIDs from c) and `cFirst cLast w` (a run sharing one width). Malformed arrays
+// yield -1 rather than panicking.
+func cidWidthFromW(w Value, cid int) float64 {
+	if w.Kind() != Array {
+		return -1
+	}
+	i := 0
+	for i < w.Len() {
+		c := w.Index(i)
+		if c.Kind() != Integer {
+			return -1 // malformed: bail out
+		}
+		first := int(c.Int64())
+		next := w.Index(i + 1) // null Value if out of range (Kind()==Null)
+		switch next.Kind() {
+		case Array: // Form 1: c [w...]
+			if cid >= first && cid < first+next.Len() {
+				return next.Index(cid - first).Float64()
+			}
+			i += 2
+		case Integer, Real: // Form 2: cFirst cLast w
+			last := int(next.Int64())
+			wval := w.Index(i + 2)
+			if cid >= first && cid <= last {
+				if wval.Kind() != Integer && wval.Kind() != Real {
+					return -1 // truncated / malformed array
+				}
+				return wval.Float64()
+			}
+			i += 3
+		default:
+			return -1 // malformed / truncated
+		}
+	}
+	return -1
 }
 
 // Encoder returns the encoding between font code point sequences and UTF-8.

@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Fixed
+
+- `Page.Words()`, `Page.Tables()`, and `Page.Content()` now place glyphs correctly for composite
+  (Type0) CIDFonts whose default glyph width (`/DW`) is **zero** — a quirk of some
+  Microsoft-Office-exported PDFs (for example a bold Cambria heading font). Such a font advances
+  every glyph by zero, so a whole label stacked at one position and the geometry-sorted extractors
+  read it scrambled — `Personal consumption expenditures` came out as
+  `esxpendituronsumption eersonal cP`. GoPDF now reads the font's per-CID width array (`/W`) for these
+  zero-`/DW` fonts, so the glyphs are spaced and the label reads in order. Fonts with a normal
+  (non-zero) `/DW` are unchanged, and `GetPlainText` — which reads in stream order and never used
+  glyph widths — was already correct and is byte-for-byte unaffected.
+
 ## v0.8.2 — 2026-06-19
 
 ### Fixed
