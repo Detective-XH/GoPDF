@@ -42,6 +42,13 @@ type contentState struct {
 func (s *contentState) appendText(str string) {
 	decoded := s.g.enc.Decode(str)
 	s.counters.record(s.g.encSource, decoded)
+	// Only a Type0 font with a degenerate /DW of 0 needs per-CID /W widths (the
+	// Bold-Cambria stacking bug); every other font keeps the cheap one-byte-per-
+	// rune path, byte-identical to before. The check is per text-show, not per glyph.
+	if cd, ok := s.g.enc.(codeDecoder); ok && s.g.Tf.needsPerCIDWidth() {
+		s.layoutComposite(cd, str)
+		return
+	}
 	s.layoutDecoded(str, decoded)
 }
 
@@ -89,6 +96,49 @@ func (s *contentState) appendSeparator(sep string) {
 	s.layoutDecoded(sep, decoded)
 }
 
+// appendGlyph emits one Text entry for ch with advance w0 and advances the text
+// matrix. It is the per-glyph emission body, factored out of layoutDecoded so
+// that layoutComposite can reuse it while supplying a per-CID width for DW==0 fonts.
+func (s *contentState) appendGlyph(ch rune, w0 float64) {
+	f := s.g.Tf.BaseFont()
+	if i := strings.Index(f, "+"); i >= 0 {
+		f = f[i+1:]
+	}
+	Trm := matrix{{s.g.Tfs * s.g.Th, 0, 0}, {0, s.g.Tfs, 0}, {0, s.g.Trise, 1}}.mul(s.g.Tm).mul(s.g.CTM)
+	if !s.rotatedWarned && Trm[0][1] != 0 {
+		s.rotatedWarned = true
+		s.p.V.warn(WarningRotatedText, "rotated text matrix (non-horizontal baseline)")
+	}
+	// H is the up-vector magnitude (nominal font height: rotation-invariant
+	// and always >= 0); Rotation is the baseline angle, CCW-positive in
+	// degrees. math.Atan2(0, x>0) is exactly 0 and math.Hypot(0, h)=|h|, so
+	// ordinary horizontal text yields Rotation==0 and H==FontSize, exactly.
+	// Computed unconditionally: a guarded fast-path that skips these on
+	// horizontal text was benchmarked and gave no benefit — the per-glyph
+	// transcendentals are negligible; the measured extraction-path cost is the
+	// two extra struct fields (a wider Text), which a guard cannot avoid.
+	s.text = append(s.text, Text{
+		Font:     f,
+		FontSize: Trm[0][0],
+		X:        Trm[2][0],
+		Y:        Trm[2][1],
+		W:        w0 / 1000 * Trm[0][0],
+		H:        math.Hypot(Trm[1][0], Trm[1][1]),
+		Rotation: math.Atan2(Trm[0][1], Trm[0][0]) * 180 / math.Pi,
+		S:        string(ch),
+	})
+	// Advance to the next glyph. Vertical writing (a -V CMap) moves down the
+	// page by the PDF default vertical displacement (DW2 w1 = -1000 → one em;
+	// Th does not scale vertical advance, PDF 32000-1 §9.4.4) — GoPDF reads no
+	// per-glyph CIDFont /W2 metrics, so every vertical glyph uses this
+	// em-square default. Horizontal writing advances along x by the width.
+	if s.g.vertical {
+		s.g.advance(0, -s.g.Tfs+s.g.Tc)
+	} else {
+		s.g.advance((w0/1000*s.g.Tfs+s.g.Tc)*s.g.Th, 0)
+	}
+}
+
 // layoutDecoded appends one Text entry per decoded rune to s.text, advancing the
 // text matrix after each glyph. It fires WarningRotatedText once per run when the
 // text-rendering matrix rotates the baseline off horizontal — detected by a
@@ -98,6 +148,8 @@ func (s *contentState) appendSeparator(sep string) {
 // slants glyph verticals while keeping the baseline horizontal and FontSize
 // intact, so its geometry stays reliable and must not be flagged. str supplies
 // the raw code points for width lookup; decoded supplies the Unicode runes.
+// Separators and every non-DW==0 font use this path; DW==0 composite runs use
+// layoutComposite instead (see appendText).
 func (s *contentState) layoutDecoded(str, decoded string) {
 	n := 0
 	for _, ch := range decoded {
@@ -106,44 +158,61 @@ func (s *contentState) layoutDecoded(str, decoded string) {
 			w0 = s.g.Tf.effectiveWidth(int(str[n]))
 		}
 		n++
-		f := s.g.Tf.BaseFont()
-		if i := strings.Index(f, "+"); i >= 0 {
-			f = f[i+1:]
-		}
-		Trm := matrix{{s.g.Tfs * s.g.Th, 0, 0}, {0, s.g.Tfs, 0}, {0, s.g.Trise, 1}}.mul(s.g.Tm).mul(s.g.CTM)
-		if !s.rotatedWarned && Trm[0][1] != 0 {
-			s.rotatedWarned = true
-			s.p.V.warn(WarningRotatedText, "rotated text matrix (non-horizontal baseline)")
-		}
-		// H is the up-vector magnitude (nominal font height: rotation-invariant
-		// and always >= 0); Rotation is the baseline angle, CCW-positive in
-		// degrees. math.Atan2(0, x>0) is exactly 0 and math.Hypot(0, h)=|h|, so
-		// ordinary horizontal text yields Rotation==0 and H==FontSize, exactly.
-		// Computed unconditionally: a guarded fast-path that skips these on
-		// horizontal text was benchmarked and gave no benefit — the per-glyph
-		// transcendentals are negligible; the measured extraction-path cost is the
-		// two extra struct fields (a wider Text), which a guard cannot avoid.
-		s.text = append(s.text, Text{
-			Font:     f,
-			FontSize: Trm[0][0],
-			X:        Trm[2][0],
-			Y:        Trm[2][1],
-			W:        w0 / 1000 * Trm[0][0],
-			H:        math.Hypot(Trm[1][0], Trm[1][1]),
-			Rotation: math.Atan2(Trm[0][1], Trm[0][0]) * 180 / math.Pi,
-			S:        string(ch),
-		})
-		// Advance to the next glyph. Vertical writing (a -V CMap) moves down the
-		// page by the PDF default vertical displacement (DW2 w1 = -1000 → one em;
-		// Th does not scale vertical advance, PDF 32000-1 §9.4.4) — GoPDF reads no
-		// per-glyph CIDFont /W2 metrics, so every vertical glyph uses this
-		// em-square default. Horizontal writing advances along x by the width.
-		if s.g.vertical {
-			s.g.advance(0, -s.g.Tfs+s.g.Tc)
-		} else {
-			s.g.advance((w0/1000*s.g.Tfs+s.g.Tc)*s.g.Th, 0)
-		}
+		s.appendGlyph(ch, w0)
 	}
+}
+
+// layoutComposite lays out a composite (Type0) run whose font has /DW==0, walking
+// whole multi-byte codes so each CID's /W width is applied once — after the code's
+// LAST decoded rune; any earlier ligature runes sit at the CID origin (zero
+// advance), so the next code starts past them, never on top. Only reached for DW==0
+// fonts that have a code decoder (see appendText). cidWidth is used (not
+// effectiveWidth) so the full assembled CID is looked up in /W; effectiveWidth only
+// returns the uniform /DW and is used by layoutDecoded where code is a single byte
+// that may be a partial CID.
+//
+// Known limitation (no corpus fixture; degrades no worse than pre-fix baseline):
+// two residual DW==0 zero-advance/stacking paths are accepted, not guarded. (1) A
+// code whose ToUnicode mapping is EMPTY (decodeOne returns nb>0 with no runes)
+// emits no glyph and loses that CID's advance. (2) A DW==0 Type0 font whose encoder
+// is NOT a codeDecoder never reaches here at all — appendText sends it to
+// layoutDecoded, where effectiveWidth's degenerate-DW guard gives a uniform 1000.
+// Both are malformed/exotic inputs that already mis-rendered before this fix; the
+// fix targets the real case (Identity-H ToUnicode CIDFonts like MS-Office Bold-Cambria).
+func (s *contentState) layoutComposite(cd codeDecoder, str string) {
+	for pos := 0; pos < len(str); {
+		runes, nb := cd.decodeOne(str[pos:])
+		if nb == 0 {
+			// No code formed: mirror cmap.Decode's noRune recovery (one byte).
+			s.appendGlyph(noRune, s.g.Tf.cidWidth(int(str[pos])))
+			pos++
+			continue
+		}
+		w0 := s.g.Tf.cidWidth(beCID(str[pos : pos+nb]))
+		// One CID advances exactly once, after its LAST decoded rune. A CID that a
+		// ToUnicode CMap expands into several runes (a ligature) places them all at
+		// the CID origin (zero advance), then the final rune carries the single CID
+		// width — so the next CID starts past the ligature, never on top of it. The
+		// common 1-rune CID hits the last-rune branch directly.
+		for j, ru := range runes {
+			if j == len(runes)-1 {
+				s.appendGlyph(ru, w0)
+			} else {
+				s.appendGlyph(ru, 0)
+			}
+		}
+		pos += nb
+	}
+}
+
+// beCID assembles a big-endian integer CID from up to 4 raw code bytes — the CID
+// for an Identity-H composite font, where code == CID.
+func beCID(code string) int {
+	cid := 0
+	for i := 0; i < len(code) && i < 4; i++ {
+		cid = cid<<8 | int(code[i])
+	}
+	return cid
 }
 
 // handleGraphics handles path-construction and graphics-state operators.

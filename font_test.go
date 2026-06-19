@@ -375,10 +375,11 @@ func TestFontEffectiveWidthSimple(t *testing.T) {
 	}
 }
 
-// TestFontEffectiveWidthType0WithWAndDW verifies that effectiveWidth returns /DW
-// even when a /W array is present in the descendant CIDFont. Per-CID /W lookup
-// is deferred (requires the two-byte-code n++ fix); DW is used as a uniform
-// approximation sufficient for word segmentation, locked by the corpus gate.
+// TestFontEffectiveWidthType0WithWAndDW verifies that effectiveWidth returns the
+// uniform /DW for all CIDs when /DW is non-zero. effectiveWidth is the uniform-DW
+// path used by layoutDecoded; it never consults /W (that is cidWidth's job). Both
+// absent (CID 0) and present (CID 32) CIDs must return DW=800, per PDF 32000-1
+// §9.7.4.3 (uniform-advance fast path).
 func TestFontEffectiveWidthType0WithWAndDW(t *testing.T) {
 	r := fontTestEmptyReader()
 	descendant := dict{
@@ -391,15 +392,22 @@ func TestFontEffectiveWidthType0WithWAndDW(t *testing.T) {
 		name("DescendantFonts"): array{descendant},
 	}
 	font := fontTestFontValue(r, fontDict)
+	// CID 0: absent from /W → must return DW=800 (uniform-advance fast path).
+	// effectiveWidth never consults /W; /W is cidWidth's responsibility.
 	if got := font.effectiveWidth(0); got != 800 {
-		t.Errorf("effectiveWidth on Type0/W+DW=800: got %v, want 800 (per-CID /W deferred, DW used)", got)
+		t.Errorf("effectiveWidth on Type0/W+DW=800/cid=0 absent from W: got %v, want 800 (uniform DW, /W not consulted)", got)
+	}
+	// CID 32: present in /W but effectiveWidth is uniform-DW; /W is NOT consulted.
+	if got := font.effectiveWidth(32); got != 800 {
+		t.Errorf("effectiveWidth on Type0/W+DW=800/cid=32 present in W: got %v, want 800 (uniform DW, /W not consulted)", got)
 	}
 }
 
 // TestFontEffectiveWidthType0WithWNoDW verifies that effectiveWidth returns the
-// spec §9.7.4.3 default 1000 when /W is present but /DW is absent. This is an
-// approximation — the real width is in /W — but per-CID /W lookup is deferred
-// behind the n++ two-byte-code fix; 1000 is preferred over 0 (prior behavior).
+// spec default 1000 for all CIDs when /DW is absent. effectiveWidth is the
+// uniform-DW path (layoutDecoded); absent /DW → 1000, and /W is never consulted
+// (that is cidWidth's responsibility). Per PDF 32000-1 §9.7.4.3 the default /DW
+// is 1000; the per-CID /W path is only taken by cidWidth for degenerate /DW==0.
 func TestFontEffectiveWidthType0WithWNoDW(t *testing.T) {
 	r := fontTestEmptyReader()
 	descendant := dict{
@@ -411,8 +419,182 @@ func TestFontEffectiveWidthType0WithWNoDW(t *testing.T) {
 		name("DescendantFonts"): array{descendant},
 	}
 	font := fontTestFontValue(r, fontDict)
+	// CID 0: absent from /W and no DW → must return spec default 1000.
+	// effectiveWidth returns uniform DW; /W is cidWidth's job.
 	if got := font.effectiveWidth(0); got != 1000 {
-		t.Errorf("effectiveWidth on Type0/W-no-DW: got %v, want 1000 (spec default, /W deferred)", got)
+		t.Errorf("effectiveWidth on Type0/W-no-DW/cid=0: got %v, want 1000 (absent DW→spec default; /W not consulted)", got)
+	}
+	// CID 32: present in /W but effectiveWidth is uniform-DW only; /W is NOT consulted.
+	if got := font.effectiveWidth(32); got != 1000 {
+		t.Errorf("effectiveWidth on Type0/W-no-DW/cid=32: got %v, want 1000 (absent DW→spec default; /W not consulted)", got)
+	}
+}
+
+// TestFontCIDWidthDWZero guards the BEA-class fix point: cidWidth is the method
+// that corrects the Bold-Cambria stacking bug. A Type0 CIDFont with DW=0
+// (degenerate — zero advance stacks every glyph at the same position) must consult
+// /W for covered CIDs and return the spec default 1000 for absent CIDs — never 0.
+// cidWidth (not effectiveWidth) is the fix point: layoutComposite calls cidWidth so
+// that full assembled CIDs are looked up in /W; effectiveWidth is the uniform-DW
+// path for layoutDecoded where codes may be partial bytes of a multi-byte CID.
+func TestFontCIDWidthDWZero(t *testing.T) {
+	r := fontTestEmptyReader()
+	descendant := dict{
+		name("Subtype"): name("CIDFontType2"),
+		name("DW"):      int64(0), // degenerate: Bold-Cambria in BEA fixture has DW=0
+		name("W"):       array{int64(32), array{int64(722)}},
+	}
+	fontDict := dict{
+		name("Subtype"):         name("Type0"),
+		name("DescendantFonts"): array{descendant},
+	}
+	font := fontTestFontValue(r, fontDict)
+	// CID 32: covered by /W → must return the /W width (722), not the degenerate DW=0.
+	if got := font.cidWidth(32); got != 722 {
+		t.Errorf("cidWidth on Type0/DW=0/cid=32 present in W: got %v, want 722 (/W width used, not degenerate DW=0)", got)
+	}
+	// CID 0: absent from /W, DW==0 is degenerate → must return spec default 1000, NEVER 0.
+	// A zero advance re-stacks glyphs at the same position, scrambling every label —
+	// this is exactly the BEA Bold-Cambria label-decode bug this guard fixes.
+	if got := font.cidWidth(0); got != 1000 {
+		t.Errorf("cidWidth on Type0/DW=0/cid=0 absent from W: got %v, want 1000 (degenerate-DW=0 guard: must not return 0 advance)", got)
+	}
+}
+
+// TestFontEffectiveWidthType0DWZeroFallsTo1000 locks the no-stacking guard on the
+// layoutDecoded path: a DW==0 Type0 font reaches effectiveWidth only when it has no
+// code decoder (so layoutComposite/cidWidth is unavailable). effectiveWidth must map
+// the degenerate DW=0 to the spec default 1000 — never 0 — so the run does not stack
+// at one x. (BEA's DW==0 fonts have a code decoder and go through cidWidth instead;
+// this guards the encoder-less DW==0 case, which no corpus fixture exercises.)
+func TestFontEffectiveWidthType0DWZeroFallsTo1000(t *testing.T) {
+	r := fontTestEmptyReader()
+	descendant := dict{
+		name("Subtype"): name("CIDFontType2"),
+		name("DW"):      int64(0),
+	}
+	fontDict := dict{
+		name("Subtype"):         name("Type0"),
+		name("DescendantFonts"): array{descendant},
+	}
+	font := fontTestFontValue(r, fontDict)
+	if got := font.effectiveWidth(7); got != 1000 {
+		t.Errorf("effectiveWidth on Type0/DW=0: got %v, want 1000 (degenerate DW=0 must not advance 0 / stack)", got)
+	}
+}
+
+// TestFontCIDWidthNonZeroDW verifies that cidWidth returns the uniform /DW for all
+// CIDs when /DW is non-zero — the /W array is NOT consulted. This is the symmetric
+// counterpart to TestFontCIDWidthDWZero: only DW==0 triggers the /W lookup.
+func TestFontCIDWidthNonZeroDW(t *testing.T) {
+	r := fontTestEmptyReader()
+	descendant := dict{
+		name("Subtype"): name("CIDFontType2"),
+		name("DW"):      int64(800),
+		name("W"):       array{int64(32), array{int64(722)}},
+	}
+	fontDict := dict{
+		name("Subtype"):         name("Type0"),
+		name("DescendantFonts"): array{descendant},
+	}
+	font := fontTestFontValue(r, fontDict)
+	// CID 32: present in /W but DW=800 (non-zero) → uniform /DW returned, /W NOT consulted.
+	if got := font.cidWidth(32); got != 800 {
+		t.Errorf("cidWidth on Type0/DW=800/cid=32: got %v, want 800 (non-zero DW→uniform; /W not consulted)", got)
+	}
+	// CID 0: absent from /W; non-zero DW → uniform /DW returned.
+	if got := font.cidWidth(0); got != 800 {
+		t.Errorf("cidWidth on Type0/DW=800/cid=0: got %v, want 800 (uniform DW)", got)
+	}
+}
+
+// TestBeCID verifies the big-endian CID assembly used by layoutComposite.
+func TestBeCID(t *testing.T) {
+	cases := []struct {
+		input string
+		want  int
+	}{
+		{"\x00A", 65},
+		{"\x01\x02", 258},
+		{"\x12\x34", 0x1234},
+		{"", 0},
+		{"\xff", 255},
+	}
+	for _, tc := range cases {
+		if got := beCID(tc.input); got != tc.want {
+			t.Errorf("beCID(%q) = %d, want %d", tc.input, got, tc.want)
+		}
+	}
+}
+
+// ---- TestCIDWidthFromW -----------------------------------------------------
+
+// TestCIDWidthFromW exercises cidWidthFromW with all /W entry forms defined in
+// PDF 32000-1 §9.7.4.3: Form 1 (c [w...]) and Form 2 (cFirst cLast w), mixed
+// sequences, non-array input, empty arrays, and malformed arrays.
+func TestCIDWidthFromW(t *testing.T) {
+	r := fontTestEmptyReader()
+
+	// Helper: build a Value of kind Array from a flat slice of objects.
+	makeArray := func(elems ...object) Value {
+		return Value{r, objptr{}, array(elems)}
+	}
+
+	tests := []struct {
+		name string
+		w    Value
+		cid  int
+		want float64
+	}{
+		// Form 1: c [w1 w2 w3] — covers c, c+1, c+2
+		{"form1 cid=3 hit", makeArray(int64(3), array{int64(250), int64(333), int64(500)}), 3, 250},
+		{"form1 cid=4 hit", makeArray(int64(3), array{int64(250), int64(333), int64(500)}), 4, 333},
+		{"form1 cid=5 hit", makeArray(int64(3), array{int64(250), int64(333), int64(500)}), 5, 500},
+		{"form1 cid=6 miss", makeArray(int64(3), array{int64(250), int64(333), int64(500)}), 6, -1},
+		{"form1 cid=2 miss", makeArray(int64(3), array{int64(250), int64(333), int64(500)}), 2, -1},
+
+		// Form 2: cFirst cLast w — all CIDs in [cFirst, cLast] share the same width
+		{"form2 cid=10 hit", makeArray(int64(10), int64(20), int64(600)), 10, 600},
+		{"form2 cid=15 hit", makeArray(int64(10), int64(20), int64(600)), 15, 600},
+		{"form2 cid=20 hit", makeArray(int64(10), int64(20), int64(600)), 20, 600},
+		{"form2 cid=9 miss", makeArray(int64(10), int64(20), int64(600)), 9, -1},
+		{"form2 cid=21 miss", makeArray(int64(10), int64(20), int64(600)), 21, -1},
+
+		// Mixed: [3 [250 333] 10 20 600]
+		{"mixed form1 cid=3", makeArray(int64(3), array{int64(250), int64(333)}, int64(10), int64(20), int64(600)), 3, 250},
+		{"mixed form1 cid=4", makeArray(int64(3), array{int64(250), int64(333)}, int64(10), int64(20), int64(600)), 4, 333},
+		{"mixed form2 cid=10", makeArray(int64(3), array{int64(250), int64(333)}, int64(10), int64(20), int64(600)), 10, 600},
+		{"mixed form2 cid=20", makeArray(int64(3), array{int64(250), int64(333)}, int64(10), int64(20), int64(600)), 20, 600},
+		{"mixed cid=5 miss", makeArray(int64(3), array{int64(250), int64(333)}, int64(10), int64(20), int64(600)), 5, -1},
+
+		// Non-array Value (Null kind) → -1
+		{"non-array null", Value{}, 3, -1},
+
+		// Empty array → -1
+		{"empty array", makeArray(), 0, -1},
+
+		// Malformed: trailing lone integer [3] — bail at truncated Form 1/2 detection
+		{"malformed lone int", makeArray(int64(3)), 3, -1},
+
+		// Malformed: [3 [250] 99] — the 99 after the Form-1 entry is an uncovered start;
+		// CID 3 is in Form-1, CID 99 is not reachable (truncated). No panic.
+		{"malformed trailing int cid=3", makeArray(int64(3), array{int64(250)}, int64(99)), 3, 250},
+		{"malformed trailing int cid=99", makeArray(int64(3), array{int64(250)}, int64(99)), 99, -1},
+
+		// Fix 1: truncated Form 2 — [10 20] looks like cFirst=10 cLast=20 but the
+		// width element (i+2) is missing. Index(2) returns Null; the kind check
+		// must catch this and return -1, not 0 (which for a DW==0 font would bypass
+		// the 1000 fallback and re-stack the glyph).
+		{"truncated form2 cid=10", makeArray(int64(10), int64(20)), 10, -1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := cidWidthFromW(tc.w, tc.cid)
+			if got != tc.want {
+				t.Errorf("cidWidthFromW(cid=%d): got %v, want %v", tc.cid, got, tc.want)
+			}
+		})
 	}
 }
 

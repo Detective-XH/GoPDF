@@ -20,6 +20,15 @@ type TextEncoding interface {
 	Decode(raw string) (text string)
 }
 
+// A codeDecoder is a TextEncoding that can decode ONE character code at a time,
+// reporting the bytes the code consumed. layoutComposite uses it to walk
+// whole multi-byte codes for DW==0 composite fonts. Simple-font encoders do not
+// implement it; they keep the unchanged one-byte-per-rune width path.
+// (nil, 0) means no code could be formed at the head of raw.
+type codeDecoder interface {
+	decodeOne(raw string) (runes []rune, nbytes int)
+}
+
 type nopEncoder struct {
 }
 
@@ -57,6 +66,13 @@ func (e *ucs2BEEncoder) Decode(raw string) (text string) {
 	return string(r)
 }
 
+func (e *ucs2BEEncoder) decodeOne(raw string) ([]rune, int) {
+	if len(raw) < 2 {
+		return nil, 0
+	}
+	return []rune{rune(uint16(raw[0])<<8 | uint16(raw[1]))}, 2
+}
+
 // adobeCIDEncoder decodes content-stream bytes for a Type0 Identity-H/V CIDFont with a genuine
 // Adobe CID ordering and NO /ToUnicode: the 2-byte big-endian codes ARE CIDs (Identity ⇒
 // code==CID), mapped to Unicode via an Adobe-published CID→Unicode table (cid2code.txt). Like
@@ -78,6 +94,17 @@ func (e *adobeCIDEncoder) Decode(raw string) (text string) {
 		}
 	}
 	return string(r)
+}
+
+func (e *adobeCIDEncoder) decodeOne(raw string) ([]rune, int) {
+	if len(raw) < 2 {
+		return nil, 0
+	}
+	cid := uint16(raw[0])<<8 | uint16(raw[1])
+	if int(cid) < len(e.table) && e.table[cid] != 0 {
+		return []rune{rune(e.table[cid])}, 2
+	}
+	return []rune{noRune}, 2
 }
 
 type byteEncoder struct {
