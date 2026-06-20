@@ -47,6 +47,8 @@ func TestCorpusRegenerate(t *testing.T) {
 		{"geometry/rotated-90.pdf", buildRotated90PDF()},
 		{"geometry/vertical-cmap.pdf", buildVerticalCMapPDF()},
 		{"geometry/page-rotate-90.pdf", buildPageRotate90PDF()},
+		// Table FP discriminator: isolated shaded prose bands + callout boxes; no tables.
+		{"discriminator/shaded-non-table.pdf", buildShadedNonTablePDF()},
 	}
 	for _, e := range synth {
 		p := corpusPath(e.rel)
@@ -364,6 +366,51 @@ func buildVerticalCMapPDF() []byte {
 		"BT /F1 12 Tf (N-) Tj ET",
 		"<< /Type /Font /Subtype /Type1 /BaseFont /Synthetic /Encoding /UniJIS-UCS2-V >>",
 	)
+}
+
+// buildShadedNonTablePDF builds a one-page shaded-but-non-tabular fixture: an
+// alternating-shaded prose list (six full-width shaded bands separated by clear ~22pt vertical
+// gaps) plus two isolated shaded callout boxes at different positions. Every shaded rect is
+// ISOLATED — no two share an edge, and the inter-band gaps sit well above mergeEdges' joinTol —
+// so the fill rects never form a closed multi-cell lattice (latticeTables yields only
+// single-cell regions, no table with len>1) and inferFillBandedRows is never fed a banded grid.
+// This is the FILL-rect-heavy false-positive surface (shaded lists, callout boxes, figure
+// backgrounds) that the seven prose/CJK discriminators do not exercise; the FP gate must stay 0.
+//
+// NOTE: a bar chart of ADJACENT bars sharing a common baseline does NOT work here — abutting
+// rects share vertical edges and form a topologically valid closed lattice that latticeTables
+// (which runs before inferFillBandedRows) reports as a table. Isolation is mandatory.
+func buildShadedNonTablePDF() []byte {
+	const stream = "" +
+		// Alternating-shaded prose list: six full-width bands, each isolated by a ~22pt gap.
+		"0.88 g\n" +
+		"72 700 468 18 re f\n" +
+		"72 660 468 18 re f\n" +
+		"72 620 468 18 re f\n" +
+		"72 580 468 18 re f\n" +
+		"72 540 468 18 re f\n" +
+		"72 500 468 18 re f\n" +
+		// Flowing prose on each band (single running text, not column-aligned cells).
+		"BT /F1 10 Tf 78 704 Td (Item one: introduction and overview of the report summary.) Tj ET\n" +
+		"BT /F1 10 Tf 78 664 Td (Item two: background context and prior-year comparison notes.) Tj ET\n" +
+		"BT /F1 10 Tf 78 624 Td (Item three: methodology and the data sources described here.) Tj ET\n" +
+		"BT /F1 10 Tf 78 584 Td (Item four: results and observations from the analysis follow.) Tj ET\n" +
+		"BT /F1 10 Tf 78 544 Td (Item five: discussion of limitations and caveats to consider.) Tj ET\n" +
+		"BT /F1 10 Tf 78 504 Td (Item six: conclusion and recommendations for the next period.) Tj ET\n" +
+		// Two isolated shaded callout boxes at different x and y (no shared edges).
+		"0.92 g\n" +
+		"72 400 220 70 re f\n" +
+		"320 300 220 70 re f\n" +
+		"BT /F1 10 Tf 80 430 Td (Callout: figures are unaudited estimates only.) Tj ET\n" +
+		"BT /F1 10 Tf 328 330 Td (Callout: source is the internal finance team.) Tj ET\n"
+	return buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R" +
+			" /Resources << /Font << /F1 5 0 R >> >> >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(stream), stream),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+	})
 }
 
 // buildPageRotate90PDF: the rotated-90 content (Tm 0 1 -1 0) PLUS a page /Rotate 90.

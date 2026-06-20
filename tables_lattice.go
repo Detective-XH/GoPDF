@@ -379,16 +379,19 @@ const (
 // and urx (media[2]) are used as the outer clamps.
 func latticeTablesOpen(c Content, words []Word, media [4]float64) [][]lCell {
 	edges := mergeEdges(edgesFromContent(c), 3, 3) // same pool latticeTables uses
-	var hEdges []lEdge
+	var hEdges, vEdges []lEdge
 	for _, e := range edges {
 		if e.orient == 'h' {
 			hEdges = append(hEdges, e)
+		} else {
+			vEdges = append(vEdges, e)
 		}
 	}
 	tables := latticeTables(c) // closed-only, unchanged
 	for i := range tables {
 		tables[i] = append(tables[i], recoverOpenColumns(tables[i], words, hEdges, media)...)
 		tables[i] = inferRectBorderedRows(tables[i], words, hEdges, media)
+		tables[i] = inferFillBandedRows(tables[i], words, c, vEdges)
 	}
 	return tables
 }
@@ -691,6 +694,321 @@ func inferRectBorderedRows(cells []lCell, words []Word, hEdges []lEdge, media [4
 		out = append(out, splitCellAtBands(c, bands)...)
 	}
 	return out
+}
+
+// --- fill-banded staircase row inference (group-ruled + fill-banded tables) ---
+
+// Fill-banded staircase tables (e.g. EIA Annual Energy Review Table 3.1) use alternating
+// fill rects whose bottoms all converge at the table's base and whose tops form a staircase
+// of distinct monotonic steps — one step per data row. The lattice engine sees only 4 wide
+// column cells (the long vertical group rules) and misses the row structure. This pass
+// recovers rows by projecting word Y-centers onto a clustering grid and splitting each
+// staircase data-body cell both vertically (row bands) and horizontally (column cuts from
+// the v-edge pool).
+//
+// FP safety: the staircase signature (common-bottom, varying-tops, regular spacing, fraction
+// of body height, >= rectMinRowClusters distinct tops) is shared by no other table class in
+// the corpus: fully-ruled tables have interior h-rules (gate G5 rejects them); rect-bordered
+// tables have rects that share common tops not common bottoms, or share neither (ERP); BEA
+// alternating-fill has 46 distinct bottoms, not 1 (gate G1 rejects it); single-shaded callout
+// boxes have only 1 or 2 distinct top steps (gate G3 rejects them); framed prose boxes fail
+// the row-aligned gate (G6).
+
+// fillStaircaseSteps returns the top-origin tops of rects whose bottom clusters within
+// rectRowSnapTol of tableBot AND whose top is strictly inside the table body (not a full-
+// height spanning banner). Full-height banner rects (top within rectRowSnapTol of tableTop)
+// are excluded so they don't distort the regularity check.
+//
+// Banded fill rects are NESTED bands that share one common x-span (the same left and right
+// edge), differing only in their stepped top — so the qualifying rects must collapse to a
+// single x0 cluster and a single x1 cluster. A bar/column chart, by contrast, is made of
+// rects with DISTINCT x-spans (one per bar), which yields multiple x clusters and is rejected
+// here before the regularity check. (The shared-x test is independent of the table's column
+// bounds, which recoverOpenColumns may have widened with a recovered label column.)
+//
+// rects are scoped to the current table by [vMin,vMax]: a fill region elsewhere on the page
+// (another figure/chart) must not pollute the shared-x test, so rects whose x-span does not
+// overlap [vMin,vMax] are skipped. (vMin/vMax come from the table's cells and may have been
+// widened by recoverOpenColumns; the overlap test — not a full-span requirement — keeps the
+// banded rects regardless of that widening.)
+//
+// Returns nil when fewer than rectMinRowClusters distinct tops are found or the qualifying
+// rects do not share a single x-span.
+func fillStaircaseSteps(rects []Rect, tableTop, tableBot, vMin, vMax float64) []float64 {
+	var tops, x0s, x1s []float64
+	for _, r := range rects {
+		top := -max(r.Min.Y, r.Max.Y) // top-origin: negate max PDF Y
+		bot := -min(r.Min.Y, r.Max.Y) // top-origin: negate min PDF Y
+		rx0 := min(r.Min.X, r.Max.X)
+		rx1 := max(r.Min.X, r.Max.X)
+		// Scope to the current table: skip rects whose x-span lies entirely outside [vMin,vMax].
+		if rx1 < vMin-rectRowSnapTol || rx0 > vMax+rectRowSnapTol {
+			continue
+		}
+		// Exclude rects that don't share the common bottom or span the full table height.
+		if math.Abs(bot-tableBot) > rectRowSnapTol || top < tableTop+rectRowSnapTol {
+			continue
+		}
+		if top < tableBot-rectRowSnapTol {
+			tops = append(tops, top)
+			x0s = append(x0s, rx0)
+			x1s = append(x1s, rx1)
+		}
+	}
+	if len(tops) == 0 {
+		return nil
+	}
+	// Nested bands share one x-span; bars (distinct x per rect) do not.
+	if len(cluster1D(x0s, rectRowSnapTol)) != 1 || len(cluster1D(x1s, rectRowSnapTol)) != 1 {
+		return nil
+	}
+	return cluster1D(tops, rectRowSnapTol)
+}
+
+// staircaseSignatureHolds checks that tops form a genuine staircase: distinct steps that are
+// monotonic, regularly-spaced (max gap <= 2× median gap), and span >= rectMinBodyFrac of the
+// table body (tableTop to tableBot).
+func staircaseSignatureHolds(tops []float64, tableTop, tableBot float64) bool {
+	if len(tops) < rectMinRowClusters {
+		return false
+	}
+	// tops are sorted ascending by cluster1D (smallest = highest on page).
+	span := tops[len(tops)-1] - tops[0]
+	bodyH := tableBot - tableTop
+	if bodyH <= 0 || span < rectMinBodyFrac*bodyH {
+		return false
+	}
+	// Check regular spacing: max consecutive gap <= 2 × median gap.
+	gaps := make([]float64, len(tops)-1)
+	for i := range gaps {
+		gaps[i] = tops[i+1] - tops[i]
+	}
+	sort.Float64s(gaps)
+	median := gaps[len(gaps)/2]
+	if median <= 0 {
+		return false
+	}
+	maxGap := gaps[len(gaps)-1]
+	return maxGap <= 2*median
+}
+
+// fillBandedDataRegion returns the top-origin [dataTop, dataBot] of the staircase data body.
+//
+// dataTop is derived from STROKE-ONLY h-edges: the last full-span stroke that lies strictly
+// above the staircase top (steps[0]) is the column-header separator — the boundary between
+// the sub-header row and the first data row (which may start above the first fill band). This
+// captures data cells that precede the staircase fill bands. Falls back to steps[0] if no
+// such stroke exists.
+//
+// dataBot is the full-span stroke immediately below the lowest staircase step, separating the
+// data body from the footnote zone — the MOST-negative (nearest-staircase) qualifying stroke,
+// which excludes the footer. Falls back to tableBot when no such stroke exists. This assumes a
+// single data/footer frame below the staircase (the validated banded geometry); if several
+// full-span strokes sit below the lowest step, the one nearest the staircase wins.
+//
+// strokeHEdges must be derived from c.Stroke only (not c.Rect) to avoid confusion with fill
+// rect borders.
+func fillBandedDataRegion(tops []float64, tableBot, vMin, vMax float64, strokeHEdges []lEdge) (dataTop, dataBot float64) {
+	// NOTE: in top-origin coordinates, more-negative = higher on page.
+	// staircaseHigh = tops[0] = most negative = topmost step.
+	// staircaseLow  = tops[last] = least negative = bottommost step.
+	staircaseHigh := tops[0]
+	staircaseLow := tops[len(tops)-1]
+	dataTop = staircaseHigh
+	dataBot = tableBot
+
+	// bestHeaderSep tracks the HIGHEST (most negative) top among candidate header-separator
+	// strokes. It starts at math.Inf(-1) so any real stroke supersedes it.
+	bestHeaderSep := math.Inf(-1)
+
+	for _, e := range strokeHEdges {
+		if e.x0 > vMin+rectRowSnapTol || e.x1 < vMax-rectRowSnapTol {
+			continue // not a full-span edge
+		}
+		// Header-separator: a full-span stroke strictly ABOVE the staircase top
+		// (e.top < staircaseHigh, i.e. more negative). Among all such strokes, take
+		// the one CLOSEST to staircaseHigh (least negative = largest value).
+		if e.top < staircaseHigh && e.top > bestHeaderSep {
+			bestHeaderSep = e.top
+		}
+		// Bottom frame: the data/footer boundary is the full-span stroke at or just below the
+		// lowest staircase step (for the banded geometry the bottom frame sits right at the
+		// last data row, coincident with the lowest step within rectRowSnapTol). In top-origin
+		// coords the footer sits below (less negative than) the data, so the boundary is the
+		// MOST-negative qualifying stroke; taking it (the e.top < dataBot min) excludes the
+		// footer. The window admits a stroke within rectRowSnapTol of the lowest step because
+		// the bottom frame can be coincident with it.
+		if e.top >= staircaseLow-rectRowSnapTol && e.top < tableBot-rectRowSnapTol {
+			if e.top < dataBot {
+				dataBot = e.top
+			}
+		}
+	}
+	if !math.IsInf(bestHeaderSep, -1) {
+		dataTop = bestHeaderSep
+	}
+	return dataTop, dataBot
+}
+
+// fillBandedVCuts collects distinct interior vertical-edge x-positions inside (vMin, vMax),
+// clustered within 2 pt. These are the column separators for the fill-banded table.
+func fillBandedVCuts(vEdges []lEdge, vMin, vMax float64) []float64 {
+	const vCutClusterTol = 2.0
+	var xs []float64
+	for _, e := range vEdges {
+		if e.x0 > vMin+rectRowSnapTol && e.x0 < vMax-rectRowSnapTol {
+			xs = append(xs, e.x0)
+		}
+	}
+	return cluster1D(xs, vCutClusterTol)
+}
+
+// splitCellAtXs splits cell c horizontally at each x-cut inside (c.x0, c.x1). The leftmost
+// piece keeps c.x0 so left-margin labels stay anchored; the rightmost piece keeps c.x1.
+// Returns []lCell{c} when no cuts fall inside (c.x0, c.x1).
+func splitCellAtXs(c lCell, xcuts []float64) []lCell {
+	var cuts []float64
+	for _, x := range xcuts {
+		if x > c.x0+rectRowSnapTol && x < c.x1-rectRowSnapTol {
+			cuts = append(cuts, x)
+		}
+	}
+	if len(cuts) == 0 {
+		return []lCell{c}
+	}
+	sort.Float64s(cuts)
+	out := make([]lCell, 0, len(cuts)+1)
+	x0 := c.x0
+	for _, x := range cuts {
+		out = append(out, lCell{x0: x0, top: c.top, x1: x, bottom: c.bottom})
+		x0 = x
+	}
+	out = append(out, lCell{x0: x0, top: c.top, x1: c.x1, bottom: c.bottom})
+	return out
+}
+
+// fillBandedSplitCell splits one data-region cell first by row bands (vertical split) then
+// by x-cuts (horizontal split), returning all resulting sub-cells.
+// It filters bands to those strictly inside (c.top, c.bottom) before calling splitCellAtBands
+// to prevent a 1-band cell from exploding into 43 sub-cells.
+func fillBandedSplitCell(c lCell, bands []float64, xcuts []float64) []lCell {
+	// Filter bands to those strictly inside this cell's vertical extent.
+	var localBands []float64
+	for _, b := range bands {
+		if b > c.top && b < c.bottom {
+			localBands = append(localBands, b)
+		}
+	}
+	// Split vertically into row bands.
+	var rowCells []lCell
+	if len(localBands) < 2 {
+		rowCells = []lCell{c}
+	} else {
+		rowCells = splitCellAtBands(c, localBands)
+	}
+	// Split each row band horizontally at x-cuts.
+	out := make([]lCell, 0, len(rowCells)*(len(xcuts)+1))
+	for _, rc := range rowCells {
+		out = append(out, splitCellAtXs(rc, xcuts)...)
+	}
+	return out
+}
+
+// inferFillBandedRows recovers the row and column structure of a fill-banded staircase
+// table (e.g. EIA AER Table 3.1). Such tables have alternating fill rects that converge at
+// a common bottom with stepped tops — one step per data row — and use only a few long
+// vertical rules for column groups. latticeTables produces only wide multi-row cells; this
+// pass splits them into individual data-body cells and adds interior column cuts from the
+// vertical-edge pool.
+//
+// The function is a no-op (returns cells unchanged) on every table that is not a
+// fill-banded staircase — all FP gates (G1–G6) must hold.
+func inferFillBandedRows(cells []lCell, words []Word, c Content, vEdges []lEdge) []lCell {
+	if len(cells) == 0 {
+		return cells
+	}
+	tableTop, tableBot := cellYSpan(cells)
+	vMin, vMax := colBounds(cells)
+
+	// G1: staircase signature — common-bottom fill rects with distinct, regular tops.
+	steps := fillStaircaseSteps(c.Rect, tableTop, tableBot, vMin, vMax)
+	if !staircaseSignatureHolds(steps, tableTop, tableBot) {
+		return cells
+	}
+
+	// Pre-compute stroke-only h-edges (needed for both data-region and G5 checks).
+	strokeH := strokeOnlyHEdges(c)
+
+	// G2: derive data region using stroke-only edges to find the bottom frame rule.
+	dataTop, dataBot := fillBandedDataRegion(steps, tableBot, vMin, vMax, strokeH)
+
+	// G3: cluster word Y-centers in the data region into row bands.
+	dataCell := lCell{x0: vMin, top: dataTop, x1: vMax, bottom: dataBot}
+	allY := wordYCentersIn(words, dataCell)
+	bands := cluster1D(allY, rectRowGapTol)
+	if len(bands) < rectMinRowClusters {
+		return cells
+	}
+
+	// G4: collect interior v-edge column cuts.
+	xcuts := fillBandedVCuts(vEdges, vMin, vMax)
+
+	// G5: no interior horizontal stroke rules inside the data body.
+	if interiorHRuleCount(strokeH, dataTop, dataBot, vMin, vMax) > 0 {
+		return cells
+	}
+
+	// G6: row-alignment cross-column check — bands must be shared across data cells.
+	// Build a temporary set of full-height data cells (spanning the full data region)
+	// to reuse rowAligned's multi-column cross-check.
+	dataCells := cellsInDataRegion(cells, dataTop, dataBot)
+	if len(dataCells) < 2 || !rowAligned(dataCells, words, bands) {
+		return cells
+	}
+
+	// All gates passed: split every cell in the data region.
+	out := make([]lCell, 0, len(cells)*len(bands))
+	for _, cell := range cells {
+		if cellInDataRegion(cell, dataTop, dataBot, vMin, vMax) {
+			out = append(out, fillBandedSplitCell(cell, bands, xcuts)...)
+		} else {
+			out = append(out, cell)
+		}
+	}
+	return out
+}
+
+// cellsInDataRegion returns cells whose vertical extent overlaps [dataTop, dataBot], for use
+// in the rowAligned cross-column check. The input cells are already the current table's cells
+// (the lattice scopes them), so no x-bound filter is needed here.
+func cellsInDataRegion(cells []lCell, dataTop, dataBot float64) []lCell {
+	var out []lCell
+	for _, c := range cells {
+		if c.bottom > dataTop && c.top < dataBot {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// cellInDataRegion reports whether cell c lies fully within the data region.
+func cellInDataRegion(c lCell, dataTop, dataBot, vMin, vMax float64) bool {
+	return c.bottom > dataTop+rectRowSnapTol && c.top < dataBot-rectRowSnapTol &&
+		c.x0 >= vMin-rectRowSnapTol && c.x1 <= vMax+rectRowSnapTol
+}
+
+// strokeOnlyHEdges returns the merged horizontal edges derived from c.Stroke only
+// (not from c.Rect), so fill rect borders are excluded. Used to detect real frame
+// rules without being confused by the alternating-band rect borders.
+func strokeOnlyHEdges(c Content) []lEdge {
+	raw := mergeEdges(edgesFromContent(Content{Stroke: c.Stroke}), 3, 3)
+	var h []lEdge
+	for _, e := range raw {
+		if e.orient == 'h' {
+			h = append(h, e)
+		}
+	}
+	return h
 }
 
 // splitFullHeight partitions cells into the full-height collapsed data columns (bottom at the

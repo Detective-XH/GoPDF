@@ -257,6 +257,16 @@ the rotation cancels back to an upright display-space baseline, so `FontSize` re
 the rotated-text warning does **not** fire. Together they satisfy the fixture half of the
 rotated/vertical geometry gate.
 
+## Synthetic table FP discriminator (`discriminator/`)
+
+Byte-exact synthetic fixtures (added by `TestCorpusRegenerate -update`) that exercise
+the table false-positive gate. Each document contains NO tables; the real anchor is
+`TestLatticeFalsePositiveGate` in `tables_lattice_measure_test.go` (0-FP hard gate).
+
+| File | Source | License | Purpose |
+|------|--------|---------|---------|
+| `discriminator/shaded-non-table.pdf` | synthetic | synthetic | Six isolated alternating-shaded prose bands + two isolated callout boxes (all fill rects non-touching, so no closed lattice forms); zero tables — discriminator for `inferFillBandedRows` false-positive gate |
+
 ## Lines() reading-order characterization (committed FR + UDHR fixtures)
 
 `corpus_lines_test.go` runs `Page.Lines()` over the multicolumn Federal Register
