@@ -128,6 +128,20 @@ var corpusManifest = []corpusEntry{
 		Purpose: "Cross-publisher (non-EIA) banded/group-ruled cell-grid ground truth (36x11, 3-tier header); alternating-fill row bands, group-only verticals; currently row-over-merged by Tables() — held-out Q2 generalization target",
 	},
 	{
+		Path: "tables/tw-dgbas-happiness-2025.pdf", Golden: "tables/tw-dgbas-happiness-2025.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "Taiwan DGBAS, 表2 原國民幸福指數指標統計表 (Your Better Life Index indicators, Table 2), as of 2025-09-30, ws.dgbas.gov.tw",
+		License: "TW OGDL v1 (政府資料開放授權 v1.0, CC-BY compatible)",
+		Purpose: "Cross-publisher CJK (Traditional Chinese) per-cell-grid quality fixture (45x9, clean column split); held-out group-ruled+banded — exercises PR-1 inferColumnCuts v-edge column recovery (G1)",
+	},
+	{
+		Path: "tables/de-destatis-insolvenzen-2023.pdf", Golden: "tables/de-destatis-insolvenzen-2023.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "Destatis (Statistisches Bundesamt) Fachserie 2 Reihe 4.1, Unternehmensinsolvenzen nach ausgewählten Wirtschaftsbereichen, Juni 2023, p.6, destatis.de",
+		License: "DL-DE-BY-2.0 (Datenlizenz Deutschland Namensnennung 2.0)",
+		Purpose: "Cross-publisher German per-cell-grid quality fixture (66x9, previously-G1-fused); held-out group-ruled+banded — the proven G1 column-collapse case PR-1 inferColumnCuts repairs",
+	},
+	{
 		Path: "tables/epa-egrid2022-t1.pdf", Golden: "tables/epa-egrid2022-t1.golden.txt",
 		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
 		Source:  "EPA eGRID2022 Summary Tables, Table 1 (Subregion Output Emission Rates) p.2, epa.gov/system/files/documents/2024-01/egrid2022_summary_tables.pdf",

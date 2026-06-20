@@ -9,6 +9,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- `Page.Tables()` now recovers the **columns** of dense per-cell-grid statistical tables whose numeric
+  columns previously collapsed into a single cell per row. In many stroke-free statistical tables — common
+  in non-US government statistics, for example German Destatis and Taiwan DGBAS releases — the data band
+  closed as one wide cell, so every figure in a row landed in the same column; GoPDF now splits that cell
+  at the table's own vertical column rules, restoring the separate columns (measured against a blind-authored
+  German insolvency regression fixture, the great majority of data cells now land in the right column). The split is conservative:
+  it fires only at column boundaries the table itself establishes elsewhere (so a rule from a different
+  table on the page cannot mis-split a cell) and only when the cell's own content actually spans those
+  columns (so a spanning label or merged-header title is left intact). Every ruled, rect-bordered, and
+  previously-handled table is byte-for-byte unchanged, and reconstruction remains best-effort per the
+  `Page.Tables()` documentation.
+
 - `Page.Tables()` now reconstructs **fill-banded "staircase" tables** — statistical tables whose rows
   are separated by alternating background shading (filled rectangles) rather than ruled lines, drawn as
   a staircase of nested fills that share a common bottom edge (for example U.S. EIA Annual Energy Review
