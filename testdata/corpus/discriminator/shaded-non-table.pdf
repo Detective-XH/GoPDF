@@ -1,0 +1,50 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 877 >>
+stream
+0.88 g
+72 700 468 18 re f
+72 660 468 18 re f
+72 620 468 18 re f
+72 580 468 18 re f
+72 540 468 18 re f
+72 500 468 18 re f
+BT /F1 10 Tf 78 704 Td (Item one: introduction and overview of the report summary.) Tj ET
+BT /F1 10 Tf 78 664 Td (Item two: background context and prior-year comparison notes.) Tj ET
+BT /F1 10 Tf 78 624 Td (Item three: methodology and the data sources described here.) Tj ET
+BT /F1 10 Tf 78 584 Td (Item four: results and observations from the analysis follow.) Tj ET
+BT /F1 10 Tf 78 544 Td (Item five: discussion of limitations and caveats to consider.) Tj ET
+BT /F1 10 Tf 78 504 Td (Item six: conclusion and recommendations for the next period.) Tj ET
+0.92 g
+72 400 220 70 re f
+320 300 220 70 re f
+BT /F1 10 Tf 80 430 Td (Callout: figures are unaudited estimates only.) Tj ET
+BT /F1 10 Tf 328 330 Td (Callout: source is the internal finance team.) Tj ET
+
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001169 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1239
+%%EOF

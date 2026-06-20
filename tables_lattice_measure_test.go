@@ -14,6 +14,9 @@ var allFixtures = []string{
 	"cjk/udhr-ja.pdf",
 	"cjk/udhr-ko.pdf",
 	"cyrillic/udhr-ru.pdf",
+	// Synthetic FP discriminator: isolated shaded prose bands + callout boxes; no tables.
+	// Tests that fill-rect content the lattice does not close into a grid stays 0-FP.
+	"discriminator/shaded-non-table.pdf",
 	"tables/nist-hb44-appc-2026.pdf",
 	"tables/irs-p55b-2025-excerpt.pdf",
 	// borderless cell-grid corpus — included to empirically confirm the "borderless ->
@@ -22,8 +25,8 @@ var allFixtures = []string{
 	"tables/eia-aer-t3-1-2011.pdf",
 }
 
-// discriminatorFixtures are the 7 FP-gate fixtures (no tables expected).
-var discriminatorFixtures = allFixtures[:7]
+// discriminatorFixtures are the 8 FP-gate fixtures (no tables expected).
+var discriminatorFixtures = allFixtures[:8]
 
 // latticeFixturePages opens a corpus PDF (path relative to testdata/corpus/) and returns the
 // Content of every page. Skips/fails gracefully per the repo's existing test idiom.

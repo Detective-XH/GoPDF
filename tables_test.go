@@ -94,3 +94,35 @@ func TestPageTablesNoFalsePositive(t *testing.T) {
 		}
 	}
 }
+
+// TestPageTablesShadedNonTableNoFalsePositive drives the FILL-rect false-positive surface end
+// to end through Page.Tables() with REAL words and media (which the internal FP gate, called
+// with nil words, cannot exercise for inferFillBandedRows' word-dependent gates). The fixture
+// is a shaded-but-non-tabular page (alternating shaded prose bands + callout boxes); it must
+// yield no Table. This complements the locked real-words-lattice corpus (EPA/NIST/IRS), where
+// inferFillBandedRows is exercised on genuine lattices and proven a no-op (byte-identical goldens).
+func TestPageTablesShadedNonTableNoFalsePositive(t *testing.T) {
+	f, err := os.Open("testdata/corpus/discriminator/shaded-non-table.pdf")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+	fi, _ := f.Stat()
+	r, err := NewReader(f, fi.Size())
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+	for i := 1; i <= r.NumPage(); i++ {
+		p := r.Page(i)
+		if p.V.IsNull() {
+			continue
+		}
+		tables, err := p.Tables()
+		if err != nil {
+			t.Fatalf("Tables p%d: %v", i, err)
+		}
+		if len(tables) != 0 {
+			t.Errorf("Tables() on shaded non-table page %d returned %d tables; want 0 (fill-rect false positive)", i, len(tables))
+		}
+	}
+}

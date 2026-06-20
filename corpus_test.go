@@ -369,6 +369,14 @@ var corpusManifest = []corpusEntry{
 		Source: "synthetic", License: "synthetic",
 		Purpose: "page /Rotate 90 honored: the rotated-90 content (Tm 0 1 -1 0) plus /Rotate 90 cancels to an upright display-space baseline; FontSize recovers, no rotated-text warning (contrast to rotated-90.pdf, same content, no /Rotate)",
 	},
+	// Table false-positive discriminator: isolated shaded prose bands + callout boxes.
+	// No-table fixture: TestLatticeFalsePositiveGate is the real anchor (0-FP gate).
+	{
+		Path: "discriminator/shaded-non-table.pdf", Golden: "",
+		Synthetic: true, Compare: compareExact, Feature: "table-fp-discriminator",
+		Source: "synthetic", License: "synthetic",
+		Purpose: "Six isolated alternating-shaded prose bands + two isolated callout boxes (all fill rects non-touching, so no closed lattice forms); zero tables — discriminator for inferFillBandedRows false-positive gate",
+	},
 }
 
 func corpusPath(rel string) string { return filepath.Join(corpusRoot, filepath.FromSlash(rel)) }

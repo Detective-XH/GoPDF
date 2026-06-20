@@ -7,6 +7,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Fixed, pending release
 
+### Added
+
+- `Page.Tables()` now reconstructs **fill-banded "staircase" tables** — statistical tables whose rows
+  are separated by alternating background shading (filled rectangles) rather than ruled lines, drawn as
+  a staircase of nested fills that share a common bottom edge (for example U.S. EIA Annual Energy Review
+  energy-price tables). Such a table previously collapsed to roughly two-thirds of its rows — the lattice
+  closed one cell per shading step and fused the rows that share a step — and GoPDF now splits those bands
+  back into individual rows and columns, recovering the full grid. Detection is deliberately conservative:
+  it requires the nested-fill staircase signature, so bar/column charts, shaded callout boxes, and shaded
+  prose are not promoted to tables, and every other table (ruled, rect-bordered, or borderless) is
+  byte-for-byte unchanged. Banded reconstruction remains best-effort (per the `Page.Tables()`
+  documentation) — this covers the common-bottom staircase style; other banded layouts may still yield an
+  incomplete grid.
+
 ### Fixed
 
 - `Page.Words()`, `Page.Tables()`, and `Page.Content()` now place glyphs correctly for composite

@@ -49,12 +49,15 @@ type classGate struct {
 }
 
 // inScopeQualityClasses are the taxonomy classes currently in scope for the held-out
-// quality corpus, with their coverage-gate strength. group-ruled+banded,
-// single-axis-ruled, and borderless are not yet in scope (no accuracy consumer /
-// measured FP-unsafe).
+// quality corpus, with their coverage-gate strength. single-axis-ruled and borderless
+// are not yet in scope (no accuracy consumer / measured FP-unsafe).
+// group-ruled+banded is HELD (hard:false, N=1 gate-bearing EIA fixture): the inferFillBandedRows
+// path is wired but N<2 so coverage is incomplete; the held diagnostic fires if gateCount>=2
+// but substantive content drops below heldSubstThreshold (50%).
 var inScopeQualityClasses = []classGate{
-	{name: "fully-ruled", hard: true},   // FBI NICS + HHS ASPE both extract -> count<2 is a build error
-	{name: "rect-bordered", hard: true}, // ERP B-1/B-2 + NASS (cross-publisher, 98.1% substantive) extract -> count<2 is a build error
+	{name: "fully-ruled", hard: true},         // FBI NICS + HHS ASPE both extract -> count<2 is a build error
+	{name: "rect-bordered", hard: true},       // ERP B-1/B-2 + NASS (cross-publisher, 98.1% substantive) extract -> count<2 is a build error
+	{name: "group-ruled+banded", hard: false}, // EIA (N=1, held): inferFillBandedRows wired; HELD until second gate-bearing fixture added
 }
 
 // heldSubstThreshold is the substantive-content %% below which a HELD class is treated as
