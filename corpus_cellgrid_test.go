@@ -255,7 +255,16 @@ var cellgridFixtures = []cellgridFixture{
 		path:      "tables/bea-scb-gdp-2024-t1.cellgrid.tsv",
 		sourcePDF: "tables/bea-scb-gdp-2024-t1.pdf",
 		rows:      36, cols: 11, headerRows: 3,
-		class: "group-ruled+banded", heldOut: false, // 2nd banded fixture, cross-publisher (BEA, not EIA); integrity-only held-out target, no accuracy consumer yet
+		// 2nd gate-bearing group-ruled+banded fixture, cross-publisher (BEA, not EIA). BEA exercises
+		// the per-cell-grid branch of inferFillBandedRows (phantom-clamp), distinct from EIA's
+		// staircase branch — so each signature is still N=1 and group-ruled+banded stays hard:false
+		// (hard:true is PR-D, gated on a 2nd fixture PER signature). col0 = Line number (unique
+		// 1..32; Addenda rows 27..32 are empty in the detector due to word-seg fusing, an honest
+		// documented limitation — see Q2-PR-C recon §5 — but present+unique in the golden).
+		// Reopen trigger: BEA substantive content (~32%) is capped by numeric-cell word-seg fusing
+		// (inter-token X-gap too small to split adjacent value cells) — an orthogonal, pre-existing
+		// word-spacing issue, NOT a geometry failure; the score rises when that fusing is fixed.
+		class: "group-ruled+banded", heldOut: true, anchorCol: 0,
 	},
 	{
 		path:      "tables/epa-egrid2022-t1.cellgrid.tsv",

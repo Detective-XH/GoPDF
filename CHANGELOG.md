@@ -21,6 +21,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   documentation) — this covers the common-bottom staircase style; other banded layouts may still yield an
   incomplete grid.
 
+- `Page.Tables()` now also reconstructs the opposite banded style — **dense per-cell-grid tables** drawn
+  with one filled rectangle per cell and **no ruled lines** (for example U.S. BEA Survey of Current
+  Business GDP tables). Such a table's grid already closes on its own, but the page's title and footnote
+  banners were swept in as extra phantom rows; GoPDF now restricts the result to the table's multi-column
+  data body, dropping those banner rows and recovering the intended grid. Trimming is conservative: a row
+  is removed only when it is a single full-width banner lying outside the data body — a real multi-column
+  row is never dropped, even when blank — and a genuine table with no phantom banners is left byte-for-byte
+  unchanged. As above, banded reconstruction is best-effort; cell *values* in these tables can still be
+  limited by a separate word-spacing issue when adjacent numeric columns are laid out with no real gap
+  between them.
+
 ### Fixed
 
 - `Page.Words()`, `Page.Tables()`, and `Page.Content()` now place glyphs correctly for composite

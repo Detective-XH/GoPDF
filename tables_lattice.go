@@ -914,15 +914,18 @@ func fillBandedSplitCell(c lCell, bands []float64, xcuts []float64) []lCell {
 	return out
 }
 
-// inferFillBandedRows recovers the row and column structure of a fill-banded staircase
-// table (e.g. EIA AER Table 3.1). Such tables have alternating fill rects that converge at
-// a common bottom with stepped tops — one step per data row — and use only a few long
-// vertical rules for column groups. latticeTables produces only wide multi-row cells; this
-// pass splits them into individual data-body cells and adds interior column cuts from the
-// vertical-edge pool.
+// inferFillBandedRows recovers the row and column structure of fill-banded tables. It
+// handles two opposite geometries:
 //
-// The function is a no-op (returns cells unchanged) on every table that is not a
-// fill-banded staircase — all FP gates (G1–G6) must hold.
+//   - EIA staircase (e.g. EIA AER Table 3.1): alternating fill rects converge at a
+//     common bottom with stepped tops; latticeTables produces wide multi-row cells that
+//     this pass splits via G1–G6 and the downstream cell splitter.
+//
+//   - BEA per-cell-grid (e.g. BEA Survey of Current Business GDP Table 1): one fill rect
+//     per cell, closing natively into a lattice that includes phantom title/footnote rows;
+//     the BEA branch applies a subtractive phantom-clamp (never adds cells).
+//
+// Returns cells unchanged when neither signature holds.
 func inferFillBandedRows(cells []lCell, words []Word, c Content, vEdges []lEdge) []lCell {
 	if len(cells) == 0 {
 		return cells
@@ -933,7 +936,8 @@ func inferFillBandedRows(cells []lCell, words []Word, c Content, vEdges []lEdge)
 	// G1: staircase signature — common-bottom fill rects with distinct, regular tops.
 	steps := fillStaircaseSteps(c.Rect, tableTop, tableBot, vMin, vMax)
 	if !staircaseSignatureHolds(steps, tableTop, tableBot) {
-		return cells
+		// Try BEA per-cell-grid branch (subtractive phantom-clamp).
+		return inferFillBandedRowsBEA(cells, words, c)
 	}
 
 	// Pre-compute stroke-only h-edges (needed for both data-region and G5 checks).
@@ -976,6 +980,168 @@ func inferFillBandedRows(cells []lCell, words []Word, c Content, vEdges []lEdge)
 		}
 	}
 	return out
+}
+
+// inferFillBandedRowsBEA handles the dense per-cell-grid variant of fill-banded tables
+// (e.g. BEA Survey of Current Business GDP). Unlike the EIA staircase, BEA has one fill
+// rect per cell; the native lattice closes into a grid that includes phantom title/footer
+// rows. The mechanism is SUBTRACTIVE (phantom-clamp): retain only cells whose center falls
+// within the data-body bbox (rows with ≥2 distinct rect x0 columns) and drop any trailing
+// row band that contains no words. Never adds cells.
+//
+// It acts ONLY when the data-body bbox is strictly smaller than the table extent — i.e. a
+// single-column banner row (title/footnote) lies outside the multi-column body. In a
+// rect-derived grid every multi-column row falls inside that body by construction, so a real
+// stroke-free grid whose rows are all multi-column (e.g. an EPA framed cover box) has
+// body == extent, removes nothing, and is returned untouched. Without this no-op guard the
+// downstream dropTrailingEmptyBands would trim a sparse real row off such a table (regression
+// caught on EPA p1's 7×3 gutter frame).
+func inferFillBandedRowsBEA(cells []lCell, words []Word, c Content) []lCell {
+	if len(c.Stroke) > 0 {
+		return cells // BEA signature requires zero stroke paths on the page
+	}
+	tableTop, tableBot := cellYSpan(cells)
+	vMin, vMax := colBounds(cells)
+	bodyTop, bodyBot, ok := beaDataBodyBBox(c.Rect, tableTop, tableBot, vMin, vMax)
+	if !ok {
+		return cells
+	}
+	clamped := clampCellsToBody(cells, bodyTop, bodyBot)
+	if len(clamped) == len(cells) {
+		return cells // body == extent: no out-of-body phantom rows to subtract — leave untouched
+	}
+	if distinctCols(clamped) < 2 {
+		return cells
+	}
+	return dropTrailingEmptyBands(clamped, words)
+}
+
+// beaDataBodyBBox derives the data-body bounding box from the fill rects that form real
+// multi-column rows (≥2 distinct x0 positions within rectRowSnapTol). Thin separator
+// rects (h<2) and rects outside the table extent are excluded. Returns (0,0,false) when
+// fewer than rectMinRowClusters multi-column rows are found.
+func beaDataBodyBBox(rects []Rect, tableTop, tableBot, vMin, vMax float64) (bodyTop, bodyBot float64, ok bool) {
+	tops := beaBodyRectTops(rects, tableTop, tableBot, vMin, vMax)
+	if len(tops) == 0 {
+		return 0, 0, false
+	}
+	bandTops := cluster1D(tops, rectRowSnapTol)
+	sort.Float64s(bandTops)
+
+	kept := 0
+	bodyTop, bodyBot = math.Inf(1), math.Inf(-1)
+	for _, bandTop := range bandTops {
+		cols, bBot := beaBandColumnsBottom(rects, bandTop)
+		if cols < 2 {
+			continue // single-column banner: title or footnote strip
+		}
+		kept++
+		if bandTop < bodyTop {
+			bodyTop = bandTop
+		}
+		if bBot > bodyBot {
+			bodyBot = bBot
+		}
+	}
+	if kept < rectMinRowClusters {
+		return 0, 0, false
+	}
+	return bodyTop, bodyBot, true
+}
+
+// beaBodyRectTops returns the top (top-origin) of every cell-height fill rect (h>=2) that lies
+// within the table extent — the candidate row tops the band clustering operates on. Thin
+// separator strips and rects outside [vMin,vMax]×[tableTop,tableBot] are dropped.
+func beaBodyRectTops(rects []Rect, tableTop, tableBot, vMin, vMax float64) []float64 {
+	var tops []float64
+	for _, r := range rects {
+		top := -max(r.Min.Y, r.Max.Y)
+		bot := -min(r.Min.Y, r.Max.Y)
+		rx0 := min(r.Min.X, r.Max.X)
+		rx1 := max(r.Min.X, r.Max.X)
+		if bot-top < 2.0 {
+			continue
+		}
+		if rx1 < vMin-rectRowSnapTol || rx0 > vMax+rectRowSnapTol {
+			continue
+		}
+		if top < tableTop-rectRowSnapTol || bot > tableBot+rectRowSnapTol {
+			continue
+		}
+		tops = append(tops, top)
+	}
+	return tops
+}
+
+// beaBandColumnsBottom returns, for the rect-row band at bandTop, the number of distinct rect-x0
+// columns it spans and the lowest rect bottom in the band. A band with ≥2 distinct x0 columns is
+// a real grid row; a single-column band is a full-width title/footnote banner.
+func beaBandColumnsBottom(rects []Rect, bandTop float64) (cols int, bBot float64) {
+	var x0s []float64
+	bBot = math.Inf(-1)
+	for _, r := range rects {
+		top := -max(r.Min.Y, r.Max.Y)
+		bot := -min(r.Min.Y, r.Max.Y)
+		if bot-top < 2.0 || math.Abs(top-bandTop) > rectRowSnapTol {
+			continue
+		}
+		x0s = append(x0s, min(r.Min.X, r.Max.X))
+		if bot > bBot {
+			bBot = bot
+		}
+	}
+	return len(cluster1D(x0s, rectRowSnapTol)), bBot
+}
+
+// clampCellsToBody retains cells whose center falls within [bodyTop, bodyBot] (with a
+// small snap tolerance for floating-point boundaries).
+func clampCellsToBody(cells []lCell, bodyTop, bodyBot float64) []lCell {
+	var out []lCell
+	for _, c := range cells {
+		cen := (c.top + c.bottom) / 2
+		if cen >= bodyTop-rectRowSnapTol && cen <= bodyBot+rectRowSnapTol {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// dropTrailingEmptyBands removes trailing row bands (from the bottom up) that are BOTH
+// word-empty AND single-column — i.e. full-width title/footnote banner phantoms the lattice
+// swept into the clamp tolerance. It stops at the first trailing band that holds words OR spans
+// >=2 columns, so a real multi-column row is never dropped even when blank (word-emptiness alone
+// is not a phantom signal). This trims BEA's one phantom footnote row (37 -> 36 rows) while
+// leaving a legitimate sparse data row intact.
+func dropTrailingEmptyBands(cells []lCell, words []Word) []lCell {
+	for len(cells) > 0 {
+		tops := make([]float64, len(cells))
+		for i, c := range cells {
+			tops[i] = c.top
+		}
+		bands := cluster1D(tops, rectRowGapTol)
+		if len(bands) <= rectMinRowClusters {
+			return cells
+		}
+		sort.Float64s(bands)
+		lastBand := bands[len(bands)-1]
+		var band, rest []lCell
+		bandTop, bandBot := math.Inf(1), math.Inf(-1)
+		for _, cell := range cells {
+			if math.Abs(cell.top-lastBand) <= rectRowGapTol {
+				band = append(band, cell)
+				bandTop = math.Min(bandTop, cell.top)
+				bandBot = math.Max(bandBot, cell.bottom)
+			} else {
+				rest = append(rest, cell)
+			}
+		}
+		probe := lCell{x0: -1e9, top: bandTop, x1: 1e9, bottom: bandBot}
+		if len(wordYCentersIn(words, probe)) > 0 || distinctCols(band) != 1 {
+			return cells // real row (has words, or spans >=2 columns) — never a banner phantom
+		}
+		cells = rest
+	}
+	return cells
 }
 
 // cellsInDataRegion returns cells whose vertical extent overlaps [dataTop, dataBot], for use
