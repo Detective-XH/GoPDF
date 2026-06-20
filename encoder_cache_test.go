@@ -193,8 +193,10 @@ func cmapProbeCodes(m *cmap) []string {
 // uncached readCmap, and a second lookup must return the SAME pointer (a hit,
 // not a re-parse).
 func TestEncoderCacheMatchesUncached(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			r := loadCorpus(t, e)
 			seen := map[objptr]bool{}
 			probed := 0

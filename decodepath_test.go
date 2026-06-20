@@ -29,6 +29,7 @@ func decodeCountersBothSinks(t *testing.T, data []byte) (content, plain decodeCo
 // content-sink counters (encSource is internal). The unmapped-glyph fixture is
 // encSourceToUnicode (it carries a parsed /ToUnicode that merely under-covers).
 func TestDecodeSourceClassification(t *testing.T) {
+	t.Parallel()
 	cases := map[string]encSource{
 		"encoding/predefined-identity.pdf": encSourceMissingToUnicode,
 		"encoding/charset-shiftjis.pdf":    encSourceFallback,
@@ -43,6 +44,7 @@ func TestDecodeSourceClassification(t *testing.T) {
 			continue
 		}
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			c := loadCorpus(t, e).Page(1).decodeCountersFromContent()
 			if c.glyphs[want] == 0 {
 				t.Errorf("expected glyphs in bucket %d, got counters %+v", want, c)
@@ -56,11 +58,13 @@ func TestDecodeSourceClassification(t *testing.T) {
 // on every committed encoding/ fixture, plus an EXACT count on a single-glyph
 // fixture (agreement alone cannot catch a symmetric over-count).
 func TestDecodeCounterAgreement(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		if e.Feature != "signal-decode-path" {
 			continue
 		}
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			content := loadCorpus(t, e).Page(1).decodeCountersFromContent()
 			plain, err := loadCorpus(t, e).Page(1).decodeCountersFromPlainText()
 			if err != nil {
@@ -298,11 +302,13 @@ func TestStandardEncodingNamePath(t *testing.T) {
 // must fire WarningRotatedText for exactly the rotatedCorpusFixtures set — proving
 // it catches real rotated runs while NOT tripping on synthetic-italic skew.
 func TestRotatedTextWarningCorpusWide(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		if e.Password != "" {
 			continue // skip encrypted fixtures; none carry rotated text
 		}
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			r := loadCorpus(t, e)
 			for i := 1; i <= r.NumPage(); i++ {
 				_ = r.Page(i).Content()
@@ -329,11 +335,13 @@ func TestRotatedTextWarningCorpusWide(t *testing.T) {
 // charset-shiftjis is one fallback glyph (FallbackRatio 1.0), and unmapped-glyph
 // carries at least one U+FFFD (UnmappedRatio > 0).
 func TestDecodeRatiosAgreement(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		if e.Feature != "signal-decode-path" {
 			continue
 		}
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			content := loadCorpus(t, e).Page(1).decodeCountersFromContent()
 			plain, err := loadCorpus(t, e).Page(1).decodeCountersFromPlainText()
 			if err != nil {
@@ -364,11 +372,13 @@ func TestDecodeRatiosAgreement(t *testing.T) {
 // unresolved font emitting runes) would silently inflate the denominator and
 // deflate every ratio. Empirically zero corpus-wide today; this locks it.
 func TestDecodeRatioDenominatorExcludesUnset(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		if e.Password != "" {
 			continue // encrypted fixtures need a password to open; covered elsewhere
 		}
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			r := loadCorpus(t, e)
 			for i := 1; i <= r.NumPage(); i++ {
 				if c := r.Page(i).decodeCountersFromContent(); c.glyphs[encSourceUnset] != 0 {

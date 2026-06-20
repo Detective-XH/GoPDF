@@ -30,6 +30,7 @@ import (
 //     from being decoded through a 2-byte-codespace CMap; without the guard,
 //     the 1-byte "\n" fails codespace lookup and returns noRune (U+FFFD).
 func TestCorpusBeaDiciNoReplacementRunes(t *testing.T) {
+	t.Parallel()
 	// Locate the manifest entry — iterate rather than hard-coding an index so a
 	// future manifest reorder cannot silently skip the fixture.
 	var entry corpusEntry

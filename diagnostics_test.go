@@ -513,8 +513,10 @@ func TestWarningsCleanDocsNone(t *testing.T) {
 // and fresh-Reader repeat yield identical warning snapshots. (Does not pin
 // WHICH warnings real corpus files emit — synthetic tests above pin codes.)
 func TestWarningsDeterministic(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			r1 := loadCorpus(t, e)
 			extractAll(r1)
 			w1 := r1.Warnings()
@@ -538,6 +540,7 @@ func TestWarningsDeterministic(t *testing.T) {
 // single-goroutine baseline (its own full pass guarantees the complete set
 // regardless of the other goroutines). Run under -race.
 func TestWarningsConcurrent(t *testing.T) {
+	t.Parallel()
 	base := mustOpen(t, buildWarningEmittingBenchPDF())
 	extractAll(base)
 	want := base.Warnings()

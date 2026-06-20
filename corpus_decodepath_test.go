@@ -182,12 +182,14 @@ func assertDegenerateRun(t *testing.T, r *Reader) {
 // extends decodePathExpectations + assertDecodePath with per-page counters and the
 // rotation/vertical warnings.
 func TestCorpusDecodePathFixtures(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		exp, ok := decodePathExpectations[e.Path]
 		if !ok {
 			continue
 		}
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			assertDecodePath(t, loadCorpus(t, e), exp)
 		})
 	}

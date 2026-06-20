@@ -455,11 +455,13 @@ func assertGolden(t *testing.T, e corpusEntry, got string, want []byte) {
 }
 
 func TestCorpusGolden(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		if e.Golden == "" {
 			continue // bench-only fixture
 		}
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			got := extractPlainText(t, loadCorpus(t, e))
 			goldenFile := corpusPath(e.Golden)
 			// -update regenerates synthetic+exact goldens only — never real/normalized
@@ -520,11 +522,13 @@ func checkManifestEntry(t *testing.T, e corpusEntry) {
 // When future fallback-encoding work fixes one, this fails ON PURPOSE: promote
 // the fixture to a golden-tested entry instead of relaxing the assertion.
 func TestCorpusNoGoldenFixtures(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		if e.Golden != "" {
 			continue
 		}
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			r := loadCorpus(t, e)
 			if n := r.NumPage(); n < 1 {
 				t.Fatalf("NumPage = %d, want >= 1", n)

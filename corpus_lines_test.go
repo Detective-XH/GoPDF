@@ -90,12 +90,14 @@ var linesExpectations = map[string]linesExpect{
 // fixture it asserts the CJK-join / masthead-whole substrings, the multi-column
 // width-split signal, and that the additive font fields are populated.
 func TestCorpusLines(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		exp, ok := linesExpectations[e.Path]
 		if !ok {
 			continue
 		}
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			r := loadCorpus(t, e)
 			pages := min(r.NumPage(), maxLinesCorpusPages)
 			var lineS []string

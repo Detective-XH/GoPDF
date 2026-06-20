@@ -284,6 +284,7 @@ func logFixtureQuality(t *testing.T, f cellgridFixture, res perClassQuality) {
 // TestPublicTablesQualityCorpus scores Page.Tables() on every held-out fixture and logs
 // per-class content%/verbatim% diagnostics. See the file header for the contract.
 func TestPublicTablesQualityCorpus(t *testing.T) {
+	t.Parallel()
 	held := qualityHeldOut()
 
 	// Structural integrity (t.Errorf — NOT accuracy floors).
