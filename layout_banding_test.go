@@ -43,8 +43,10 @@ func TestBandsByYJitterDeterministic(t *testing.T) {
 // must not mutate its input (the non-mutating contract this optimization relies
 // on and strengthens).
 func TestBandsByYMatchesReference(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			r := loadCorpus(t, e)
 			for i := 1; i <= r.NumPage(); i++ {
 				p := r.Page(i)

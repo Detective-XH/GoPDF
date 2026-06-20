@@ -83,12 +83,14 @@ var blockExpectations = map[string]blockExpect{
 // invented); per fixture it asserts the column-major reset signature (or strict
 // monotonicity for single-column) and that a real text sentinel survives grouping.
 func TestCorpusBlocks(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		exp, ok := blockExpectations[e.Path]
 		if !ok {
 			continue
 		}
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			r := loadCorpus(t, e)
 			pages := min(r.NumPage(), maxBlocksCorpusPages)
 			var blockS []string

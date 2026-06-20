@@ -299,6 +299,7 @@ func takeSnapshot(r *Reader) extractionSnapshot {
 // comes from a separate Reader so the shared Reader starts with a cold cache
 // and the goroutines race on cache misses under -race.
 func TestConcurrentExtraction(t *testing.T) {
+	t.Parallel()
 	data, err := os.ReadFile(corpusPath("cjk/irs-p850-zh-hant.pdf"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)

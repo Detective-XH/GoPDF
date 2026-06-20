@@ -334,6 +334,7 @@ var cellgridFixtures = []cellgridFixture{
 // table-detector API exists yet; extraction-vs-ground-truth comparison is
 // a follow-up task.
 func TestCorpusCellGridFixtures(t *testing.T) {
+	t.Parallel()
 	// Build a set of manifest Paths for the cross-reference check.
 	manifestPaths := make(map[string]corpusEntry, len(corpusManifest))
 	for _, e := range corpusManifest {
@@ -342,6 +343,7 @@ func TestCorpusCellGridFixtures(t *testing.T) {
 
 	for _, f := range cellgridFixtures {
 		t.Run(f.path, func(t *testing.T) {
+			t.Parallel()
 			// 1. Parse and validate structural integrity.
 			//nolint:gosec // G304: fixed corpus path, not user input
 			data, err := os.ReadFile(corpusPath(f.path))

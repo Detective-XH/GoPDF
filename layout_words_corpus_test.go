@@ -23,8 +23,10 @@ import (
 const maxWordsCorpusPages = 4
 
 func TestWordsCorpus(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			r := loadCorpus(t, e)
 			pages := min(r.NumPage(), maxWordsCorpusPages)
 			for i := 1; i <= pages; i++ {

@@ -152,12 +152,14 @@ func hasWarning(ws []ExtractionWarning, code ExtractionWarningCode) bool {
 // signal fixtures. The quality-score and image/scanned-classifier work extend
 // signalExpectations + assertPageSignal as the signal definitions grow.
 func TestCorpusSignalFixtures(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		exp, ok := signalExpectations[e.Path]
 		if !ok {
 			continue
 		}
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			assertPageSignal(t, loadCorpus(t, e), exp)
 		})
 	}

@@ -30,8 +30,10 @@ func wordMultiset(ws []Word) map[string]int {
 // Content, so a divergence here would silently change HasText/WordCount/sparse
 // routing on multi-column pages.
 func TestWordsLinesCountEquivalence(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			r := loadCorpus(t, e)
 			for i, p := range r.Pages() {
 				words, werr := p.Words()
@@ -64,8 +66,10 @@ func TestWordsLinesCountEquivalence(t *testing.T) {
 // field compare alone cannot see. Two fresh Readers keep the deduped stores from
 // cross-contaminating.
 func TestSummarizeMatchesSummaryFromContent(t *testing.T) {
+	t.Parallel()
 	for _, e := range corpusManifest {
 		t.Run(e.Path, func(t *testing.T) {
+			t.Parallel()
 			ra := loadCorpus(t, e) // from-Content path
 			rb := loadCorpus(t, e) // flatten-Lines path
 			for i := 1; i <= ra.NumPage(); i++ {
