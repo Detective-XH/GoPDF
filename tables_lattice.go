@@ -648,6 +648,17 @@ const (
 	// collapsed multi-row data column. It doubles as the multi-row guard: a one- or two-line
 	// framed box (a callout) never reaches it.
 	rectMinRowClusters = 3
+	// rectMinRowSplit is the minimum number of numeric cross-column record bands a BEA-branch cell
+	// must contain before splitTallBandCells (PR-2) splits it into rows. It is deliberately HIGHER
+	// than rectMinRowClusters: a corpus sweep of the shipped mechanism showed the exactly-3-band
+	// zone is false-positive-dense (blank-row insertion at group separators, displaced multi-line
+	// headers), while every genuine collapsed data table (FT-900 months, German census waves, MHLW
+	// wage rows) carries far more (10–46) record bands. It is a HEURISTIC boundary, NOT a complete
+	// false-positive guard: a count threshold cannot by itself separate a 4-row numeric HEADER /
+	// annotation block (each row carrying year-like tokens in ≥2 columns) from a 4-row collapsed
+	// data block — that residual, and prose/cover/TOC blocks that reach the BEA branch at all, are
+	// documented known limitations (a structural body-vs-header discriminator is a follow-on).
+	rectMinRowSplit = 4
 	// rectRowGapTol clusters word Y-centers into row bands. Kept equal to reconstructGrid's row
 	// clustering tol so the synthesized tops re-cluster consistently downstream.
 	rectRowGapTol = 4.0
@@ -1122,9 +1133,167 @@ func inferFillBandedRowsBEA(cells []lCell, words []Word, c Content, vEdges []lEd
 	if distinctCols(clamped) < 2 {
 		return cells
 	}
-	// Phantom-clamp done; drop trailing empty bands, then apply column-cut recovery.
+	// Phantom-clamp done; drop trailing empty bands, then apply column-cut recovery followed
+	// by row-split recovery (PR-2: numeric+cross-column-gated word-Y row clustering).
 	dropped := dropTrailingEmptyBands(clamped, words)
-	return splitWideBandCells(dropped, words, vEdges)
+	colSplit := splitWideBandCells(dropped, words, vEdges)
+	return splitTallBandCells(colSplit, words, bodyTop, bodyBot)
+}
+
+// splitTallBandCells splits any cell whose vertical extent contains ≥rectMinRowClusters "record
+// bands" — word-Y clusters that (a) carry a numeric token and (b) straddle ≥2 columns — into
+// those rows. It is the row-axis analog of splitWideBandCells, applied after the column-split pass
+// so each column cell is independently tested for row collapse.
+//
+// The numeric + cross-column corroboration is the false-positive guard: a wrapped multi-line text
+// header produces only text bands (rejected by the numeric gate) and a single-column label wraps
+// within one column (rejected by the cross-column gate). The ≥3 threshold is a final backstop
+// against 2-line multi-column values being mis-split.
+func splitTallBandCells(cells []lCell, words []Word, bodyTop, bodyBot float64) []lCell {
+	if len(cells) == 0 {
+		return cells
+	}
+	// Build the column lattice from x0 positions — same tolerance as distinctCols.
+	cols := tallBandColumnReps(cells)
+	// Collect the words strictly inside the data body across all table columns. EVERY downstream gate
+	// (band Y-clustering, numeric, cross-column) operates on THIS set only — scoping them to the body
+	// is the false-positive guard against out-of-table page words (a margin page number, a date, a
+	// footnote marker, or neighbouring-layout text at a matching Y) poisoning a text-only in-table
+	// band into a spurious "numeric cross-column record band".
+	vMin, vMax := colBounds(cells)
+	bodyWords := tallBandBodyWords(words, bodyTop, bodyBot, vMin, vMax)
+	allY := make([]float64, len(bodyWords))
+	for i, w := range bodyWords {
+		allY[i] = -(w.Y + w.H/2)
+	}
+	bands := cluster1D(allY, rectRowGapTol)
+	// Keep only bands that are both numeric and cross-column (judged on the in-body words only).
+	record := tallBandRecordBands(bands, bodyWords, cols)
+	if len(record) < rectMinRowSplit {
+		return cells // fewer than rectMinRowSplit record bands — nothing to recover
+	}
+	any := false
+	out := make([]lCell, 0, len(cells))
+	for _, c := range cells {
+		inside := tallBandStrictlyInside(record, c.top, c.bottom)
+		if len(inside) >= rectMinRowSplit {
+			// This cell spans ≥3 record rows — it is a collapsed data column; split it.
+			out = append(out, splitCellAtBands(c, inside)...)
+			any = true
+		} else {
+			out = append(out, c)
+		}
+	}
+	if !any {
+		return cells
+	}
+	return out
+}
+
+// tallBandColumnReps returns the column representative x0 values by clustering all cell x0
+// positions at tolerance 1.0 — the same tolerance distinctCols uses.
+func tallBandColumnReps(cells []lCell) []float64 {
+	xs := make([]float64, len(cells))
+	for i, c := range cells {
+		xs[i] = c.x0
+	}
+	return cluster1D(xs, 1.0)
+}
+
+// tallBandBodyWords returns the words whose anchor (ax,ay) falls inside the data body
+// [bodyTop,bodyBot] × [vMin,vMax]. splitTallBandCells scopes every band / numeric / cross-column gate
+// to this set so that out-of-table page words (margin page numbers, dates, footnote markers, or
+// neighbouring-layout text at a matching Y) cannot poison a text-only in-table band into a spurious
+// numeric cross-column record band.
+func tallBandBodyWords(words []Word, bodyTop, bodyBot, vMin, vMax float64) []Word {
+	var in []Word
+	for _, w := range words {
+		ax := w.X + w.W/2
+		ay := -(w.Y + w.H/2)
+		if ax >= vMin && ax <= vMax && ay >= bodyTop && ay <= bodyBot {
+			in = append(in, w)
+		}
+	}
+	return in
+}
+
+// tallBandRecordBands filters bands to "record bands" — those carrying NUMERIC tokens in ≥2 distinct
+// columns. The numeric and cross-column tests are COUPLED (not two independent gates): the numeric
+// evidence must itself be cross-column. This is the false-positive guard against a header / footnote /
+// annotation band that merely has a numeric marker (a date "2024", a footnote "(1)") in ONE column
+// and ordinary text in another — genuine stacked data records carry numeric VALUES across ≥2 columns,
+// an annotation row does not. bodyWords MUST already be restricted to the data body (see
+// tallBandBodyWords) so the gate judges the table's own content, never coincidental page words at a
+// matching Y.
+func tallBandRecordBands(bands []float64, bodyWords []Word, cols []float64) []float64 {
+	var record []float64
+	for _, b := range bands {
+		if tallBandNumericColCount(b, bodyWords, cols) >= 2 {
+			record = append(record, b)
+		}
+	}
+	return record
+}
+
+// tallBandNumericColCount counts the distinct column buckets that contain at least one NUMERIC in-body
+// word at band center b. A word is "in the band" when its Y-anchor is within rectRowGapTol of b; its
+// column bucket is the nearest representative in cols. Coupling numeric-ness to the column count (vs
+// counting any-word columns separately) is what stops a one-column numeric marker plus text elsewhere
+// from promoting a non-data band — see tallBandRecordBands.
+func tallBandNumericColCount(b float64, bodyWords []Word, cols []float64) int {
+	seen := make(map[int]struct{})
+	for _, w := range bodyWords {
+		ay := -(w.Y + w.H/2)
+		if math.Abs(ay-b) > rectRowGapTol || !numericTokenWord(w.S) {
+			continue
+		}
+		ax := w.X + w.W/2
+		seen[tallBandNearestCol(ax, cols)] = struct{}{}
+	}
+	return len(seen)
+}
+
+// tallBandNearestCol returns the index in cols of the representative closest to ax.
+func tallBandNearestCol(ax float64, cols []float64) int {
+	best, bestDist := 0, math.Abs(ax-cols[0])
+	for i := 1; i < len(cols); i++ {
+		if d := math.Abs(ax - cols[i]); d < bestDist {
+			best, bestDist = i, d
+		}
+	}
+	return best
+}
+
+// tallBandStrictlyInside returns the subset of record band-centers strictly inside (top, bottom)
+// — mirroring fillBandedSplitCell's local-band filter (tables_lattice.go:1004-1010).
+func tallBandStrictlyInside(record []float64, top, bottom float64) []float64 {
+	var inside []float64
+	for _, b := range record {
+		if b > top && b < bottom {
+			inside = append(inside, b)
+		}
+	}
+	return inside
+}
+
+// numericTokenWord reports whether s (trimmed) is non-empty, contains at least one ASCII digit,
+// and consists only of digits and the characters: , . - – ( ) % space. CJK/Cyrillic data tables
+// still use ASCII digits so this rune-level check is sufficient. It is the numeric-gate predicate
+// for splitTallBandCells.
+func numericTokenWord(s string) bool {
+	hasDigit := false
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		case r == ',' || r == '.' || r == '-' || r == '–' ||
+			r == '(' || r == ')' || r == '%' || r == ' ':
+			// allowed punctuation / separator
+		default:
+			return false
+		}
+	}
+	return hasDigit
 }
 
 // beaDataBodyBBox derives the data-body bounding box from the fill rects that form real

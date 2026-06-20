@@ -142,6 +142,13 @@ var corpusManifest = []corpusEntry{
 		Purpose: "Cross-publisher German per-cell-grid quality fixture (66x9, previously-G1-fused); held-out group-ruled+banded — the proven G1 column-collapse case PR-1 inferColumnCuts repairs",
 	},
 	{
+		Path: "tables/jp-mhlw-wage-structure-2024.pdf", Golden: "tables/jp-mhlw-wage-structure-2024.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "Japan MHLW Basic Survey on Wage Structure (賃金構造基本統計調査) 2024 (令和6年), 第2表 性、年齢階級別賃金, page 8 (extracted as a single page)",
+		License: "Japan Government Standard Terms of Use v2.0 (政府標準利用規約, CC-BY 4.0 compatible)",
+		Purpose: "Cross-publisher CJK held-out (untuned, blind-authored) per-cell-grid (group-ruled+banded) — the PR-2 G2 row-split recovers 12 age-class rows collapsed into one band; row-recovery proof. NOTE: from the program's in-sample sweep corpus (like PR-1's tw/de fixtures) — held-out but not fresh-out-of-sample. Cell-grid ground truth in .cellgrid.tsv (14x10).",
+	},
+	{
 		Path: "tables/epa-egrid2022-t1.pdf", Golden: "tables/epa-egrid2022-t1.golden.txt",
 		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
 		Source:  "EPA eGRID2022 Summary Tables, Table 1 (Subregion Output Emission Rates) p.2, epa.gov/system/files/documents/2024-01/egrid2022_summary_tables.pdf",

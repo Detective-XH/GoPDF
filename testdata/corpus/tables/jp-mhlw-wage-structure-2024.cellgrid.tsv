@@ -1,0 +1,18 @@
+# cellgrid v1
+# source=jp-mhlw-wage-structure-2024 | pdf_page=1 | dims=14x10 | header_rows=2
+# values=as-printed | companion=none (blind-authored from the rendered PDF page by two independent transcribers reading the page image + a reconciler arithmetic cross-check; 12 data rows x 9 numeric cells = 108 cells at 100% A/B agreement, every wage-differential cell verified by 賃金/(20～24 賃金)x100; no known-ceiling cells)
+# model=10 cols: 年齢階級 (age class; row anchor, unique) / then three gender groups 男女計・男・女 each with 賃金（千円） / 対前年増減率（％） / 年齢階級間賃金格差（20～24歳=100）. Full-width digits as printed; 年齢計 carries footnote marker "1)". This is a JP MHLW wage-structure per-cell-grid the PR-2 row-split recovers (12 age rows stacked into one band pre-fix).
+年齢階級	男女計			男			女		
+	賃金（千円）	対前年増減率（％）	年齢階級間賃金格差	賃金（千円）	対前年増減率（％）	年齢階級間賃金格差	賃金（千円）	対前年増減率（％）	年齢階級間賃金格差
+年齢計 1)	330.4	3.8	142.1	363.1	3.5	155.0	275.3	4.8	119.4
+～１９歳	199.3	4.9	85.7	203.6	6.5	86.9	191.3	1.5	83.0
+２０～２４	232.5	3.5	100.0	234.2	2.1	100.0	230.6	5.0	100.0
+２５～２９	267.2	3.4	114.9	274.7	2.6	117.3	258.1	5.0	111.9
+３０～３４	299.5	4.7	128.8	316.3	4.7	135.1	271.6	4.6	117.8
+３５～３９	328.7	4.4	141.4	352.3	4.3	150.4	284.3	5.3	123.3
+４０～４４	351.4	3.7	151.1	385.5	3.7	164.6	288.4	4.2	125.1
+４５～４９	372.7	4.8	160.3	416.0	4.8	177.6	298.0	5.8	129.2
+５０～５４	380.4	2.5	163.6	428.2	2.5	182.8	295.4	3.3	128.1
+５５～５９	392.0	4.1	168.6	444.1	3.9	189.6	294.0	4.4	127.5
+６０～６４	317.7	3.9	136.6	344.7	3.1	147.2	259.9	5.4	112.7
+６５～６９	275.5	2.1	118.5	294.3	0.3	125.7	234.0	7.8	101.5
