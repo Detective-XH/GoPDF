@@ -9,6 +9,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- `Page.Tables()` now also recovers the **rows** of dense per-cell-grid statistical tables in which many
+  stacked records had collapsed into a single tall cell (every value for a column landing in one row).
+  Common in stroke-free government statistics — for example Japanese MHLW wage tables and US Census trade
+  releases — GoPDF now splits that cell into its separate records. The split is conservative: it fires only
+  where the would-be rows carry numeric values across two or more columns (so a wrapped multi-line label, a
+  column header, or a footnote line is left intact), and only for a genuinely stacked block of several rows.
+  It was validated against a blind-authored held-out wage-table fixture, where the recovered rows match the
+  printed table. Known limitations: a multi-row block of numeric column headers, or a non-tabular text block
+  (a cover page, a table of contents, or running prose) that reaches this reconstruction path, can be
+  over-split. Every ruled, rect-bordered, and previously-handled table is byte-for-byte unchanged, and
+  reconstruction remains best-effort per the `Page.Tables()` documentation.
 - `Page.Tables()` now recovers the **columns** of dense per-cell-grid statistical tables whose numeric
   columns previously collapsed into a single cell per row. In many stroke-free statistical tables — common
   in non-US government statistics, for example German Destatis and Taiwan DGBAS releases — the data band

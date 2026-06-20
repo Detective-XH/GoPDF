@@ -290,6 +290,16 @@ var cellgridFixtures = []cellgridFixture{
 		class: "group-ruled+banded", heldOut: true, anchorCol: 0,
 	},
 	{
+		path:      "tables/jp-mhlw-wage-structure-2024.cellgrid.tsv",
+		sourcePDF: "tables/jp-mhlw-wage-structure-2024.pdf",
+		rows:      14, cols: 10, headerRows: 2,
+		// PR-2 de-bias fixture: cross-publisher CJK (Japan MHLW) per-cell-grid; the G2 vertical
+		// row-collapse PR-2 repairs — 12 age-class rows were stacked into one band pre-fix. col0 = 年齢階級
+		// (age class; unique, full-width). Blind 2-transcriber reconciled, 108/108 numeric cells 100% A/B
+		// agreement + every 賃金格差 cell arithmetic-verified (賃金/(20～24 賃金)x100); 0 known-ceiling.
+		class: "group-ruled+banded", heldOut: true, anchorCol: 0,
+	},
+	{
 		path:      "tables/epa-egrid2022-t1.cellgrid.tsv",
 		sourcePDF: "tables/epa-egrid2022-t1.pdf",
 		rows:      31, cols: 17, headerRows: 3,
