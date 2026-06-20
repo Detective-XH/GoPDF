@@ -1,0 +1,83 @@
+# cellgrid v1
+# source=de-destatis-insolvenzen-2023 | pdf_page=6 | dims=66x9 | header_rows=1
+# values=as-printed | companion=none (blind-authored from the rendered page by two independent transcribers + a reconciler pass; ~94% raw A/B cell agreement; disagreements resolved by image re-read + arithmetic cross-check col4=col2+col3 and col6=(col4-col5)/col5*100, plus parent-sum checks; genuinely-illegible cells marked known-ceiling below)
+# model=9 cols (Nr.Klassifikation / Wirtschaftsbereich / eröffnet / mangels Masse abgewiesen / Verfahren insgesamt / Dagegen Vorjahr insgesamt / Veränderung % / Arbeitnehmer Anzahl / Forderungen Mill.Euro); "-"=zero/none, "."=not-available, "X" as printed; German decimal comma + space thousands sep verbatim.
+# known-ceiling: col5 illegible (faint print; col6=X constrains col5≈0 or suppressed, but glyph indeterminate) @ r35c6
+# known-ceiling: H502 row entirely sparse — all numeric cells illegible/suppressed; cols 2-9 indeterminate @ r52c2
+# known-ceiling: H502 row entirely sparse — all numeric cells illegible/suppressed; cols 2-9 indeterminate @ r52c3
+# known-ceiling: H502 row entirely sparse — all numeric cells illegible/suppressed; cols 2-9 indeterminate @ r52c4
+# known-ceiling: H502 row entirely sparse — all numeric cells illegible/suppressed; cols 2-9 indeterminate @ r52c5
+# known-ceiling: H502 row entirely sparse — all numeric cells illegible/suppressed; cols 2-9 indeterminate @ r52c6
+# known-ceiling: H502 row entirely sparse — all numeric cells illegible/suppressed; cols 2-9 indeterminate @ r52c7
+# known-ceiling: H502 row entirely sparse — all numeric cells illegible/suppressed; cols 2-9 indeterminate @ r52c8
+# known-ceiling: H502 row entirely sparse — all numeric cells illegible/suppressed; cols 2-9 indeterminate @ r52c9
+# known-ceiling: H531 col6 (Veränderung %) faint; col5 also faint — arithmetic not fully resolvable from image @ r57c6
+# known-ceiling: H531 col5 (Dagegen Vorjahr) faint; glyph indeterminate @ r57c5
+# known-ceiling: I55101 col3 (eröffnet) indeterminate — printed col6=-20,0 forces col4=4 col5=5 but col2/col3 individually illegible @ r63c3
+# known-ceiling: I55101 col4 (mangels Masse abgewiesen) indeterminate — arithmetic forces sum col2+col3=4 but individual glyphs ambiguous @ r63c4
+Nr. der Klassifikation	Wirtschaftsbereich	eröffnet	mangels Masse abgewiesen	Verfahren insgesamt	Dagegen im Vorjahreszeitraum	Veränderung %	Arbeitnehmer/-innen	Voraussichtliche Forderungen
+F43991	Gerüstbau	5	-	5	7	-28,6	3	0,7
+F43999	Baugewerbe a. n. g.	44	12	56	51	9,8	154	14,7
+G	Handel; Instandh. u. Rep. v. KFZ	179	70	249	166	50,0	9 667	1 018,5
+G45	Kfz-Handel; Instandh. u. Rep. v. Kfz	28	14	42	33	27,3	57	6,8
+G451	Handel mit Kraftwagen	11	4	15	18	-16,7	22	2,9
+G452	Instandh. u. Rep. v. Kraftw.	14	8	22	10	120,0	34	3,3
+G453	Handel m. Kraftwagenteilen u. -zubehör	2	2	4	3	33,3	1	0,1
+G454	Handel m. Krädern, Teilen u. Zubeh.; Instandh. u. Rep	1	-	1	2	-50,0	.	.
+G46	Großhandel (oh. Kfz)	58	22	80	42	90,5	244	181,5
+G461	Handelsvermittlung	11	6	17	7	142,9	14	4,1
+G463	Gh. m. Nahrungs-, Genussm., Getränken u. Tabakw.	10	3	13	8	62,5	25	11,1
+G4634	Großhandel mit Getränken	1	-	1	1	0,0	.	.
+G464	Gh. m. Gebrauchs- u. Verbrauchsgütern	15	5	20	10	100,0	104	152,2
+G465	Gh. m. Geräten d. Informat. -u. Kommunik.technik	-	1	1	2	-50,0	.	.
+G466	Gh. m. sonst. Maschinen, Ausrüstungen u. Zubehör	9	2	11	5	120,0	56	8,4
+G467	Sonst. Großhandel	9	5	14	6	133,3	44	4,8
+G469	Großhandel o. a. S.	4	-	4	3	33,3	.	.
+G47	Eh. (oh. Handel m. Kfz)	93	34	127	91	39,6	9 366	830,2
+G471	Eh. m. Waren versch. Art (in Verkaufsräumen)	12	5	17	18	-5,6	13	2,7
+G4711	Eh. m. Waren versch. Art (in Verkaufsräumen) Nahrungs. usw.	9	5	14	15	-6,7	10	1,7
+G47111	Eh. m. Nahrungs-, Genussm., Getränken u. Tabakw. o. a. S.	6	1	7	12	-41,7	9	1,0
+G47112	Sonst. Eh. m. Waren versch. Art, Hauptr. Nahrungsm. usw.	3	4	7	3	133,3	1	0,7
+G4719	Sonst. Eh. m. Waren versch. Art	3	-	3	3	0,0	3	1,0
+G472	Eh. m. Nahrungsm. usw. (in Verkaufsräumen)	9	6	15	10	50,0	11	1,9
+G4724	Eh. m. Back- u. Süßwaren	1	-	1	1	0,0	.	.
+G4725	Eh. m. Getränken	2	2	4	4	0,0	.	.
+G473	Tankstellen	1	-	1	2	-50,0	.	.
+G474	Eh. m. Kommunik. -u. Info. Technik (in Verkaufsf.)	5	2	7	8	-12,5	12	0,4
+G4741	Eh. m. DV-Gerät., peripheren Einheiten u. Software	4	-	4	4	0,0	12	0,2
+G4742	Eh. m. Telekommunikationsgeräten	1	-	1	3	-66,7	.	.
+G4743	Eh. m. Gerät. d. Unterhaltg.-elektronik	-	2	2	1	100,0	.	.
+G475	Eh. m. sonst.Hausg.gerät. usw. (in Verkaufsf.)	18	4	22	11	100,0	106	12,2
+G4752	Eh. m. Metallw., Anstrichm. u. Bau- u. Heimwerkerbedarf	4	2	6	6	0,0	11	1,5
+G4754	Eh. m. elektrischen Haushaltsgeräten	1	-	1	.	X	.	.
+G4759	Eh. m. Möbeln, Einr.gegenständen u. sonst. Hausrat	8	1	9	3	200,0	54	8,4
+G476	Eh. m. Sportausrüstg., Verlagserzeugn. u. Spielwaren	2	-	2	2	0,0	123	4,6
+G477	Eh. m. sonst. Gütern (in Verkaufsf.)	25	5	30	24	25,0	8 935	794,4
+G4771	Eh. m. Bekleidung	11	1	12	6	100,0	7 738	758,1
+G4776	Eh. m. Blumen, Pflanzen, Sämereien, Düngem., usw.	4	2	6	4	50,0	28	1,0
+G479	Einzelhandel (nicht in Verkaufsräumen u. Ä.)	17	10	27	12	125,0	152	13,6
+G4791	Versand- u. Internet-Einzelhandel	12	9	21	9	133,3	152	13,2
+G4799	Sonst. Eh. (nicht in Verkaufsräumen u. Ä.)	5	1	6	3	100,0	-	0,4
+H	Verkehr und Lagerei	66	28	94	90	4,4	704	35,2
+H49	Landverkehr; Transport in Rohrleitungen	38	17	55	46	19,6	.	.
+H493	Sonst. Personenbef. im Landverkehr	5	1	6	6	0,0	7	2,3
+H4932	Betrieb v. Taxis	3	1	4	5	-20,0	2	0,5
+H494	Güterbef. im Straßenverkehr, Umzugstransporte	33	16	49	40	22,5	168	21,6
+H4941	Güterbef. im Straßenverkehr	31	15	46	36	27,8	41	.
+H4942	Umzugstransporte	2	1	3	4	-25,0	.	.
+H50	Schifffahrt	1	-	1	-	X	.	.
+H502	Schifffahrt in d. See- u. Küstenschifffahrt	-	-	-	-	.	.	.
+H52	Lagerei; sonst. Dienstleistg. f. d. Verkehr	13	6	19	25	-24,0	200	6,2
+H522	Sonst. Dienstleistg. f. d. Verkehr	13	4	17	23	-26,1	200	6,2
+H52291	Spedition	9	4	13	19	-31,6	59	3,9
+H53	Post-, Kurier- u. Expressdienste	14	5	19	18	5,6	329	5,0
+H531	Postdienste v. Universaldienstleistungsanbietern	-	-	-	-	.	.	.
+H532	Sonst. Post-, Kurier- u. Expressdienste	14	5	19	18	5,6	329	5,0
+I	Gastgewerbe	97	37	134	99	35,4	407	24,9
+I55	Beherbergung	7	3	10	9	11,1	71	4,5
+I551	Hotels, Gasthöfe u. Pensionen	7	2	9	7	28,6	71	2,3
+I5510	Hotels, Gasthöfe u. Pensionen	7	2	9	7	28,6	71	2,3
+I55101	Hotels (oh. Hotels garnis)	3	1	4	5	-20,0	30	1,2
+I55103	Gasthöfe	4	-	4	0	X	41	1,0
+I56	Gastronomie	90	34	124	90	37,8	336	20,4
+I561	Restaurants, Gaststätten Imbisstsuben, Cafés u. Ä.	74	27	101	75	34,7	308	18,3

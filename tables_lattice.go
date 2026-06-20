@@ -863,6 +863,115 @@ func fillBandedVCuts(vEdges []lEdge, vMin, vMax float64) []float64 {
 	return cluster1D(xs, vCutClusterTol)
 }
 
+// inferColumnCuts returns interior x-cut positions for a wide data cell from the rect-backed
+// vertical column rules (the G1 path). A v-edge yields a cut only when BOTH hold:
+//
+//   - (x-interior) fillBandedVCuts admits it strictly inside (cell.x0, cell.x1);
+//   - (corroboration) its x matches a column boundary already present in THIS table (knownXs),
+//     within rectRowSnapTol — a real separator coincides with the x0/x1 of narrower sibling cells
+//     (e.g. the split header that defines the columns); a page-global edge from another element does
+//     not. NOTE: a y-overlap requirement is deliberately NOT used — in a per-cell-grid the columns
+//     are defined by the header/top rules while the data rows themselves are unruled, so a column
+//     rule legitimately does not cross the data cell it bounds (verified on DE insolvenzen p6:
+//     requiring y-overlap removes every real cut). Corroboration is the geometric guard instead.
+//
+// The caller (splitWideBandCells) then applies a content-straddle gate so a cell whose words do not
+// span the cuts (a merged/spanning label) is left intact — that is the false-positive guard for a
+// cut that is geometrically real but should not break a single-column cell.
+//
+// The word-X (G4) fallback is intentionally NOT implemented here: clustering word mid-X invents
+// columns from ordinary word spacing on a wide label/callout/prose cell (a high false-positive
+// path — see PR-1 risk R1). G4 is deferred to a later PR with a multi-row-alignment guard.
+func inferColumnCuts(cell lCell, vEdges []lEdge, knownXs []float64) []float64 {
+	rawCuts := fillBandedVCuts(vEdges, cell.x0, cell.x1)
+	cuts := rawCuts[:0]
+	for _, cx := range rawCuts {
+		if xCorroborated(cx, knownXs) {
+			cuts = append(cuts, cx)
+		}
+	}
+	return cuts
+}
+
+// xCorroborated reports whether x is within rectRowSnapTol of any value in knownXs.
+// Used to filter v-edge cuts that don't correspond to a cell boundary already present
+// in the table, rejecting spurious cuts from page-level edges outside this table.
+func xCorroborated(x float64, knownXs []float64) bool {
+	for _, kx := range knownXs {
+		if math.Abs(x-kx) <= rectRowSnapTol {
+			return true
+		}
+	}
+	return false
+}
+
+// splitWideBandCells applies column cuts (via inferColumnCuts) to any cell whose own content
+// genuinely spans multiple columns, after the BEA phantom-clamp and dropTrailingEmptyBands passes
+// are already done. A split fires only when (a) it yields ≥2 distinct columns AND (b) the cell's
+// words land in ≥2 of the resulting sub-cells (the content-straddle gate). Gate (b) is the
+// false-positive guard against splitting a cell that holds a single spanning label or merged-header
+// title: a geometrically real column boundary that the cell's content does not cross leaves the
+// cell intact. Extracted as a helper to keep inferFillBandedRowsBEA's cyclomatic complexity in check.
+func splitWideBandCells(cells []lCell, words []Word, vEdges []lEdge) []lCell {
+	if len(cells) == 0 {
+		return cells
+	}
+	// Collect the set of column-boundary x-positions already present in the cell set.
+	// Used by inferColumnCuts to corroborate v-edge cuts (reject spurious page-global edges).
+	knownXs := make([]float64, 0, len(cells)*2)
+	for _, c := range cells {
+		knownXs = append(knownXs, c.x0, c.x1)
+	}
+
+	any := false
+	expanded := make([]lCell, 0, len(cells))
+	for _, c := range cells {
+		cuts := inferColumnCuts(c, vEdges, knownXs)
+		splits := splitCellAtXs(c, cuts)
+		if len(splits) > 1 && distinctCols(splits) >= 2 && populatedSplits(splits, words) >= 2 {
+			expanded = append(expanded, splits...)
+			any = true
+		} else {
+			expanded = append(expanded, c)
+		}
+	}
+	if !any {
+		return cells // avoid replacing with an equal-length new slice unnecessarily
+	}
+	return expanded
+}
+
+// populatedSplits counts how many of the ordered, contiguous sub-cells contain at least one word,
+// assigning each word to EXACTLY ONE sub-cell. Adjacent sub-cells from splitCellAtXs share the cut
+// x-coordinate, so a half-open x-interval [x0,x1) (the last sub-cell closed) is used: a word whose
+// anchor lands exactly on a shared cut boundary is counted once, not in both neighbours. Without
+// this, a single boundary/centered word would falsely satisfy the ≥2 straddle gate and split a
+// genuine single-column label cell.
+func populatedSplits(splits []lCell, words []Word) int {
+	seen := make([]bool, len(splits))
+	for _, w := range words {
+		ax := w.X + w.W/2
+		ay := -(w.Y + w.H/2) // top-origin anchor
+		for i, c := range splits {
+			if ay < c.top || ay > c.bottom || ax < c.x0 {
+				continue
+			}
+			last := i == len(splits)-1
+			if ax < c.x1 || (last && ax <= c.x1) {
+				seen[i] = true
+				break
+			}
+		}
+	}
+	n := 0
+	for _, s := range seen {
+		if s {
+			n++
+		}
+	}
+	return n
+}
+
 // splitCellAtXs splits cell c horizontally at each x-cut inside (c.x0, c.x1). The leftmost
 // piece keeps c.x0 so left-margin labels stay anchored; the rightmost piece keeps c.x1.
 // Returns []lCell{c} when no cuts fall inside (c.x0, c.x1).
@@ -936,8 +1045,8 @@ func inferFillBandedRows(cells []lCell, words []Word, c Content, vEdges []lEdge)
 	// G1: staircase signature — common-bottom fill rects with distinct, regular tops.
 	steps := fillStaircaseSteps(c.Rect, tableTop, tableBot, vMin, vMax)
 	if !staircaseSignatureHolds(steps, tableTop, tableBot) {
-		// Try BEA per-cell-grid branch (subtractive phantom-clamp).
-		return inferFillBandedRowsBEA(cells, words, c)
+		// Try BEA per-cell-grid branch (subtractive phantom-clamp + column-cut recovery).
+		return inferFillBandedRowsBEA(cells, words, c, vEdges)
 	}
 
 	// Pre-compute stroke-only h-edges (needed for both data-region and G5 checks).
@@ -996,7 +1105,7 @@ func inferFillBandedRows(cells []lCell, words []Word, c Content, vEdges []lEdge)
 // body == extent, removes nothing, and is returned untouched. Without this no-op guard the
 // downstream dropTrailingEmptyBands would trim a sparse real row off such a table (regression
 // caught on EPA p1's 7×3 gutter frame).
-func inferFillBandedRowsBEA(cells []lCell, words []Word, c Content) []lCell {
+func inferFillBandedRowsBEA(cells []lCell, words []Word, c Content, vEdges []lEdge) []lCell {
 	if len(c.Stroke) > 0 {
 		return cells // BEA signature requires zero stroke paths on the page
 	}
@@ -1013,7 +1122,9 @@ func inferFillBandedRowsBEA(cells []lCell, words []Word, c Content) []lCell {
 	if distinctCols(clamped) < 2 {
 		return cells
 	}
-	return dropTrailingEmptyBands(clamped, words)
+	// Phantom-clamp done; drop trailing empty bands, then apply column-cut recovery.
+	dropped := dropTrailingEmptyBands(clamped, words)
+	return splitWideBandCells(dropped, words, vEdges)
 }
 
 // beaDataBodyBBox derives the data-body bounding box from the fill rects that form real

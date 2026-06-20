@@ -267,6 +267,29 @@ var cellgridFixtures = []cellgridFixture{
 		class: "group-ruled+banded", heldOut: true, anchorCol: 0,
 	},
 	{
+		path:      "tables/tw-dgbas-happiness-2025.cellgrid.tsv",
+		sourcePDF: "tables/tw-dgbas-happiness-2025.pdf",
+		rows:      45, cols: 9, headerRows: 1,
+		// PR-1 de-bias fixture: cross-publisher CJK (Taiwan DGBAS) per-cell-grid, CLEAN column split
+		// (the "clean standout" of the per-cell-grid sweep). Exercises the inferColumnCuts v-edge path
+		// end-to-end via Page.Tables(). col1 = 指標 (unique indicator name; col0 領域 is a section label,
+		// blank on continuation rows). Blind-authored, 2-transcriber reconciled; 3 anchor-column footnote
+		// marks known-ceiling (see the .cellgrid.tsv header).
+		class: "group-ruled+banded", heldOut: true, anchorCol: 1,
+	},
+	{
+		path:      "tables/de-destatis-insolvenzen-2023.cellgrid.tsv",
+		sourcePDF: "tables/de-destatis-insolvenzen-2023.pdf",
+		rows:      66, cols: 9, headerRows: 1,
+		// PR-1 de-bias fixture: cross-publisher German (Destatis) per-cell-grid, the previously-G1-FUSED
+		// case PR-1 repairs — before inferColumnCuts the 7 numeric columns collapsed into one data cell.
+		// col0 = Nr. der Klassifikation (unique WZ code). Blind-authored, 2-transcriber reconciled with
+		// arithmetic cross-check (col4=col2+col3, parent sums); ~94% raw agreement; 13 genuinely-illegible
+		// numeric cells known-ceiling (see the .cellgrid.tsv header). Dense German numerics are
+		// transcription-hard, so this is a best-effort honest golden, not a pixel-perfect one.
+		class: "group-ruled+banded", heldOut: true, anchorCol: 0,
+	},
+	{
 		path:      "tables/epa-egrid2022-t1.cellgrid.tsv",
 		sourcePDF: "tables/epa-egrid2022-t1.pdf",
 		rows:      31, cols: 17, headerRows: 3,

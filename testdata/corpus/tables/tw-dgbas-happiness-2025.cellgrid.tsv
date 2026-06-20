@@ -1,0 +1,52 @@
+# cellgrid v1
+# source=tw-dgbas-happiness-2025 | pdf_page=1 | dims=45x9 | header_rows=1
+# values=as-printed | companion=none (blind-authored from the rendered page by two independent transcribers + a reconciler pass; numeric cells 100% A/B agreement and image-verified; only the anchor-column footnote marks below were ambiguous)
+# model=9 cols: 領域 (domain; section label only on a section's first data row, empty on continuation) / 指標 (indicator; row anchor) / 單位 / 2011 / 2012 / 2013 / 2014 / 2015 / 2016. Circled footnote marks ①..⑫ kept verbatim on indicator labels; "-" = no-data cell as printed; en-dashes (–) in ranges; CJK Traditional verbatim.
+# known-ceiling: 受雇 vs 受僱 in 全時受雇者平均年收入 — visually near-identical at print size, 受僱 is standard orthography but glyph indeterminate @ r19c2
+# known-ceiling: footnote superscript on 民主生活滿意度 — A read ⑩, B read ⑪ (sequential); print too small to resolve @ r44c2
+# known-ceiling: footnote superscript on 言論自由滿意度 — A read ⑩, B read ⑫ (sequential); print too small to resolve @ r45c2
+領域	指標	單位	2011	2012	2013	2014	2015	2016
+居住條件	平均每人房廳數（含客、餐廳）	間	-	1.6	1.6	1.7	1.7	-
+	居住消費支出占家庭可支配所得比率①	%	18	17	17	17	17	17
+	無基本衛生設備的比率②	%	-	0.0	0.0	0.0	0.0	0.0
+	平均每人居住坪數	坪	13.38	13.49	13.54	14.01	14.19	14.44
+	房價所得比	倍	7.3	7.8	8.4	8.4	8.5	9.3
+	房租所得比	%	13.7	13.8	13.5	13.6	13.5	13.6
+	居住房屋滿意度	%	-	81.9	84.9	82.9	85.9	84.8
+	住宅週遭環境滿意度	%	-	82.4	81.9	81.8	83.0	82.3
+所得與財富	每人可支配所得（PPP）①	美元（按當年PPP）	28,127	29,672	29,943	31,759	32,075	31,727
+	每人金融性財富（PPP）	美元（按當年PPP）	-	-	-	-	-	-
+	每人可支配所得中位數年增率	%	0.67	4.11	2.95	3.84	2.53	3.94
+	每人消費金額	元	221,584	225,292	232,998	239,736	245,047	253,033
+	家庭可支配所得五等分位倍數	倍	6.17	6.13	6.08	6.05	6.06	6.08
+	家庭收入不夠日常開銷的比率	%	-	18.97	18.61	-	-	-
+	相對貧窮率	%	7.74	7.72	7.26	7.16	7.12	6.62
+就業與收入	就業率	%	63	63	63	64	64	65
+	長期失業率	%	0.73	0.69	0.67	0.66	0.61	0.60
+	全時受僱者平均年收入（PPP）①	美元（按當年PPP）	49,209	50,863	50,071	51,498	52,324	52,670
+	勞動市場保障性不足	%	-	4.0	3.7	3.6	3.7	-
+	部分工時、臨時性或人力派遣工作者比率	%	6.50	6.79	6.94	6.93	6.98	7.04
+	青年（15–24歲）失業率	%	12.47	12.66	13.17	12.63	12.05	12.12
+	工作滿意度	%	-	-	67.8	67.2	67.0	69.0
+	實質總薪資③	元	50,393	49,559	49,180	50,347	51,783	51,384
+社會聯繫	社會網絡支持④	%	-	-	92	91	93	92
+	與朋友接觸頻率⑤	%	-	28.5	29.3	27.0	25.9	-
+	與親人接觸頻率⑤	%	-	22.6	23.6	24.0	25.0	-
+	志工服務時間	分鐘	-	5	-	-	-	-
+	對他人的信任⑥	%	-	-	56.7	55.7	57.0	56.1
+	家庭關係滿意度	分（1–5分）	-	4.35	4.36	4.39	4.40	4.38
+教育與技能	教育程度	%	73	74	75	77	78	79
+	預期受教育年數	年	16.7	16.7	16.7	16.6	16.6	16.6
+	學生認知能力	分	-	535	-	-	524	-
+	終身學習⑦	%	36.9	-	-	32.6	-	34.7
+環境品質	空氣污染	μg/m³	-	-	20	-	-	-
+	水質滿意度⑧	%	68	67	66	71	72	76
+	接近綠地	平方公尺/人	3.2	3.5	3.6	3.6	4.7	4.9
+公民參與及政府治理	投票率	%	-	74	-	-	-	66
+	關係者參與	分（0–4分）	-	2.2	-	-	-	-
+	參與政治活動比率⑩	%	-	22.5	30.2	42.2	38.4	-
+	對政府的信任	分（1–4分）	-	-	2.35	2.29	2.34	2.35
+	對法院的信任	分（1–4分）	-	2.19	2.08	2.12	1.98	-
+	對媒體的信任	分（1–4分）	-	2.03	1.92	1.96	1.93	-
+	民主生活滿意度⑪	%	-	-	80.0	76.8	81.7	81.4
+	言論自由滿意度⑫	%	-	-	80.7	75.6	76.8	76.9
