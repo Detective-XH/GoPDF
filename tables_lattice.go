@@ -1967,7 +1967,8 @@ func reconstructGrid(cells []lCell, words []Word, vRules ...lEdge) [][]string {
 	for key, ws := range bucket {
 		grid[key[0]][key[1]] = stripLeaderDots(joinReading(trimDotLeaders(ws)))
 	}
-	return dropGutterColumns(grid, cells, colReps)
+	grid = dropGutterColumns(grid, cells, colReps)
+	return mergeNestedColumns(grid, cells, colReps)
 }
 
 // A gutter column (a thin cell from a double-wall decorative border rect) is dropped only
@@ -1991,6 +1992,30 @@ func reconstructGrid(cells []lCell, words []Word, vRules ...lEdge) [][]string {
 const (
 	gutterFraction    = 0.25
 	absoluteGutterCap = 16.0
+)
+
+const (
+	// nestedWallTol is the maximum distance (pt) between the x1 right-edges of two adjacent
+	// grid-columns that still qualifies as a shared wall. Normal adjacent columns share a
+	// boundary (x1[i] == x0[i+1]); nested sub-cell pairs share the SAME x1 — this tolerance
+	// distinguishes them.
+	nestedWallTol = 3.0
+	// phantomMaxSparseCells is the maximum number of non-empty cells (over ALL rows) that the
+	// sparser member of a candidate merge-pair may hold. A phantom header column carries only
+	// the header label — at most one line (or two for a two-line wrapped header), so ≤2 is
+	// generous. A data-bearing column carries many more cells and is never merged away.
+	// Documented reopen: a 3+-line wrapped-header phantom will NOT merge (sparse limit = 2);
+	// this is loss-free (no worse than today) and the reopen trigger is a confirmed real-world
+	// fixture with a triple-line header phantom. The x0/left-aligned shared-wall variant also
+	// never fired on real data and is a documented reopen.
+	phantomMaxSparseCells = 2
+	// phantomMinDataCells is the minimum non-empty cell count (over ALL rows) the DENSE partner of
+	// a sparse phantom must hold for a merge to fire. Without it, a SMALL table whose columns are
+	// trivially "sparse" (≤2 cells just because the table has ≤2 data rows) would be over-merged —
+	// the EPA p1 false positive (a 2-row complementary table, both columns ≤2 cells, no real
+	// phantom). Requiring the data partner to carry ≥3 cells confirms a genuine (header + data)
+	// doubling. Loss-free reopen: a real phantom whose data column has <3 rows will not merge.
+	phantomMinDataCells = 3
 )
 
 // dropGutterColumns removes columns that are entirely empty AND thin by BOTH the relative
@@ -2090,6 +2115,203 @@ func compactColumns(grid [][]string, keep []bool, nKeep int) [][]string {
 		out[r] = kept
 	}
 	return out
+}
+
+// mergeNestedColumns collapses phantom-doubled adjacent grid-column pairs that arise when a PDF
+// producer subdivides each logical column into a WIDE outer cell and a NARROW inner cell sharing
+// the same right wall (x1). The cluster step in reconstructGrid keeps both x0-origins (they are
+// 10–50 pt apart and never merge under cluster1D), producing a grid where the header label sits in
+// the wide phantom column and its numeric data in the adjacent narrow column — a misaligned,
+// doubled layout that confuses any downstream consumer.
+//
+// The three-gate predicate (all required):
+//
+//  1. SHARED WALL — |x1rep[i] − x1rep[i+1]| ≤ nestedWallTol (right-aligned nested signature).
+//     Normal adjacent columns share a BOUNDARY (x1[i] == x0[i+1]); nested sub-cell pairs share
+//     the SAME x1. These are distinct: a column boundary is not a shared wall.
+//  2. ROW-COMPLEMENTARY — no row r has BOTH grid[r][i] != "" AND grid[r][i+1] != "".
+//     Guarantees loss-free merge: the two cells never compete, so no non-empty content (including
+//     a header label) is ever dropped.
+//  3. PHANTOM/DATA CELL-COUNT ASYMMETRY — min(nonEmpty) ≤ phantomMaxSparseCells (the phantom holds
+//     only a ≤2-line header) AND max(nonEmpty) ≥ phantomMinDataCells (the partner is a real data
+//     column). The sparse half defeats over-merging two data-rich complementary columns (DESTATIS
+//     p5 col19+col20); the dense half defeats over-merging a small table whose columns are trivially
+//     sparse (the EPA p1 2-row false positive).
+//
+// Merge rule: merged[r] = grid[r][i] if non-empty, else grid[r][i+1]. Column i+1 is dropped and
+// i's x1rep expands to the union max — subsequent pair checks use the updated geometry.
+// Processing is greedy left-to-right; after each merge the scan restarts from the beginning.
+//
+// Documented reopens:
+//   - x0/left-aligned shared-wall variant: not implemented — it did not occur across the validation
+//     corpus (all observed phantom pairs are right-aligned, sharing x1); a concrete follow-on.
+//   - phantomMaxSparseCells = 2: a 3+-line wrapped-header phantom will not merge (loss-free;
+//     no worse than today). Reopen trigger: a confirmed real-world fixture with a 3-line phantom.
+//
+// The helper is only called when len(grid[0]) == len(colReps) (enforced by the entry guard);
+// this holds iff dropGutterColumns dropped no column, which is the case for every table that
+// has any shared-wall phantom pair (gutters are thin by definition; phantoms are wide).
+func mergeNestedColumns(grid [][]string, cells []lCell, colReps []float64) [][]string {
+	if len(grid) == 0 || len(colReps) < 2 {
+		return grid
+	}
+	// Entry guard: grid width must match colReps; if dropGutterColumns compacted the grid,
+	// the nearestIdx mapping would desync — skip safely rather than panic.
+	if len(grid[0]) != len(colReps) {
+		return grid
+	}
+
+	// Build per-column leaf x1 (minimum / innermost right-edge) from cells keyed by colReps.
+	// Using MIN guards against spanning parent cells forging a false shared-wall signal.
+	curLeafX1 := columnLeafX1(cells, colReps)
+
+	// Greedy: find the first mergeable adjacent pair, apply it, and restart the scan (a merge
+	// shifts indices and updates geometry). Stop when a full scan finds no mergeable pair.
+	curGrid := grid
+	for {
+		merged := false
+		for i := 0; i+1 < len(curLeafX1); i++ {
+			if nestedPairMergeable(curGrid, curLeafX1, i, i+1) {
+				curGrid, curLeafX1 = applyNestedMerge(curGrid, curLeafX1, i, i+1)
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			break
+		}
+	}
+	return curGrid
+}
+
+// nestedPairMergeable reports whether adjacent grid columns i and j (j == i+1) satisfy ALL three
+// merge gates: (1) shared LEAF x1 wall — |leafX1[i]−leafX1[j]| ≤ nestedWallTol; gate-1 uses the
+// innermost (min) right edge so that a spanning parent cell cannot forge a shared wall over a real
+// column boundary; (2) row-complementary (no row has both non-empty); (3) phantom/data cell-count
+// asymmetry — one column is a sparse phantom (header only, ≤ phantomMaxSparseCells cells) AND its
+// partner is a dense data column (≥ phantomMinDataCells). The sparse half rejects two data-rich
+// complementary columns (DESTATIS p5 col19+col20); the dense half rejects a small table whose
+// columns are trivially sparse (the EPA p1 2-row false positive).
+func nestedPairMergeable(grid [][]string, x1max []float64, i, j int) bool {
+	if math.Abs(x1max[i]-x1max[j]) > nestedWallTol {
+		return false
+	}
+	if !nestedColumnsComplementary(grid, i, j) {
+		return false
+	}
+	ni, nj := nestedNonEmpty(grid, i), nestedNonEmpty(grid, j)
+	return min(ni, nj) <= phantomMaxSparseCells && max(ni, nj) >= phantomMinDataCells
+}
+
+// applyNestedMerge merges column j into column i (j == i+1): each grid row collapses via
+// mergeColumnIntoRow (non-empty wins, so no content is lost) and the per-column leafX1 takes the
+// union max of the two columns' leafX1 values (the merged column's effective right edge is the
+// wider of the two). Returns the grid and leafX1 slice one column narrower.
+func applyNestedMerge(grid [][]string, x1max []float64, i, j int) ([][]string, []float64) {
+	newNC := len(x1max) - 1
+	newGrid := make([][]string, len(grid))
+	for r, row := range grid {
+		newGrid[r] = mergeColumnIntoRow(row, i, j, newNC)
+	}
+	newX1max := make([]float64, newNC)
+	dst := 0
+	for cc := range x1max {
+		if cc == j {
+			continue // absorbed into i
+		}
+		newX1max[dst] = x1max[cc]
+		dst++
+	}
+	if x1max[j] > newX1max[i] {
+		newX1max[i] = x1max[j]
+	}
+	return newGrid, newX1max
+}
+
+// columnLeafX1 returns the MINIMUM x1 value for each grid column, keyed by nearestIdx(colReps,c.x0).
+//
+// We use the minimum (innermost / leaf right edge) rather than the maximum to distinguish two cases:
+//   - PHANTOM column: its only cell is the wide outer cell that reaches the shared wall → min == max
+//     == the shared wall → the shared-wall gate in nestedPairMergeable still fires (intended).
+//   - REAL column with a spanning PARENT header: the parent cell has a wide x1 reaching the next
+//     column's wall, but the column also has narrower LEAF data cells ending at its own boundary.
+//     min x1 = the leaf boundary ≠ the adjacent column's wall → shared-wall gate fails → NO merge
+//     (the spanning-header false positive is blocked).
+//
+// Entries for columns with no mapped cells remain +Inf, so gate-1 (|diff| ≤ nestedWallTol) safely
+// fails for unmapped columns.
+func columnLeafX1(cells []lCell, colReps []float64) []float64 {
+	leafX1 := make([]float64, len(colReps))
+	for i := range leafX1 {
+		leafX1[i] = math.Inf(1)
+	}
+	for _, c := range cells {
+		cc := nearestIdx(colReps, c.x0)
+		if c.x1 < leafX1[cc] {
+			leafX1[cc] = c.x1
+		}
+	}
+	return leafX1
+}
+
+// nestedColumnsComplementary reports whether columns i and j in grid are row-complementary:
+// no single row has both grid[r][i] and grid[r][j] non-empty (after TrimSpace).
+// All rows are checked uniformly — no header/data boundary.
+func nestedColumnsComplementary(grid [][]string, i, j int) bool {
+	for _, row := range grid {
+		ci := ""
+		if i < len(row) {
+			ci = strings.TrimSpace(row[i])
+		}
+		cj := ""
+		if j < len(row) {
+			cj = strings.TrimSpace(row[j])
+		}
+		if ci != "" && cj != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// nestedNonEmpty counts rows where column cc has non-empty text (TrimSpace), over ALL rows.
+func nestedNonEmpty(grid [][]string, cc int) int {
+	n := 0
+	for _, row := range grid {
+		if cc < len(row) && strings.TrimSpace(row[cc]) != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// mergeColumnIntoRow merges the source column j into column i within a single grid row,
+// returning a new row of width newNC. Non-empty wins; if both are somehow non-empty
+// (guarded against by row-complementary but kept for safety), they are space-joined.
+func mergeColumnIntoRow(row []string, i, j, newNC int) []string {
+	newRow := make([]string, newNC)
+	for cc, cell := range row {
+		if cc == j {
+			// Merge j into i: already placed above (i < j, so i was already written).
+			ci := strings.TrimSpace(newRow[i])
+			cj := strings.TrimSpace(cell)
+			switch {
+			case ci == "":
+				newRow[i] = cj
+			case cj == "" || ci == cj:
+				// keep newRow[i] as-is
+			default:
+				newRow[i] = ci + " " + cj
+			}
+			continue
+		}
+		d := cc
+		if cc > j {
+			d = cc - 1
+		}
+		newRow[d] = strings.TrimSpace(cell)
+	}
+	return newRow
 }
 
 // trimDotLeaders drops tabular dot-leader filler words from a cell's word set, but ONLY when the
