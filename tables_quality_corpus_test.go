@@ -51,13 +51,17 @@ type classGate struct {
 // inScopeQualityClasses are the taxonomy classes currently in scope for the held-out
 // quality corpus, with their coverage-gate strength. single-axis-ruled and borderless
 // are not yet in scope (no accuracy consumer / measured FP-unsafe).
-// group-ruled+banded is HELD (hard:false, N=1 gate-bearing EIA fixture): the inferFillBandedRows
-// path is wired but N<2 so coverage is incomplete; the held diagnostic fires if gateCount>=2
-// but substantive content drops below heldSubstThreshold (50%).
+// group-ruled+banded is HELD (hard:false): inferFillBandedRows is wired and the class now has 5
+// gate-bearing fixtures (EIA staircase + BEA/TW/DE/JP per-cell-grid, the last three added by the
+// per-cell-grid program PR-1..4). The aggregate coverage gate (gateCount>=2) is therefore already
+// MET; the class stays hard:false on the per-signature anti-overfit policy — PR-D needs >=2 fixtures
+// PER SIGNATURE, and EIA-staircase is still N=1 (BEA-per-cell-grid is N=4). The held diagnostic
+// fires if gateCount>=2 but substantive content drops below heldSubstThreshold (50%); the current
+// aggregate is ~87%, so it does not fire.
 var inScopeQualityClasses = []classGate{
 	{name: "fully-ruled", hard: true},         // FBI NICS + HHS ASPE both extract -> count<2 is a build error
 	{name: "rect-bordered", hard: true},       // ERP B-1/B-2 + NASS (cross-publisher, 98.1% substantive) extract -> count<2 is a build error
-	{name: "group-ruled+banded", hard: false}, // EIA (N=1, held): inferFillBandedRows wired; HELD until second gate-bearing fixture added
+	{name: "group-ruled+banded", hard: false}, // gate-bearing=5 (EIA staircase + BEA/TW/DE/JP per-cell-grid); HELD on the per-signature policy: EIA-staircase still N=1 (PR-D)
 }
 
 // heldSubstThreshold is the substantive-content %% below which a HELD class is treated as

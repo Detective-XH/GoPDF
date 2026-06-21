@@ -646,22 +646,33 @@ for ti, tbl := range tables {
 }
 ```
 
-**Documented scope:** *ruled lattices* — interior cells closed by a visible rule between
-adjacent rows AND adjacent columns, plus half-open edge columns recovered from structural
-evidence (the right data column / left label column whose outer vertical rule is absent but
-whose row rules overhang the inner vertical, recovered as described below). On that scope the
-reconstruction is locked against regression by corpus accuracy gates (the determinism
-promise applies).
+**Documented scope:** two table classes are locked against regression by corpus accuracy gates
+(the determinism promise applies):
 
-Outside that scope the result is **best-effort, not a contract** — treat any returned grid
-as advisory:
+- **Fully-ruled lattices** — interior cells closed by a visible rule between adjacent rows AND
+  adjacent columns.
+- **Rect-bordered tables** — interior cells closed by rules within an outer frame (~98%
+  cross-publisher, locked contract).
+
+Both include **half-open edge columns** recovered from structural evidence (the right data
+column / left label column whose outer vertical rule is absent but whose row rules overhang
+the inner vertical, recovered as described below).
+
+**Per-cell-grid tables** (stroke-free, common in non-US/multilingual statistical PDFs) now
+reconstruct with column- and row-recovery — but this class is still stabilizing: best-effort,
+not yet a locked contract. Treat any returned grid as advisory.
+
+Outside the locked scope the result is **best-effort, not a contract**:
 
 - A **borderless** table (no closing rules) returns no `Table`.
 - A **partially-ruled or banded** table — ruled only at group boundaries, with rows
   separated by shading rather than per-row rules (common in statistical tables) — may
   return no `Table`, or a structurally incomplete or merged grid. For example, a banded
   energy-statistics table with only group-level vertical rules collapses adjacent
-  sub-columns and rows into one cell; do not rely on its grid.
+  sub-columns and rows into one cell; do not rely on its grid. Note: **proportional
+  Type0 / Identity-H text** (Latin/Cyrillic wrapped in a CJK-subset font) now extracts
+  with correct per-CID widths (PR #88), fixing label↔value character-interleaving — but
+  a minority of banded tables may still re-bucket rows; that class remains best-effort.
 
 **Verbatim caveat:** a superscript renders at a distinct vertical position and font size, so
 it extracts as a spaced token — `cm²` becomes `cm 2`. This is specific to Y-offset glyph

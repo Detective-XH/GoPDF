@@ -257,13 +257,16 @@ var cellgridFixtures = []cellgridFixture{
 		rows:      36, cols: 11, headerRows: 3,
 		// 2nd gate-bearing group-ruled+banded fixture, cross-publisher (BEA, not EIA). BEA exercises
 		// the per-cell-grid branch of inferFillBandedRows (phantom-clamp), distinct from EIA's
-		// staircase branch — so each signature is still N=1 and group-ruled+banded stays hard:false
-		// (hard:true is PR-D, gated on a 2nd fixture PER signature). col0 = Line number (unique
+		// staircase branch. The per-cell-grid program (PR-1/PR-2) later added TW/DE/JP to this same
+		// per-cell-grid signature, so BEA-per-cell-grid is now N=4 while EIA-staircase is still N=1;
+		// group-ruled+banded stays hard:false on the per-signature anti-overfit policy (hard:true is
+		// PR-D, gated on a 2nd fixture PER signature — the open side is now EIA-staircase). col0 = Line number (unique
 		// 1..32; Addenda rows 27..32 are empty in the detector due to word-seg fusing, an honest
 		// documented limitation — see Q2-PR-C recon §5 — but present+unique in the golden).
-		// Reopen trigger: BEA substantive content (~32%) is capped by numeric-cell word-seg fusing
-		// (inter-token X-gap too small to split adjacent value cells) — an orthogonal, pre-existing
-		// word-spacing issue, NOT a geometry failure; the score rises when that fusing is fixed.
+		// Reopen trigger: BEA substantive content (~82%, up from ~32% at the PR-C tree once the PR-4
+		// Type0 per-CID /W fix landed) is capped by residual numeric-cell word-seg fusing (inter-token
+		// X-gap too small to split adjacent value cells) — an orthogonal, pre-existing word-spacing
+		// issue, NOT a geometry failure; the score rises further when that residual fusing is fixed.
 		class: "group-ruled+banded", heldOut: true, anchorCol: 0,
 	},
 	{
