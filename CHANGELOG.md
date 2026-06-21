@@ -9,6 +9,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- `Page.Tables()` now merges the **interleaved blank columns** that appear when a stroke-free
+  per-cell-grid table's rules sub-divide each logical column into a wide (header-bearing) cell nested
+  with a narrow (data) cell. Such a table reconstructs with roughly twice its real column count — the
+  header label landing in one grid column and its data in the adjacent one (a header read with no data,
+  and data read with no header). GoPDF now merges each such nested pair back into a single column,
+  realigning the header with its data. The merge is conservative and loss-free: it fires only when the
+  two columns share a right wall (the nested sub-cell signature, not an ordinary column boundary), never
+  hold content in the same row (so no cell is ever overwritten), and one column is a sparse header while
+  the other is a dense data column (so two genuine data columns are never merged, and a small table is
+  not collapsed). It was validated against the nested-sub-cell signature by unit tests; every ruled,
+  rect-bordered, and previously-handled table is byte-for-byte unchanged, and reconstruction remains
+  best-effort per the `Page.Tables()` documentation.
 - `Page.Tables()` now also recovers the **rows** of dense per-cell-grid statistical tables in which many
   stacked records had collapsed into a single tall cell (every value for a column landing in one row).
   Common in stroke-free government statistics — for example Japanese MHLW wage tables and US Census trade

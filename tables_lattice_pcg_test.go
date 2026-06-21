@@ -313,3 +313,253 @@ func TestSplitTallBandCellsInBodyAnnotationNoSplit(t *testing.T) {
 		t.Fatalf("in-body annotation guard: got %d cells, want %d (single-column numeric marker must not promote a text band)", len(out), len(cells))
 	}
 }
+
+// --- PR-3: mergeNestedColumns unit tests ---
+//
+// These tests lock the three-gate predicate of mergeNestedColumns:
+//   (1) SHARED WALL — |x1[i] − x1[i+1]| ≤ 3 pt (right-aligned nested sub-cell signature)
+//   (2) ROW-COMPLEMENTARY — no row has both columns non-empty
+//   (3) ONE-COLUMN-SPARSE — min(nonEmpty[i], nonEmpty[i+1]) ≤ phantomMaxSparseCells (=2)
+//
+// Geometry convention: x0/x1 are page-space horizontal coords (pt). The cells below
+// reproduce the DESTATIS nested-sub-cell signature: a WIDE outer cell (phantom header)
+// shares x1 with a NARROW inner cell (data column). cluster1D keeps both x0s (they are
+// far enough apart to not merge), yielding two adjacent grid-columns. Each test builds its
+// cells + grid inline.
+
+// TestPR3MergeFiresSharedWallComplementarySparse: canonical phantom-pair merge.
+// Two adjacent grid columns share x1 (right wall, dist=0), are row-complementary
+// (header text in wide col row0, data text in narrow col row1), and sparse (1 cell each).
+// Merge must fire; header text must be preserved in the merged column.
+func TestPR3MergeFiresSharedWallComplementarySparse(t *testing.T) {
+	// Wide col: x0=100, x1=200, w=100. Narrow col: x0=150, x1=200, w=50.
+	// They share x1=200 (dist=0 < nestedWallTol=3).
+	cells := []lCell{
+		pcgCell(100, 200, 0, 10),  // wide — row 0 (header band)
+		pcgCell(150, 200, 10, 20), // narrow — row 1 (data band)
+	}
+	x0s := []float64{100, 150}
+	colReps := cluster1D(x0s, 4) // should be two reps: 100 and 150
+	if len(colReps) != 2 {
+		t.Fatalf("expected 2 colReps, got %d", len(colReps))
+	}
+
+	// Build a grid: 1 header row (wide col, sparse) + 3 data rows (narrow col, dense ≥
+	// phantomMinDataCells=3 so the dense-partner gate is satisfied):
+	//   row 0: ["Revenue", ""]    (header in wide col)
+	//   rows 1-3: ["", "<n>"]     (data in narrow col)
+	grid := [][]string{
+		{"Revenue", ""},
+		{"", "42"},
+		{"", "43"},
+		{"", "44"},
+	}
+
+	out := mergeNestedColumns(grid, cells, colReps)
+	if len(out) == 0 {
+		t.Fatal("mergeNestedColumns returned empty grid")
+	}
+	nCols := len(out[0])
+	if nCols != 1 {
+		t.Fatalf("expected 1 column after merge, got %d", nCols)
+	}
+	// Row 0: must carry "Revenue" (the header).
+	if out[0][0] != "Revenue" {
+		t.Errorf("row 0 merged cell = %q; want %q", out[0][0], "Revenue")
+	}
+	// Row 1: must carry "42" (the data value).
+	if out[1][0] != "42" {
+		t.Errorf("row 1 merged cell = %q; want %q", out[1][0], "42")
+	}
+}
+
+// TestPR3NoMergeNonSharedWall: adjacent columns sharing a boundary (x1[i] == x0[i+1]),
+// NOT the same x1. Shared-wall gate must fail → no merge.
+func TestPR3NoMergeNonSharedWall(t *testing.T) {
+	// Col A: x0=100, x1=150. Col B: x0=150, x1=250.
+	// They share a BOUNDARY (x1[A]==x0[B]=150), not a shared x1 wall.
+	// x1 values differ by 100 pt >> nestedWallTol=3.
+	cells := []lCell{
+		pcgCell(100, 150, 0, 10),
+		pcgCell(150, 250, 0, 10),
+	}
+	colReps := cluster1D([]float64{100, 150}, 4)
+	if len(colReps) != 2 {
+		t.Fatalf("expected 2 colReps, got %d", len(colReps))
+	}
+	// Row-complementary and sparse — but shared-wall fails.
+	grid := [][]string{
+		{"Header", ""},
+	}
+	out := mergeNestedColumns(grid, cells, colReps)
+	if len(out[0]) != 2 {
+		t.Errorf("non-shared-wall: expected 2 cols (no merge), got %d", len(out[0]))
+	}
+}
+
+// TestPR3NoMergeComplementaryViolation: two adjacent columns with shared x1 wall AND
+// sparse, but the same row has content in BOTH → row-complementary gate must fail → no merge.
+func TestPR3NoMergeComplementaryViolation(t *testing.T) {
+	// Wide col: x0=100, x1=200. Narrow col: x0=160, x1=200. Shared x1=200 (dist=0).
+	cells := []lCell{
+		pcgCell(100, 200, 0, 10),
+		pcgCell(160, 200, 0, 10),
+	}
+	colReps := cluster1D([]float64{100, 160}, 4)
+	if len(colReps) != 2 {
+		t.Fatalf("expected 2 colReps, got %d", len(colReps))
+	}
+	// Same row has content in both columns → not complementary.
+	grid := [][]string{
+		{"Header", "Value"},
+	}
+	out := mergeNestedColumns(grid, cells, colReps)
+	if len(out[0]) != 2 {
+		t.Errorf("complementary-violation: expected 2 cols (no merge), got %d", len(out[0]))
+	}
+}
+
+// TestPR3NoMergeSparseViolation: adjacent columns with shared x1 wall AND row-complementary,
+// but BOTH columns have more than phantomMaxSparseCells (=2) non-empty cells. This is the
+// DESTATIS p5 col19+col20 over-merge guard: two data-rich complementary columns must NOT merge.
+func TestPR3NoMergeSparseViolation(t *testing.T) {
+	// Col A: x0=100, x1=200. Col B: x0=160, x1=200. Shared x1=200 (dist=0 pt).
+	cells := []lCell{
+		pcgCell(100, 200, 0, 100),
+		pcgCell(160, 200, 0, 100),
+	}
+	colReps := cluster1D([]float64{100, 160}, 4)
+	if len(colReps) != 2 {
+		t.Fatalf("expected 2 colReps, got %d", len(colReps))
+	}
+	// Build a 6-row grid with 3 non-empty cells in each column, alternating (complementary).
+	// min(3, 3) = 3 > phantomMaxSparseCells=2 → sparse gate fails.
+	grid := [][]string{
+		{"A1", ""},
+		{"", "B2"},
+		{"A3", ""},
+		{"", "B4"},
+		{"A5", ""},
+		{"", "B6"},
+	}
+	out := mergeNestedColumns(grid, cells, colReps)
+	if len(out[0]) != 2 {
+		t.Errorf("sparse-violation: expected 2 cols (no merge), got %d (should not merge data-rich pair)", len(out[0]))
+	}
+}
+
+// TestPR3LossFreeMerge: verifies that no non-empty cell is lost after a merge fires.
+// The merged output must contain every non-empty string from the original grid.
+func TestPR3LossFreeMerge(t *testing.T) {
+	// Wide phantom col (x0=100, x1=200) with a 2-line header (sparse: 2 cells); narrow data col
+	// (x0=155, x1=200) with 3 data values (dense ≥ phantomMinDataCells=3). Complementary.
+	cells := []lCell{
+		pcgCell(100, 200, 0, 10),
+		pcgCell(155, 200, 10, 40),
+	}
+	colReps := cluster1D([]float64{100, 155}, 4)
+	if len(colReps) != 2 {
+		t.Fatalf("expected 2 colReps, got %d", len(colReps))
+	}
+	grid := [][]string{
+		{"Revenue", ""}, // header in wide (row 0) — wide col: 2 cells (sparse)
+		{"(USD)", ""},   // header line 2 in wide (row 1)
+		{"", "1,234"},   // data in narrow (row 2)
+		{"", "5,678"},   // data in narrow (row 3)
+		{"", "9,012"},   // data in narrow (row 4) — narrow: 3 cells ≥ phantomMinDataCells
+	}
+	// Count non-empty strings before merge.
+	want := map[string]bool{"Revenue": true, "(USD)": true, "1,234": true, "5,678": true, "9,012": true}
+
+	out := mergeNestedColumns(grid, cells, colReps)
+
+	got := map[string]bool{}
+	for _, row := range out {
+		for _, cell := range row {
+			if cell != "" {
+				got[cell] = true
+			}
+		}
+	}
+	for s := range want {
+		if !got[s] {
+			t.Errorf("loss-free violation: %q disappeared after merge", s)
+		}
+	}
+	// Column count must have shrunk by 1.
+	if len(out[0]) != 1 {
+		t.Errorf("loss-free: expected 1 column after merge, got %d", len(out[0]))
+	}
+}
+
+// TestPR3NoMergeSmallTable: a tiny (2-row) complementary table with a shared x1 wall whose columns
+// are trivially sparse (≤2 cells only because the table has ≤2 rows) must NOT merge — the
+// dense-partner gate (max nonEmpty ≥ phantomMinDataCells) protects it. This is the EPA p1 2x2
+// false positive caught by the full -race suite (TestPublicTablesGutterColumnsDropped).
+func TestPR3NoMergeSmallTable(t *testing.T) {
+	cells := []lCell{
+		pcgCell(100, 200, 0, 10),
+		pcgCell(160, 200, 0, 10),
+	}
+	colReps := cluster1D([]float64{100, 160}, 4)
+	if len(colReps) != 2 {
+		t.Fatalf("expected 2 colReps, got %d", len(colReps))
+	}
+	// 2-row complementary table: each column has 1 non-empty cell. Both trivially sparse, but neither
+	// is a dense data column (max nonEmpty = 1 < phantomMinDataCells=3) → must not merge.
+	grid := [][]string{
+		{"Header", ""},
+		{"", "42"},
+	}
+	out := mergeNestedColumns(grid, cells, colReps)
+	if len(out[0]) != 2 {
+		t.Errorf("small-table: expected 2 cols (no merge), got %d (a tiny table must not over-merge)", len(out[0]))
+	}
+}
+
+// TestPR3NoMergeSpanningParent is the codex spanning-header FP guard (PR-3 adversarial review).
+//
+// Scenario: a multi-tier table where col-i has BOTH a leaf data cell (x0=100,x1=150) AND a
+// spanning parent header (x0=100,x1=200). The spanning header reaches col-j's right wall (x1=200),
+// so under the old MAX-x1 gate columnX1Max would return x1max=[200,200], making |x1[0]-x1[1]|=0
+// which forges a shared-wall signal and would incorrectly merge two DISTINCT data columns.
+//
+// With the leaf-x1 (MIN) fix in columnLeafX1: col-i's leaf right edge is x1=150 (the narrow data
+// cell), so leafX1=[150,200], |150-200|=50 >> nestedWallTol=3 → shared-wall gate FAILS → NO merge.
+//
+// Grid is row-complementary and satisfies the sparse+dense cell-count gate, so without the
+// leaf-x1 fix the merge WOULD fire. This test would have FAILED under the old MAX logic.
+func TestPR3NoMergeSpanningParent(t *testing.T) {
+	// Col 0 (x0=100): leaf data cell ending at x1=150, plus a spanning parent ending at x1=200.
+	// Col 1 (x0=150): data cells ending at x1=200.
+	// Both x0=100 cells → col 0 via nearestIdx([100,150], ·).
+	// x0=150 cell → col 1.
+	cells := []lCell{
+		pcgCell(100, 150, 10, 20), // col-0 leaf data cell  (x1=150 — the true leaf boundary)
+		pcgCell(100, 200, 0, 10),  // col-0 spanning parent (x1=200 — reaches col-1's wall)
+		pcgCell(150, 200, 10, 20), // col-1 data row 1
+		pcgCell(150, 200, 20, 30), // col-1 data row 2
+		pcgCell(150, 200, 30, 40), // col-1 data row 3
+	}
+	// colReps: x0s are 100, 100, 150 → cluster1D([100,100,150], 4) → [100, 150]
+	colReps := cluster1D([]float64{100, 100, 150}, 4)
+	if len(colReps) != 2 {
+		t.Fatalf("expected 2 colReps, got %d: %v", len(colReps), colReps)
+	}
+
+	// Grid: col-0 sparse (1 header row), col-1 dense (3 data rows); row-complementary.
+	// This satisfies all three original gates EXCEPT the leaf-x1 shared-wall gate.
+	grid := [][]string{
+		{"Header", ""}, // spanning parent row — col-0 non-empty, col-1 empty
+		{"", "10"},     // data row 1 — col-0 empty, col-1 non-empty
+		{"", "20"},     // data row 2
+		{"", "30"},     // data row 3
+	}
+
+	out := mergeNestedColumns(grid, cells, colReps)
+	// With leaf-x1 fix: leafX1[0]=150, leafX1[1]=200; |150-200|=50 > nestedWallTol → NO merge.
+	// Without fix (MAX): x1max[0]=200, x1max[1]=200; |200-200|=0 → would merge (FP).
+	if len(out[0]) != 2 {
+		t.Errorf("spanning-parent FP: expected 2 cols (no merge), got %d — spanning parent header forged a false shared-wall signal", len(out[0]))
+	}
+}
