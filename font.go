@@ -59,10 +59,10 @@ func (f Font) Width(code int) float64 {
 // (or an absent /DW) maps to the spec default 1000 so glyphs never all stack at one
 // x. This is the path layoutDecoded uses, where code may be a partial byte of a
 // multi-byte CID, so a per-CID /W lookup would be wrong. The full-CID per-/W path
-// lives in cidWidth, reached via layoutComposite for DW==0 fonts that have a code
-// decoder (e.g. BEA's Bold-Cambria); the 1000 fallback here covers the rare DW==0
-// font that cannot be code-decoded (no corpus fixture hits it). Simple fonts
-// delegate to Width.
+// lives in cidWidth, reached via layoutComposite for the per-CID cases needsPerCIDWidth
+// selects (DW==0 code-decodable fonts like BEA's Bold-Cambria, and non-zero-DW Identity-H/V
+// fonts that carry a /W array); the 1000 fallback here covers the rare DW==0 font that cannot
+// be code-decoded (no corpus fixture hits it). Simple fonts delegate to Width.
 func (f Font) effectiveWidth(code int) float64 {
 	if f.V.Key("Subtype").Name() == "Type0" {
 		dw := f.V.Key("DescendantFonts").Index(0).Key("DW")
@@ -74,36 +74,58 @@ func (f Font) effectiveWidth(code int) float64 {
 	return f.Width(code)
 }
 
-// cidWidth returns the advance for a full CID in a composite (Type0) font. When the
-// descendant /DW is the degenerate 0 (the Bold-Cambria stacking bug) it consults the
-// per-CID /W array (PDF 32000-1 §9.7.4.3), falling back to 1000 for CIDs absent from
-// /W — never 0. A non-zero /DW is returned uniformly. Only layoutComposite calls this,
-// always with a full multi-byte CID (so the /W index is correct).
+// cidWidth returns the advance for a full CID in a composite (Type0) font. It consults the
+// per-CID /W array (PDF 32000-1 §9.7.4.3) FIRST whenever /W covers the CID, falling back to the
+// descendant /DW for CIDs absent from /W (or to the spec default 1000 when /DW is the degenerate
+// 0). Only layoutComposite calls this, always with a full multi-byte CID assembled from
+// Identity-H/V code bytes — needsPerCIDWidth gates the non-zero-/DW path to Identity encodings,
+// so beCID == CID and the /W index is correct. Reading /W for a non-zero /DW is what corrects
+// proportional Type0 glyph advances (Latin/Cyrillic CIDFont wrappers that declare /DW=1000 plus a
+// real /W): without it the over-wide uniform advance drifts glyph positions and interleaves a long
+// label with the adjacent number. The DW==0 branch is byte-identical to before (/W → else 1000).
 func (f Font) cidWidth(cid int) float64 {
 	desc := f.V.Key("DescendantFonts").Index(0)
 	dw := 1000.0
 	if d := desc.Key("DW"); d.Kind() == Integer || d.Kind() == Real {
 		dw = d.Float64()
 	}
+	if w := cidWidthFromW(desc.Key("W"), cid); w >= 0 {
+		return w
+	}
 	if dw == 0 {
-		if w := cidWidthFromW(desc.Key("W"), cid); w >= 0 {
-			return w
-		}
 		return 1000
 	}
 	return dw
 }
 
-// needsPerCIDWidth reports whether this Type0 font has a degenerate /DW of 0 — the
-// only case where per-CID /W widths must be read (otherwise every CID advances 0
-// and the run stacks at one x). The content interpreter keeps the cheap
-// one-byte-per-rune width path for all other fonts. Checked once per text-show.
+// needsPerCIDWidth reports whether a Type0 run must be laid out through the per-CID /W path
+// (layoutComposite) rather than the cheap uniform-/DW path (layoutDecoded). Two cases:
+//   - /DW == 0 (the Bold-Cambria stacking bug): /W must be read or every CID advances 0 and the
+//     run stacks at one x. UNCHANGED behaviour.
+//   - /DW != 0 with a /W array AND an Identity-H/V encoding: /W carries the real proportional
+//     advances that the uniform /DW ignores; reading them stops a long label's over-wide bbox from
+//     engulfing the adjacent right-aligned number (the cross-script char-interleaving bug). Gated
+//     on Identity because layoutComposite derives the CID as beCID(codeBytes) — a valid /W index
+//     only when code == CID (Identity-H/V). Non-Identity composite fonts (predefined/embedded
+//     CMaps; GoPDF has no code→CID map) keep uniform /DW; they are CJK full-width where /DW ≈
+//     correct, so the uniform advance is already right.
+//
+// The content interpreter keeps the cheap one-byte-per-rune width path for every other font.
+// Checked once per text-show.
 func (f Font) needsPerCIDWidth() bool {
 	if f.V.Key("Subtype").Name() != "Type0" {
 		return false
 	}
-	d := f.V.Key("DescendantFonts").Index(0).Key("DW")
-	return (d.Kind() == Integer || d.Kind() == Real) && d.Float64() == 0
+	desc := f.V.Key("DescendantFonts").Index(0)
+	d := desc.Key("DW")
+	if (d.Kind() == Integer || d.Kind() == Real) && d.Float64() == 0 {
+		return true
+	}
+	if !isIdentityHVName(f.V.Key("Encoding").Name()) {
+		return false
+	}
+	w := desc.Key("W")
+	return w.Kind() == Array && w.Len() > 0
 }
 
 // cidWidthFromW returns the width of cid from a CIDFont /W array, or -1 if the

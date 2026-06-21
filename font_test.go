@@ -483,9 +483,10 @@ func TestFontEffectiveWidthType0DWZeroFallsTo1000(t *testing.T) {
 	}
 }
 
-// TestFontCIDWidthNonZeroDW verifies that cidWidth returns the uniform /DW for all
-// CIDs when /DW is non-zero — the /W array is NOT consulted. This is the symmetric
-// counterpart to TestFontCIDWidthDWZero: only DW==0 triggers the /W lookup.
+// TestFontCIDWidthNonZeroDW verifies that cidWidth consults the per-CID /W array FIRST even
+// when /DW is non-zero (the char-interleaving fix: a proportional Latin/Cyrillic CIDFont
+// wrapper declares /DW=1000 plus a real /W, and the over-wide uniform /DW must NOT be used),
+// falling back to /DW only for CIDs absent from /W.
 func TestFontCIDWidthNonZeroDW(t *testing.T) {
 	r := fontTestEmptyReader()
 	descendant := dict{
@@ -498,13 +499,55 @@ func TestFontCIDWidthNonZeroDW(t *testing.T) {
 		name("DescendantFonts"): array{descendant},
 	}
 	font := fontTestFontValue(r, fontDict)
-	// CID 32: present in /W but DW=800 (non-zero) → uniform /DW returned, /W NOT consulted.
-	if got := font.cidWidth(32); got != 800 {
-		t.Errorf("cidWidth on Type0/DW=800/cid=32: got %v, want 800 (non-zero DW→uniform; /W not consulted)", got)
+	// CID 32: present in /W → the real proportional width (722) wins over the uniform /DW=800.
+	if got := font.cidWidth(32); got != 722 {
+		t.Errorf("cidWidth on Type0/DW=800/cid=32 present in W: got %v, want 722 (/W width wins over uniform DW)", got)
 	}
-	// CID 0: absent from /W; non-zero DW → uniform /DW returned.
+	// CID 0: absent from /W → fall back to /DW (800).
 	if got := font.cidWidth(0); got != 800 {
-		t.Errorf("cidWidth on Type0/DW=800/cid=0: got %v, want 800 (uniform DW)", got)
+		t.Errorf("cidWidth on Type0/DW=800/cid=0 absent from W: got %v, want 800 (DW fallback)", got)
+	}
+}
+
+// TestNeedsPerCIDWidthRouting locks the gate that routes a Type0 run through the per-CID /W
+// path (layoutComposite) vs the cheap uniform-/DW path (layoutDecoded). The Identity gate is
+// the load-bearing FP-safety invariant: beCID(codeBytes)==CID only for Identity-H/V, so /W is
+// consulted only there for non-zero /DW. Non-Identity composite fonts (no code→CID map) and
+// DW-only fonts keep uniform /DW; the DW==0 stacking path stays Identity-agnostic.
+func TestNeedsPerCIDWidthRouting(t *testing.T) {
+	r := fontTestEmptyReader()
+	mk := func(enc name, dw int64, withW bool) Font {
+		desc := dict{name("Subtype"): name("CIDFontType2"), name("DW"): dw}
+		if withW {
+			desc[name("W")] = array{int64(32), array{int64(722)}}
+		}
+		fd := dict{name("Subtype"): name("Type0"), name("DescendantFonts"): array{desc}}
+		if enc != "" {
+			fd[name("Encoding")] = enc
+		}
+		return fontTestFontValue(r, fd)
+	}
+	cases := []struct {
+		name string
+		font Font
+		want bool
+	}{
+		{"identity-H nonzero-DW with W → route (the fix)", mk("Identity-H", 800, true), true},
+		{"identity-V nonzero-DW with W → route", mk("Identity-V", 1000, true), true},
+		{"non-identity (CJK CMap) nonzero-DW with W → uniform DW", mk("UniGB-UCS2-H", 1000, true), false},
+		{"identity-H nonzero-DW WITHOUT W → uniform DW", mk("Identity-H", 1000, false), false},
+		{"absent Encoding nonzero-DW with W → uniform DW", mk("", 1000, true), false},
+		{"DW==0 stays routed regardless of encoding (unchanged)", mk("UniGB-UCS2-H", 0, false), true},
+	}
+	for _, c := range cases {
+		if got := c.font.needsPerCIDWidth(); got != c.want {
+			t.Errorf("%s: needsPerCIDWidth()=%v, want %v", c.name, got, c.want)
+		}
+	}
+	// A non-Type0 simple font never routes.
+	simple := fontTestFontValue(r, dict{name("Subtype"): name("TrueType")})
+	if simple.needsPerCIDWidth() {
+		t.Errorf("simple TrueType font: needsPerCIDWidth()=true, want false")
 	}
 }
 
