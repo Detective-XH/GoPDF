@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Fixed
+
+- `Page.Words()` and `Page.Tables()` now read **proportional glyph widths** for composite (Type0)
+  fonts that declare a uniform default width but also carry a per-character width array — common for
+  Latin/Cyrillic (and other alphabetic) text wrapped in a Type0/Identity-H subset font, especially in
+  non-US statistical PDFs. Previously every glyph was given the uniform default advance, so a long row
+  label drifted into the adjacent right-aligned number and the two were welded character-by-character
+  (for example a label "instituce" and a value "483" extracted as "institu4c8e3", corrupting the
+  value). Across a fresh multilingual corpus this character-interleaving dropped sharply and net
+  extracted numeric content rose; ruled tables, CJK tables, and the character set of `Page.Words()`
+  are byte-for-byte unchanged. Composite fonts with a non-Identity encoding, and the degenerate
+  zero-default-width case, are unaffected.
+  - **Known limitation:** because this adjusts glyph positions on every page, a minority of documents
+    may extract *worse* than before — specifically a *banded* table (rows separated by shading rather
+    than rules) whose rows can be re-bucketed by the more-accurate positions and scrambled (observed on
+    a banded national-statistics yearbook; the font's widths are correct — the sensitivity is in
+    reconstructing borderless/banded tables, which remains best-effort per the `Page.Tables()`
+    documentation).
+
 ## v0.8.3 — 2026-06-21
 
 ### Added
