@@ -5,11 +5,12 @@
 # provenance=IRS Publication 17 (Simplified Chinese), 2025, "2025 税率表" Schedule X (单身/single), PDF page 103 of the full p17zhs.pdf; committed copy is a single-page qpdf excerpt. Page also carries Schedules Y-1, Y-2, Z (not transcribed).
 # companion=IRS 2025 tax rate schedules (Rev. Proc. 2024-40); bracket thresholds cross-checked against https://www.irs.gov/newsroom/irs-releases-tax-inflation-adjustments-for-tax-year-2025; formula amounts independently verified by cumulative-bracket arithmetic.
 # model=fully-ruled lattice (grid complete): every row AND column boundary is ruled (rect-drawn). Content cell-dump of the rendered page shows interior vertical strokes at x=176/306/436 running through every row band, plus per-cell filled rectangles spanning x=42..570 — so all four cells of each row are closed on all sides (an initial visual read mistook the thin interior verticals for whitespace; the cell-dump corrected it). GoPDF detects 4 separate 7x4 schedules (X/Y-1/Y-2/Z); the harness largest-table selection picks the topmost (Schedule X, single filers). CID-font/CJK diagnostic: the col0/col1 bracket columns extract clean, but the tax-formula columns (col2 税额为 / col3 超过以下金额的部分) mis-split — the flat amount and the rate-plus-base land in adjacent detector columns — a partial-extraction CJK measurement. Class confirmed by rendered rule coverage, not detector self-attestation; it is gate-independent (the fully-ruled gate rests on NICS + HHS ASPE).
+# correction=2026-06-22: PR #88 (Type0 per-CID /W widths) resolved the col2/col3 tax-formula mis-split noted above — the fixture now scores 100% content AND 100% verbatim. The two dash-leader cells (row1 col2, row7 col1) were corrected from contiguous "-------" to the as-printed spaced form "- - - - - - -": the printed page (render-verified at 320dpi + direct PDF read) shows separated dashes, so per the file's own values=as-printed convention the spaced form is faithful; the prior contiguous form was the mis-authored one (the extractor was already correct).
 如果您的应纳税收入：超过 —	但不超过 —	税额为：	超过以下金额的部分 —
-$0	$11,925	-------10%	$0
+$0	$11,925	- - - - - - - 10%	$0
 11,925	48,475	$1,192.50 + 12%	11,925
 48,475	103,350	5,578.50 + 22%	48,475
 103,350	197,300	17,651.00 + 24%	103,350
 197,300	250,525	40,199.00 + 32%	197,300
 250,525	626,350	57,231.00 + 35%	250,525
-626,350	-------	188,769.75 + 37%	626,350
+626,350	- - - - - - -	188,769.75 + 37%	626,350
