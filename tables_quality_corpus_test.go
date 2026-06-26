@@ -51,17 +51,19 @@ type classGate struct {
 // inScopeQualityClasses are the taxonomy classes currently in scope for the held-out
 // quality corpus, with their coverage-gate strength. single-axis-ruled and borderless
 // are not yet in scope (no accuracy consumer / measured FP-unsafe).
-// group-ruled+banded is HELD (hard:false): inferFillBandedRows is wired and the class now has 5
-// gate-bearing fixtures (EIA staircase + BEA/TW/DE/JP per-cell-grid, the last three added by the
-// per-cell-grid program PR-1..4). The aggregate coverage gate (gateCount>=2) is therefore already
-// MET; the class stays hard:false on the per-signature anti-overfit policy — PR-D needs >=2 fixtures
-// PER SIGNATURE, and EIA-staircase is still N=1 (BEA-per-cell-grid is N=4). The held diagnostic
-// fires if gateCount>=2 but substantive content drops below heldSubstThreshold (50%); the current
-// aggregate is ~87%, so it does not fire.
+// group-ruled+banded is HARD (hard:true, B2 re-scope 2026-06-26): inferFillBandedRows is wired and
+// the class has 5 gate-bearing fixtures (EIA staircase + BEA/TW/DE/JP per-cell-grid; per-cell-grid
+// added by PR-1..4). The hard guarantee covers the cross-publisher-proven BEA per-cell-grid signature
+// (N=4). The EIA staircase branch (N=1) is locked (430/430) + FP-safe via synthetic discriminators,
+// but is documented as best-effort — the EIA common-bottom nested-rect typesetting is a rare
+// publisher-specific artifact; a 2nd publisher is empirically unobtainable (exhaustive 2-front search
+// 2026-06-25/26). Decision: plans/decisions/Q2-PRD-GATE-RESCOPE-2026-06-26.md (option B2).
+// Accuracy regression on each signature's representative is caught by a dedicated blocking gate
+// outside this file: TestLatticeAccuracyBEA (Errorf < 129/352) and TestLatticeAccuracyEIA (Errorf < 430/430).
 var inScopeQualityClasses = []classGate{
-	{name: "fully-ruled", hard: true},         // FBI NICS + HHS ASPE both extract -> count<2 is a build error
-	{name: "rect-bordered", hard: true},       // ERP B-1/B-2 + NASS (cross-publisher, 98.1% substantive) extract -> count<2 is a build error
-	{name: "group-ruled+banded", hard: false}, // gate-bearing=5 (EIA staircase + BEA/TW/DE/JP per-cell-grid); HELD on the per-signature policy: EIA-staircase still N=1 (PR-D)
+	{name: "fully-ruled", hard: true},        // FBI NICS + HHS ASPE both extract -> count<2 is a build error
+	{name: "rect-bordered", hard: true},      // ERP B-1/B-2 + NASS (cross-publisher, 98.1% substantive) extract -> count<2 is a build error
+	{name: "group-ruled+banded", hard: true}, // B2 2026-06-26: hard=BEA N=4 (cross-publisher proven); EIA staircase N=1 best-effort — see plans/decisions/Q2-PRD-GATE-RESCOPE-2026-06-26.md
 }
 
 // heldSubstThreshold is the substantive-content %% below which a HELD class is treated as
