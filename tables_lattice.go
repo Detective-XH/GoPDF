@@ -2169,24 +2169,150 @@ func reconstructGrid(cells []lCell, words []Word, vRules ...lEdge) [][]string {
 		grid[i] = make([]string, len(colReps))
 	}
 	bucket := map[[2]int][]Word{}
+	var placed []placedWord // words mapped by the primary center anchor (for the weld pass)
+	var misses []Word       // words whose center fell outside every cell
 	for _, w := range words {
 		ax := w.X + w.W/2
 		ay := -(w.Y + w.H/2) // top-origin anchor
+		matched := false
 		for _, c := range cells {
 			if ax >= c.x0 && ax <= c.x1 && ay >= c.top && ay <= c.bottom {
 				r := nearestIdx(rowReps, c.top)
 				cc := nearestIdx(colReps, c.x0)
 				key := [2]int{r, cc}
 				bucket[key] = append(bucket[key], w)
+				placed = append(placed, placedWord{w: w, key: key, cellX1: c.x1})
+				matched = true
 				break
 			}
 		}
+		if !matched {
+			misses = append(misses, w)
+		}
 	}
+	weldStraddlingDigits(bucket, placed, misses, cells, rowReps)
 	for key, ws := range bucket {
 		grid[key[0]][key[1]] = stripLeaderDots(joinReading(trimDotLeaders(ws)))
 	}
 	grid = dropGutterColumns(grid, cells, colReps)
 	return mergeNestedColumns(grid, cells, colReps)
+}
+
+// placedWord records a word the primary center anchor mapped, with its (row,col) cell key and that
+// cell's right edge (cellX1), so the weld pass can find the nearest left neighbour already living in
+// a cell and verify a candidate truly straddles that cell's right wall.
+type placedWord struct {
+	w      Word
+	key    [2]int
+	cellX1 float64
+}
+
+// weldStraddlingDigits re-attaches a center-miss DIGIT group to a numeric cell it overflows on the
+// right. The motivating defect: when a table's data is typeset on a wider pitch than its ruled
+// columns, a space-thousands number straddles its cell's right wall, so the trailing group's CENTER
+// lands outside the cell and the primary pass drops it (cz-czso p477: "66 315" → "66"). The weld
+// recovers such a group, but ONLY under a deliberately narrow predicate, because a corpus A/B sweep
+// proved a permissive "any token within colClusterTol of the left neighbour" rule mass-produces
+// false positives (label words fused into number cells, dot-leader periods, chart-axis fragments,
+// character-level interleave). Every gate below was added to kill a measured FP class:
+//
+//   - w.S is ALL DIGITS — a numeric continuation, never a label/dot-leader/unit token.
+//   - the LEFT neighbour (anchor) is itself an all-digit word — we only extend a number, and only
+//     when the gap to it is within colClusterTol (an intra-number space, never a column boundary).
+//   - w STRADDLES the anchor cell's right wall — left edge inside (w.X < cellX1), center outside —
+//     so a digit lying WHOLLY outside the cell (a standalone count, footnote marker, or adjacent
+//     narrow digit column) cannot weld merely for abutting the anchor word.
+//   - w is the cell's NEW RIGHTMOST token — no word already in the cell lies to w's right — so a
+//     group is only ever appended to a number's tail, never inserted mid-cell (the interleave class).
+//
+// Purely additive and structure-preserving: only center-misses are considered, a weld only grows a
+// cell that already holds the all-digit anchor, no empty cell becomes non-empty, and the column set
+// dropGutterColumns/mergeNestedColumns operate on is unchanged. Word bounding boxes are untouched
+// (the weld is downstream of column derivation), so Words()/Lines() are unaffected — the layer the
+// prior word-level weld attempt was rejected for perturbing (plans/fix-targets/03-...md). No
+// chaining: a welded token never anchors another, so a contaminated fragment cannot cascade.
+func weldStraddlingDigits(bucket map[[2]int][]Word, placed []placedWord, misses []Word, cells []lCell, rowReps []float64) {
+	if len(misses) == 0 || len(placed) == 0 {
+		return
+	}
+	for _, w := range misses {
+		if !isAllDigits(w.S) {
+			continue
+		}
+		r := rowOfCenter(cells, rowReps, -(w.Y + w.H/2))
+		if r < 0 {
+			continue
+		}
+		anchor, ok := nearestPlacedLeft(placed, r, w.X)
+		if !ok || !isAllDigits(anchor.w.S) || w.X-(anchor.w.X+anchor.w.W) > colClusterTol {
+			continue
+		}
+		// w must genuinely STRADDLE the anchor cell's right wall: its left edge inside the cell
+		// (w.X < cellX1) and its center outside (w.X+w.W/2 > cellX1). Without this a digit lying
+		// WHOLLY outside the cell — a standalone count, a footnote marker, or an adjacent narrow
+		// digit column with a sub-colClusterTol gutter — would weld merely for abutting the anchor
+		// word, corrupting a clean value. The straddle ties the weld to the actual overflow geometry.
+		if w.X >= anchor.cellX1 || w.X+w.W/2 <= anchor.cellX1 {
+			continue
+		}
+		// w must become the cell's rightmost token (append to the number's tail, never mid-cell).
+		if cellHasWordRightOf(placed, anchor.key, w.X) {
+			continue
+		}
+		bucket[anchor.key] = append(bucket[anchor.key], w)
+	}
+}
+
+// isAllDigits reports whether s is non-empty and every rune is an ASCII digit.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// rowOfCenter returns the row index of the cell band whose vertical extent contains the top-origin
+// y-center ay, or -1 if none — used to row-align a center-miss word with placed words.
+func rowOfCenter(cells []lCell, rowReps []float64, ay float64) int {
+	for _, c := range cells {
+		if ay >= c.top && ay <= c.bottom {
+			return nearestIdx(rowReps, c.top)
+		}
+	}
+	return -1
+}
+
+// nearestPlacedLeft returns the placed word in row r whose right edge is closest to (and not past)
+// x, plus whether one was found.
+func nearestPlacedLeft(placed []placedWord, r int, x float64) (placedWord, bool) {
+	bestRight := math.Inf(-1)
+	var best placedWord
+	ok := false
+	for _, p := range placed {
+		if p.key[0] != r {
+			continue
+		}
+		if pr := p.w.X + p.w.W; pr <= x && pr > bestRight {
+			bestRight, best, ok = pr, p, true
+		}
+	}
+	return best, ok
+}
+
+// cellHasWordRightOf reports whether any placed word in cell key has a right edge past x — i.e.
+// welding a token at x would land it mid-cell rather than at the cell's tail.
+func cellHasWordRightOf(placed []placedWord, key [2]int, x float64) bool {
+	for _, p := range placed {
+		if p.key == key && p.w.X+p.w.W > x {
+			return true
+		}
+	}
+	return false
 }
 
 // A gutter column (a thin cell from a double-wall decorative border rect) is dropped only

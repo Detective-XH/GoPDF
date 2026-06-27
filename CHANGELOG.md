@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `Page.Tables()` now recovers the trailing groups of space-separated thousands numbers that overflow a
+  column's rule. In some statistical tables the figures are typeset on a slightly wider spacing than the
+  ruled columns, so the last group of a number — the `315` in `66 315` — crossed the column's right rule
+  and was dropped, truncating the rightmost numeric column on every row. Such a trailing digit group is
+  now re-attached to the number it belongs to, recovering the full value. The recovery is deliberately
+  narrow: only an all-digit group that straddles a numeric cell's right rule within the normal
+  intra-number spacing is pulled back, so labels, units, footnote markers, and adjacent columns are never
+  drawn across a boundary. The change is additive — `Page.Words()` and `Page.Lines()` are unaffected, and
+  every regression-locked corpus fixture is byte-for-byte unchanged.
+
 - `Page.Tables()` no longer injects a phantom column into a banded table whose header background is
   drawn as two side-by-side filled rectangles. The seam between those two header rectangles was being
   mistaken for a column rule; where it fell inside a data column it split the value there — for example
