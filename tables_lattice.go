@@ -1387,22 +1387,104 @@ func beaFirstDataRowTop(rects []Rect, tableTop, tableBot, vMin, vMax, bodyTop fl
 	return bodyTop, true // bodyTop is already a data row: fix is a no-op
 }
 
-// mergePhantomHeaderBand collapses the header band of a seam-header BEA table into one
-// full-width cell when it carries a phantom column boundary — a header-cell x0/x1 absent
-// from every data row, which can only come from a decorative side-by-side fill-rect seam
-// (e.g. a left-half + right-half header background painted in two passes), never a real
-// column divider. Merging (rather than dropping) the band removes the phantom boundary from
-// the knownXs set used by splitWideBandCells WITHOUT orphaning any header glyph: the merged
-// full-width cell still contains every header word, and splitWideBandCells re-derives the
-// real header columns from data-corroborated v-edge cuts. The band is left untouched when no
-// phantom boundary is present, so a legitimate header whose cells all align to data columns
-// is preserved verbatim.
+// rowBandsByExtent clusters cells into row-bands: each band is a maximal run (in top order)
+// whose tops AND bottoms EACH span at most rectRowSnapTol — one visual row. It applies the
+// original single-row guard's "shared top AND bottom = one row" rule per band, so a genuine
+// multi-row header yields one band per row. Clustering on top alone (the prior chain) would
+// chain two rows whose tops happen to fall within tol but whose bottoms differ materially,
+// flattening a real header row. Sorting is stable for deterministic intra-band order.
+func rowBandsByExtent(cells []lCell) [][]lCell {
+	sorted := append([]lCell(nil), cells...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].top < sorted[j].top })
+	var bands [][]lCell
+	for i := 0; i < len(sorted); {
+		minTop, maxTop := sorted[i].top, sorted[i].top
+		minBot, maxBot := sorted[i].bottom, sorted[i].bottom
+		j := i + 1
+		for j < len(sorted) {
+			nt, nb := sorted[j].top, sorted[j].bottom
+			if max(maxTop, nt)-min(minTop, nt) > rectRowSnapTol ||
+				max(maxBot, nb)-min(minBot, nb) > rectRowSnapTol {
+				break // adding this cell would break the shared-row-extent invariant
+			}
+			minTop, maxTop = min(minTop, nt), max(maxTop, nt)
+			minBot, maxBot = min(minBot, nb), max(maxBot, nb)
+			j++
+		}
+		bands = append(bands, sorted[i:j])
+		i = j
+	}
+	return bands
+}
+
+// bandHasPhantomSeam reports whether any INTERIOR boundary of the band — a cell edge that is
+// not the band's outer left (bandMinX) or right (bandMaxX) extent — is NOT data-corroborated
+// AND lies strictly inside the data x-range (dataMin, dataMax). That is the phantom-seam
+// signature: a fill-rect split with no data-column counterpart. Corroboration uses the shared
+// xCorroborated helper (within rectRowSnapTol of any data x), the SAME test inferColumnCuts
+// uses to accept real column boundaries — so a boundary jittered sub-pixel-to-a-few-tenths off a
+// data column (e.g. 100.5 vs 100.0) is treated as corroborated, not a phantom. The outer edges
+// are excluded so a header frame / fill-rect that overhangs the data extent (e.g. -1 / 301 over
+// data 0..300) cannot trigger a merge, and the strict-within-range test is belt-and-suspenders
+// against a near-edge boundary masquerading as an interior seam.
+func bandHasPhantomSeam(band []lCell, dataXs []float64, dataMin, dataMax, bandMinX, bandMaxX float64) bool {
+	for _, c := range band {
+		for _, x := range [2]float64{c.x0, c.x1} {
+			if x == bandMinX || x == bandMaxX {
+				continue // outer edge of the band — never a seam between adjacent cells
+			}
+			if xCorroborated(x, dataXs) {
+				continue // data-corroborated interior boundary (genuine sub-column edge)
+			}
+			if x > dataMin && x < dataMax {
+				return true // interior boundary uncorroborated and inside the data span ⇒ phantom
+			}
+		}
+	}
+	return false
+}
+
+// mergeBandIfPhantom merges a single header row-band into one full-width cell when it carries
+// a phantom interior seam (bandHasPhantomSeam), removing that boundary from the knownXs set
+// fed to splitWideBandCells without orphaning any header glyph. A data-corroborated band
+// (genuine grouped/spanning header whose interior seams align with real data columns) and a
+// band with fewer than 2 cells (no interior boundary to test) are returned unchanged.
+func mergeBandIfPhantom(band []lCell, dataXs []float64, dataMin, dataMax float64) []lCell {
+	if len(band) < 2 {
+		return band
+	}
+	bandMinX, bandMaxX := band[0].x0, band[0].x1
+	for _, c := range band {
+		bandMinX = min(bandMinX, c.x0)
+		bandMaxX = max(bandMaxX, c.x1)
+	}
+	if !bandHasPhantomSeam(band, dataXs, dataMin, dataMax, bandMinX, bandMaxX) {
+		return band
+	}
+	merged := band[0]
+	for _, c := range band[1:] {
+		merged.x0 = min(merged.x0, c.x0)
+		merged.top = min(merged.top, c.top)
+		merged.x1 = max(merged.x1, c.x1)
+		merged.bottom = max(merged.bottom, c.bottom)
+	}
+	return []lCell{merged}
+}
+
+// mergePhantomHeaderBand collapses phantom-seam column boundaries from the header region
+// (cells whose bottom sits at or before firstDataRowTop) of a seam-header BEA table.
 //
-// The merge fires ONLY when the header cells cluster to a SINGLE vertical band: a merged
-// full-width cell spans one band height, so flattening a genuine MULTI-ROW / grouped header
-// (e.g. group labels over leaf columns) would collapse row structure that splitWideBandCells
-// — which only splits horizontally — cannot rebuild. A multi-band header is therefore left
-// untouched (a safe omission: the phantom column persists but no header geometry is corrupted).
+// Header cells are clustered into row-bands by rowBandsByExtent (shared top AND bottom = one
+// row). Each band is tested independently by mergeBandIfPhantom: a band carrying a phantom
+// INTERIOR seam — an interior cell boundary not corroborated by any data x and strictly inside
+// the data x-range — is merged into one full-width cell, removing the phantom boundary without
+// orphaning any header glyph. Bands whose interior boundaries ARE data-corroborated (genuine
+// grouped/spanning headers, e.g. "2020 | 2021" over sub-columns at real data-column x-positions)
+// are left intact; the per-band interior-seam check IS the false-positive protection, so a real
+// grouped header — even one whose outer fill-rect overhangs the body — is never flattened.
+//
+// A single-row header yields exactly one band — the single-band path matches the original
+// single-row-guard behaviour (one band, interior-seam phantom check).
 func mergePhantomHeaderBand(cells []lCell, firstDataRowTop float64) []lCell {
 	var header, data []lCell
 	for _, c := range cells {
@@ -1415,47 +1497,31 @@ func mergePhantomHeaderBand(cells []lCell, firstDataRowTop float64) []lCell {
 	if len(header) < 2 || len(data) == 0 {
 		return cells
 	}
-	// Single-row guard: every header cell must share ONE vertical row extent — top AND bottom
-	// within tolerance. Clustering tops alone can chain tightly-stacked rows into one cluster;
-	// requiring a shared bottom too rejects a genuine multi-row / grouped header (group labels
-	// over leaf columns), whose row structure splitWideBandCells — horizontal-only — cannot rebuild.
-	minTop, maxTop, minBot, maxBot := header[0].top, header[0].top, header[0].bottom, header[0].bottom
-	for _, c := range header[1:] {
-		minTop = min(minTop, c.top)
-		maxTop = max(maxTop, c.top)
-		minBot = min(minBot, c.bottom)
-		maxBot = max(maxBot, c.bottom)
-	}
-	if maxTop-minTop > rectRowSnapTol || maxBot-minBot > rectRowSnapTol {
-		return cells // header spans more than one row extent — leave it untouched
-	}
-	dataXs := make(map[float64]struct{}, len(data)*2)
+	// Collect the data-row x-positions (left+right of each cell) plus the data x-range. A header
+	// interior boundary not within rectRowSnapTol of any of these (via xCorroborated) and strictly
+	// inside the range is a phantom seam.
+	dataXs := make([]float64, 0, len(data)*2)
+	dataMin, dataMax := math.Inf(1), math.Inf(-1)
 	for _, c := range data {
-		dataXs[q(c.x0)] = struct{}{}
-		dataXs[q(c.x1)] = struct{}{}
+		dataXs = append(dataXs, c.x0, c.x1)
+		dataMin = min(dataMin, c.x0)
+		dataMax = max(dataMax, c.x1)
 	}
-	phantom := false
-	for _, hc := range header {
-		if _, ok := dataXs[q(hc.x0)]; !ok {
-			phantom = true
-			break
+	// Process each row-band independently so phantom bands are merged while data-corroborated
+	// bands — genuine grouped headers — are kept intact.
+	anyMerged := false
+	var result []lCell
+	for _, band := range rowBandsByExtent(header) {
+		out := mergeBandIfPhantom(band, dataXs, dataMin, dataMax)
+		if len(out) != len(band) {
+			anyMerged = true
 		}
-		if _, ok := dataXs[q(hc.x1)]; !ok {
-			phantom = true
-			break
-		}
+		result = append(result, out...)
 	}
-	if !phantom {
+	if !anyMerged {
 		return cells
 	}
-	merged := header[0]
-	for _, c := range header[1:] {
-		merged.x0 = min(merged.x0, c.x0)
-		merged.top = min(merged.top, c.top)
-		merged.x1 = max(merged.x1, c.x1)
-		merged.bottom = max(merged.bottom, c.bottom)
-	}
-	return append([]lCell{merged}, data...)
+	return append(result, data...)
 }
 
 // beaBodyRectTops returns the top (top-origin) of every cell-height fill rect (h>=2) that lies
