@@ -1136,6 +1136,18 @@ func inferFillBandedRowsBEA(cells []lCell, words []Word, c Content, vEdges []lEd
 	// Phantom-clamp done; drop trailing empty bands, then apply column-cut recovery followed
 	// by row-split recovery (PR-2: numeric+cross-column-gated word-Y row clustering).
 	dropped := dropTrailingEmptyBands(clamped, words)
+	// Guard against phantom columns seeded by side-by-side header background fill rects.
+	// When two fill rects share a midpoint boundary in the header band, the closed lattice
+	// forms a short v-edge at that boundary, creating header cells with a spurious interior
+	// x-boundary that (a) corrupts the knownXs set inside splitWideBandCells (making
+	// xCorroborated pass for the phantom x) and (b) inflates reconstructGrid's column count.
+	// Fix: when the header band is a seam header whose cell boundaries are absent from the
+	// data rows, MERGE the header band into one full-width cell (text-preserving) so the
+	// phantom boundary is gone but no header glyph is orphaned; splitWideBandCells then
+	// re-derives the header columns from data-corroborated v-edge cuts.
+	if firstDataRowTop, ok2 := beaFirstDataRowTop(c.Rect, tableTop, tableBot, vMin, vMax, bodyTop); ok2 {
+		dropped = mergePhantomHeaderBand(dropped, firstDataRowTop)
+	}
 	colSplit := splitWideBandCells(dropped, words, vEdges)
 	return splitTallBandCells(colSplit, words, bodyTop, bodyBot)
 }
@@ -1329,6 +1341,123 @@ func beaDataBodyBBox(rects []Rect, tableTop, tableBot, vMin, vMax float64) (body
 	return bodyTop, bodyBot, true
 }
 
+// beaFirstDataRowTop returns the boundary that separates the table's fill-banded header from
+// its first data row, for use by dropPhantomHeaderCols. It returns (boundary, true) when the
+// band at bodyTop looks like a seam header (far fewer fill-rect columns than the next band
+// below it — e.g. the header is painted with 2 wide background rects while data has 5 columns),
+// setting boundary = first-data-row top. When the band at bodyTop already looks like a data row
+// (comparable column count to the band below), it returns (bodyTop, true) so dropPhantomHeaderCols
+// finds no "header cells" and becomes a no-op. Returns (0, false) when no qualifying next band
+// exists.
+func beaFirstDataRowTop(rects []Rect, tableTop, tableBot, vMin, vMax, bodyTop float64) (float64, bool) {
+	tops := beaBodyRectTops(rects, tableTop, tableBot, vMin, vMax)
+	if len(tops) == 0 {
+		return 0, false
+	}
+	bandTops := cluster1D(tops, rectRowSnapTol)
+	sort.Float64s(bandTops)
+	// Find the first multi-column band strictly below bodyTop.
+	nextBandTop := 0.0
+	nextBandFound := false
+	for _, bt := range bandTops {
+		if bt <= bodyTop+rectRowSnapTol {
+			continue
+		}
+		if beaBandColumnsScoped(rects, bt, vMin, vMax) >= 2 {
+			nextBandTop = bt
+			nextBandFound = true
+			break
+		}
+	}
+	if !nextBandFound {
+		return 0, false
+	}
+	// Compare fill-rect column counts (scoped to the table x-extent so out-of-table rects —
+	// sidebars, legends, neighbouring tables — cannot inflate the count): if bodyTop has far
+	// fewer columns than the next band, bodyTop is a seam header (e.g. 2 wide header rects vs
+	// 5 data-column rects) and the first real data row starts at nextBandTop. Otherwise bodyTop
+	// is already a data row (the single-column title above it was excluded from beaDataBodyBBox),
+	// so returning bodyTop makes mergePhantomHeaderBand a no-op — all cells span beyond
+	// bodyTop+snap and are classified as data cells.
+	colsAtBody := beaBandColumnsScoped(rects, bodyTop, vMin, vMax)
+	colsAtNext := beaBandColumnsScoped(rects, nextBandTop, vMin, vMax)
+	if colsAtNext > 0 && colsAtBody*2 <= colsAtNext {
+		return nextBandTop, true // seam header: next band is first data row
+	}
+	return bodyTop, true // bodyTop is already a data row: fix is a no-op
+}
+
+// mergePhantomHeaderBand collapses the header band of a seam-header BEA table into one
+// full-width cell when it carries a phantom column boundary — a header-cell x0/x1 absent
+// from every data row, which can only come from a decorative side-by-side fill-rect seam
+// (e.g. a left-half + right-half header background painted in two passes), never a real
+// column divider. Merging (rather than dropping) the band removes the phantom boundary from
+// the knownXs set used by splitWideBandCells WITHOUT orphaning any header glyph: the merged
+// full-width cell still contains every header word, and splitWideBandCells re-derives the
+// real header columns from data-corroborated v-edge cuts. The band is left untouched when no
+// phantom boundary is present, so a legitimate header whose cells all align to data columns
+// is preserved verbatim.
+//
+// The merge fires ONLY when the header cells cluster to a SINGLE vertical band: a merged
+// full-width cell spans one band height, so flattening a genuine MULTI-ROW / grouped header
+// (e.g. group labels over leaf columns) would collapse row structure that splitWideBandCells
+// — which only splits horizontally — cannot rebuild. A multi-band header is therefore left
+// untouched (a safe omission: the phantom column persists but no header geometry is corrupted).
+func mergePhantomHeaderBand(cells []lCell, firstDataRowTop float64) []lCell {
+	var header, data []lCell
+	for _, c := range cells {
+		if c.bottom <= firstDataRowTop+rectRowSnapTol {
+			header = append(header, c)
+		} else {
+			data = append(data, c)
+		}
+	}
+	if len(header) < 2 || len(data) == 0 {
+		return cells
+	}
+	// Single-row guard: every header cell must share ONE vertical row extent — top AND bottom
+	// within tolerance. Clustering tops alone can chain tightly-stacked rows into one cluster;
+	// requiring a shared bottom too rejects a genuine multi-row / grouped header (group labels
+	// over leaf columns), whose row structure splitWideBandCells — horizontal-only — cannot rebuild.
+	minTop, maxTop, minBot, maxBot := header[0].top, header[0].top, header[0].bottom, header[0].bottom
+	for _, c := range header[1:] {
+		minTop = min(minTop, c.top)
+		maxTop = max(maxTop, c.top)
+		minBot = min(minBot, c.bottom)
+		maxBot = max(maxBot, c.bottom)
+	}
+	if maxTop-minTop > rectRowSnapTol || maxBot-minBot > rectRowSnapTol {
+		return cells // header spans more than one row extent — leave it untouched
+	}
+	dataXs := make(map[float64]struct{}, len(data)*2)
+	for _, c := range data {
+		dataXs[q(c.x0)] = struct{}{}
+		dataXs[q(c.x1)] = struct{}{}
+	}
+	phantom := false
+	for _, hc := range header {
+		if _, ok := dataXs[q(hc.x0)]; !ok {
+			phantom = true
+			break
+		}
+		if _, ok := dataXs[q(hc.x1)]; !ok {
+			phantom = true
+			break
+		}
+	}
+	if !phantom {
+		return cells
+	}
+	merged := header[0]
+	for _, c := range header[1:] {
+		merged.x0 = min(merged.x0, c.x0)
+		merged.top = min(merged.top, c.top)
+		merged.x1 = max(merged.x1, c.x1)
+		merged.bottom = max(merged.bottom, c.bottom)
+	}
+	return append([]lCell{merged}, data...)
+}
+
 // beaBodyRectTops returns the top (top-origin) of every cell-height fill rect (h>=2) that lies
 // within the table extent — the candidate row tops the band clustering operates on. Thin
 // separator strips and rects outside [vMin,vMax]×[tableTop,tableBot] are dropped.
@@ -1371,6 +1500,29 @@ func beaBandColumnsBottom(rects []Rect, bandTop float64) (cols int, bBot float64
 		}
 	}
 	return len(cluster1D(x0s, rectRowSnapTol)), bBot
+}
+
+// beaBandColumnsScoped counts the distinct rect-x0 columns in the rect-row band at bandTop,
+// restricted to rects within the table's horizontal extent [vMin,vMax]. Unlike
+// beaBandColumnsBottom it excludes out-of-table fill rects (sidebars, legends, neighbouring
+// tables, page-header backgrounds) that happen to share a top within rectRowSnapTol — those
+// would otherwise inflate the seam-header column comparison in beaFirstDataRowTop.
+func beaBandColumnsScoped(rects []Rect, bandTop, vMin, vMax float64) int {
+	var x0s []float64
+	for _, r := range rects {
+		top := -max(r.Min.Y, r.Max.Y)
+		bot := -min(r.Min.Y, r.Max.Y)
+		if bot-top < 2.0 || math.Abs(top-bandTop) > rectRowSnapTol {
+			continue
+		}
+		rx0 := min(r.Min.X, r.Max.X)
+		rx1 := max(r.Min.X, r.Max.X)
+		if rx1 < vMin-rectRowSnapTol || rx0 > vMax+rectRowSnapTol {
+			continue // outside the table x-extent
+		}
+		x0s = append(x0s, rx0)
+	}
+	return len(cluster1D(x0s, rectRowSnapTol))
 }
 
 // clampCellsToBody retains cells whose center falls within [bodyTop, bodyBot] (with a
