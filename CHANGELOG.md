@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Fixed
+
+- `Page.Tables()` no longer injects a phantom column into a banded table whose header background is
+  drawn as two side-by-side filled rectangles. The seam between those two header rectangles was being
+  mistaken for a column rule; where it fell inside a data column it split the value there — for example
+  a space-separated thousands figure `5 417 724` was broken into `5 417` and `724`, and the table
+  reported one column too many. The header band is now reconciled so the spurious column is dropped and
+  the value stays whole, with all header and data text preserved. This corrects single-row seam headers;
+  a table with a genuine multi-row / grouped header is left unchanged and may still carry the phantom
+  (a known limitation). Ruled tables and every regression-locked corpus fixture are byte-for-byte
+  unchanged.
+
 ## v0.8.4 — 2026-06-21
 
 ### Fixed
