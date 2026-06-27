@@ -275,6 +275,117 @@ func TestPublicTablesGutterColumnsDropped(t *testing.T) {
 	}
 }
 
+// TestDropGutterSpanPhantom locks the structural span-containment drop predicate added to
+// dropGutterColumns (condition 2): an empty column whose drawn x-span (colReps[cc],
+// leafX1[cc]) strictly contains a non-empty column's representative x is dropped as a
+// mis-split spanning-cell phantom, regardless of how wide the empty column is.
+// A column whose span contains NO non-empty colRep, and whose width passes the cap, is kept.
+func TestDropGutterSpanPhantom(t *testing.T) {
+	t.Run("span_contains_real_col_dropped", func(t *testing.T) {
+		// Col 0: data (50 pt), text "A".
+		// Col 1: wide (140 pt), all-empty. colW=140 exceeds absoluteGutterCap (16) and the
+		//        relative threshold (0.25×median≈0.25×60=15), so condition 1 would NOT fire.
+		//        But colReps[2]=150 falls strictly inside (colReps[1]=60, leafX1[1]=200) →
+		//        condition 2 fires → DROP.
+		// Col 2: data (70 pt), text "B".
+		cells := []lCell{
+			{x0: 0, x1: 50, top: 0, bottom: 10},    // col 0, 50 pt, data
+			{x0: 60, x1: 200, top: 0, bottom: 10},  // col 1, 140 pt, spanning phantom
+			{x0: 150, x1: 220, top: 0, bottom: 10}, // col 2, 70 pt, data
+		}
+		colReps := []float64{0, 60, 150}
+		grid := [][]string{{"A", "", "B"}}
+		got := dropGutterColumns(grid, cells, colReps)
+		want := [][]string{{"A", "B"}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("span_contains_real_col_dropped: got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("span_no_real_col_kept", func(t *testing.T) {
+		// Col 0: data (50 pt), text "A".
+		// Col 1: wide (140 pt), all-empty. Exceeds both gates (condition 1 false).
+		//        No non-empty column has colRep strictly inside (60, 200) → condition 2
+		//        false → KEPT (legitimate empty column enclosing no sub-column).
+		cells := []lCell{
+			{x0: 0, x1: 50, top: 0, bottom: 10},   // col 0, 50 pt, data
+			{x0: 60, x1: 200, top: 0, bottom: 10}, // col 1, 140 pt, empty
+		}
+		colReps := []float64{0, 60}
+		grid := [][]string{{"A", ""}}
+		got := dropGutterColumns(grid, cells, colReps)
+		if !reflect.DeepEqual(got, grid) {
+			t.Errorf("span_no_real_col_kept: got %v, want %v (unchanged)", got, grid)
+		}
+	})
+
+	t.Run("boundary_colrep_not_strict_kept", func(t *testing.T) {
+		// Edge: non-empty column's colRep exactly equals leafX1 of the empty column.
+		// The interval is OPEN (strict <), so the boundary must NOT qualify → KEPT.
+		// Col 0: data (50 pt), text "A".
+		// Col 1: wide (140 pt), empty. leafX1[1]=200.
+		// Col 2: data. colReps[2]=200 == leafX1[1] (at the right boundary, not strictly inside).
+		cells := []lCell{
+			{x0: 0, x1: 50, top: 0, bottom: 10},    // col 0
+			{x0: 60, x1: 200, top: 0, bottom: 10},  // col 1, leafX1=200
+			{x0: 200, x1: 280, top: 0, bottom: 10}, // col 2, colRep=200 == leafX1[1]
+		}
+		colReps := []float64{0, 60, 200}
+		grid := [][]string{{"A", "", "B"}}
+		got := dropGutterColumns(grid, cells, colReps)
+		if !reflect.DeepEqual(got, grid) {
+			t.Errorf("boundary_colrep_not_strict_kept: got %v, want %v (unchanged — open interval)", got, grid)
+		}
+	})
+
+	t.Run("edge_sharing_ulp_drift_kept", func(t *testing.T) {
+		// Regression for the EPA eGRID p1 7-row frame (TestPublicTablesGutterColumnsDropped):
+		// a non-empty column shares the empty column's RIGHT v-rule, but leafX1 (raw min x1)
+		// and the neighbour's colRep (a running cluster-mean of x0 for the same rule) differ
+		// by a few ULP — there the observed drift was 7.1e-15 at magnitude 59. A bare strict <
+		// fired on that noise and wrongly dropped the legitimate empty column. The colClusterTol
+		// margin (4.0 pt ≫ the 5e-14 drift here) keeps the neighbour outside the interval → KEPT.
+		// Col 0: data, text "A".
+		// Col 1: wide empty. leafX1[1]=59.14 (exceeds both gates → condition 1 false).
+		// Col 2: data. colReps[2]=59.14+5e-14 — physically the same right edge, +5e-14 of
+		//        simulated cluster-mean drift (far under colClusterTol).
+		const edge = 59.14
+		cells := []lCell{
+			{x0: 0, x1: 19.08, top: 0, bottom: 10},          // col 0, 19.08 pt, data
+			{x0: 19.08, x1: edge, top: 0, bottom: 10},       // col 1, 40.06 pt, empty (matches EPA 40.06pt col)
+			{x0: edge + 5e-14, x1: 120, top: 0, bottom: 10}, // col 2, data, colRep ~= leafX1[1] (drift)
+		}
+		colReps := []float64{0, 19.08, edge + 5e-14}
+		grid := [][]string{{"A", "", "B"}}
+		got := dropGutterColumns(grid, cells, colReps)
+		if !reflect.DeepEqual(got, grid) {
+			t.Errorf("edge_sharing_ulp_drift_kept: got %v, want %v (unchanged — colClusterTol absorbs ULP drift)", got, grid)
+		}
+	})
+
+	t.Run("near_boundary_within_cluster_tol_kept", func(t *testing.T) {
+		// Regression lock for the cluster-jitter FP class: a legitimate edge-sharing column whose
+		// single-linkage cluster-mean colRep drifted INWARD by ~2 pt (less than colClusterTol=4)
+		// must NOT be mistaken for a distinct interior sub-column.
+		// Col 0: data (50 pt), text "A".
+		// Col 1: wide (140 pt) all-empty. colReps[1]=60, leafX1[1]=200. Exceeds both gates →
+		//        condition 1 false.
+		// Col 2: data. colReps[2]=198 → margin to the RIGHT boundary = 200-198 = 2 < colClusterTol
+		//        → NOT strictly inside (lo,hi)=(64,196) → condition 2 false → KEPT.
+		cells := []lCell{
+			{x0: 0, x1: 50, top: 0, bottom: 10},    // col 0, 50 pt, data
+			{x0: 60, x1: 200, top: 0, bottom: 10},  // col 1, 140 pt, empty, leafX1=200
+			{x0: 198, x1: 260, top: 0, bottom: 10}, // col 2, data, colRep=198 (2 pt inside, < tol)
+		}
+		colReps := []float64{0, 60, 198}
+		grid := [][]string{{"A", "", "B"}}
+		got := dropGutterColumns(grid, cells, colReps)
+		if !reflect.DeepEqual(got, grid) {
+			t.Errorf("near_boundary_within_cluster_tol_kept: got %v, want %v (unchanged — within colClusterTol)", got, grid)
+		}
+	})
+}
+
 // countAllEmptyCols returns how many column indices are empty across every row of grid.
 func countAllEmptyCols(grid [][]string) int {
 	if len(grid) == 0 {

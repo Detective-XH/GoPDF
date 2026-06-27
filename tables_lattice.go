@@ -2097,7 +2097,7 @@ func reconstructGrid(cells []lCell, words []Word, vRules ...lEdge) [][]string {
 		x0s[i] = c.x0
 	}
 	rowReps := cluster1D(tops, 4)
-	colReps := cluster1D(x0s, 4)
+	colReps := cluster1D(x0s, colClusterTol)
 	grid := make([][]string, len(rowReps))
 	for i := range grid {
 		grid[i] = make([]string, len(colReps))
@@ -2146,6 +2146,17 @@ const (
 	absoluteGutterCap = 16.0
 )
 
+// colClusterTol is the single-linkage tolerance used to cluster cell x0 positions into column
+// representatives (reconstructGrid line 2100: cluster1D(x0s, colClusterTol)). It doubles as the
+// span-interior margin in spanContainsRealColumn. Because cluster1D is single-linkage gap-based,
+// a legitimately edge-sharing column's cluster-mean colRep can drift INWARD from the shared rule
+// by up to ~one tolerance (members chain across gaps ≤ tol). Requiring a non-empty rep to lie
+// MORE than colClusterTol inside the empty column's span therefore distinguishes a genuinely
+// distinct interior sub-column (the mis-split spanning-cell signature) from a mere edge-sharing
+// neighbour whose mean jittered inward. Tying the margin to the column cluster tolerance keeps
+// the drop predicate self-consistent with how the columns were clustered in the first place.
+const colClusterTol = 4.0
+
 const (
 	// nestedWallTol is the maximum distance (pt) between the x1 right-edges of two adjacent
 	// grid-columns that still qualifies as a shared wall. Normal adjacent columns share a
@@ -2170,12 +2181,19 @@ const (
 	phantomMinDataCells = 3
 )
 
-// dropGutterColumns removes columns that are entirely empty AND thin by BOTH the relative
-// (gutterFraction × median data-column width) and absolute (absoluteGutterCap) gates — a
-// gutter cell from a double-wall decorative border rect, e.g. on a report cover or nav
-// frame. A legitimately empty data column has normal width (relative to its neighbours and
-// in absolute terms) and is preserved. The grid is returned unchanged when no column
-// qualifies, or when dropping would leave no columns (degenerate frame guard).
+// dropGutterColumns removes columns that are entirely empty and meet at least one of:
+//
+//  1. Thin by BOTH the relative (gutterFraction × median data-column width) and absolute
+//     (absoluteGutterCap) gates — a gutter cell from a double-wall decorative border rect.
+//
+//  2. Structural spanning-cell phantom: the empty column's drawn x-span (colReps[cc],
+//     leafX1[cc]) strictly contains a non-empty column's representative x. This fires when
+//     a real vertical rule mis-splits a wide spanning cell, producing a phantom empty
+//     "column" that is too wide for condition 1 but encloses real sub-columns inside it.
+//
+// A legitimately empty data column has normal width and no sub-column inside its span, so
+// it passes neither condition. The grid is returned unchanged when no column qualifies, or
+// when dropping would leave no columns (degenerate frame guard).
 func dropGutterColumns(grid [][]string, cells []lCell, colReps []float64) [][]string {
 	if len(grid) == 0 || len(colReps) == 0 {
 		return grid
@@ -2187,13 +2205,17 @@ func dropGutterColumns(grid [][]string, cells []lCell, colReps []float64) [][]st
 		return grid // no data columns to derive a threshold from — leave unchanged
 	}
 	threshold := gutterFraction * median
+	leafX1 := columnLeafX1(cells, colReps)
 	keep := make([]bool, len(colReps))
 	nKeep := 0
 	for cc := range colReps {
-		// Drop only if empty AND positive-width AND thin by BOTH the absolute cap
+		// Condition 1: drop if empty AND positive-width AND thin by BOTH the absolute cap
 		// and the relative (median-fraction) gate.
-		gutter := empty[cc] && colW[cc] > 0 && colW[cc] < absoluteGutterCap && colW[cc] < threshold
-		keep[cc] = !gutter
+		thinGutter := empty[cc] && colW[cc] > 0 && colW[cc] < absoluteGutterCap && colW[cc] < threshold
+		// Condition 2: drop if this empty column's drawn span strictly contains a
+		// non-empty column's representative x — the signature of a mis-split spanning cell.
+		spanPhantom := empty[cc] && spanContainsRealColumn(cc, empty, colReps, leafX1)
+		keep[cc] = !thinGutter && !spanPhantom
 		if keep[cc] {
 			nKeep++
 		}
@@ -2202,6 +2224,29 @@ func dropGutterColumns(grid [][]string, cells []lCell, colReps []float64) [][]st
 		return grid // nothing to drop, or a drop would empty the grid
 	}
 	return compactColumns(grid, keep, nKeep)
+}
+
+// spanContainsRealColumn reports whether the empty column cc's drawn x-span strictly contains
+// some OTHER non-empty column's representative x MORE than one column cluster tolerance inside —
+// the geometric signature of a real vertical rule that mis-split a wide spanning cell. The
+// interval (colReps[cc]+colClusterTol, leafX1[cc]-colClusterTol) carries a colClusterTol margin
+// on BOTH boundaries: an edge-sharing neighbour whose single-linkage cluster-mean drifted inward
+// by up to ~one tolerance stays outside the interval, while a genuinely distinct interior
+// sub-column (which sits well inside) qualifies. See colClusterTol for the full rationale.
+// leafX1 is sized to colReps by columnLeafX1, so the length guard below is defensive.
+func spanContainsRealColumn(cc int, empty []bool, colReps, leafX1 []float64) bool {
+	n := len(colReps)
+	if len(empty) < n || len(leafX1) < n {
+		return false
+	}
+	lo := colReps[cc] + colClusterTol
+	hi := leafX1[cc] - colClusterTol
+	for j := range colReps {
+		if j != cc && !empty[j] && colReps[j] > lo && colReps[j] < hi {
+			return true
+		}
+	}
+	return false
 }
 
 // columnWidths returns the widest cell width per column, keyed by nearestIdx into

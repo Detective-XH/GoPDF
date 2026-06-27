@@ -19,6 +19,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (a known limitation). Ruled tables and every regression-locked corpus fixture are byte-for-byte
   unchanged.
 
+- `Page.Tables()` no longer emits phantom empty columns where a drawn vertical rule cuts across a
+  wide spanning cell. When a real rule splits a cell that actually encloses several columns, the
+  lattice produced an all-empty "column" that the gutter filter could not drop — the spanning cell
+  made it look too wide to be a gutter. Such a column is now recognised structurally (an empty
+  column whose drawn span contains another column's position is a mis-split artifact) and removed.
+  Only all-empty columns are ever dropped, so no extracted text is affected. For example a Serbian
+  statistical-yearbook crop-production table reported 8 columns where the page has 6. Tables whose
+  empty columns are genuine, and every regression-locked corpus fixture, are unchanged.
+
 ## v0.8.4 — 2026-06-21
 
 ### Fixed
