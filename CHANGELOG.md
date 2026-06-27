@@ -15,9 +15,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   a space-separated thousands figure `5 417 724` was broken into `5 417` and `724`, and the table
   reported one column too many. The header band is now reconciled so the spurious column is dropped and
   the value stays whole, with all header and data text preserved. This corrects single-row seam headers;
-  a table with a genuine multi-row / grouped header is left unchanged and may still carry the phantom
-  (a known limitation). Ruled tables and every regression-locked corpus fixture are byte-for-byte
-  unchanged.
+  multi-row seam headers (two stacked header bands) are handled by a later fix below, while a genuine
+  grouped header carrying real per-column sub-labels is always left intact. Ruled tables and every
+  regression-locked corpus fixture are byte-for-byte unchanged.
 
 - `Page.Tables()` no longer emits phantom empty columns where a drawn vertical rule cuts across a
   wide spanning cell. When a real rule splits a cell that actually encloses several columns, the
@@ -27,6 +27,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   Only all-empty columns are ever dropped, so no extracted text is affected. For example a Serbian
   statistical-yearbook crop-production table reported 8 columns where the page has 6. Tables whose
   empty columns are genuine, and every regression-locked corpus fixture, are unchanged.
+
+- `Page.Tables()` now also removes phantom seam columns from banded tables whose header is drawn as
+  TWO stacked bands (e.g. a title row over a year-label row), extending the single-row seam fix above.
+  Each header row is checked independently and only a row carrying a decorative fill-rectangle seam
+  (a boundary with no corresponding data column) is collapsed; a genuine grouped/spanning header whose
+  sub-column edges align with real data columns is left intact, so no header or data text is lost. For
+  example an exchange-rate table and several monthly-digest tables that reported one or two extra empty
+  columns now match the printed column count. Regression-locked corpus fixtures are byte-for-byte
+  unchanged.
 
 ## v0.8.4 — 2026-06-21
 
