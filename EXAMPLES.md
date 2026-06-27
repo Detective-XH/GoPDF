@@ -694,11 +694,17 @@ half-open columns when the table's row rules overhang into them by more than 6 p
 the overhang contains at least two bands of words. A column whose rules stop at the inner
 vertical is not recovered (a safe omission).
 
-**Decorative border gutters:** a thin, entirely empty column produced by a *double-wall*
-border rule (the two close-set walls of a decorative frame, common on report covers and
-navigation pages) is dropped as a layout artifact, so it does not appear as a phantom empty
-column in the grid. The drop is width-gated — both relative to the table's median data
-column and an absolute ceiling — so a normal-width empty column is always preserved.
+**Phantom columns** introduced by decorative or banded ruling are removed so they do not appear
+as spurious empty columns. Three structural drops apply: (1) a thin, entirely empty column from a
+*double-wall* border rule (the two close-set walls of a decorative frame, common on report covers
+and navigation pages) is dropped, width-gated — both relative to the table's median data column and
+an absolute ceiling; (2) a normal-width all-empty column whose drawn span encloses another column's
+position is dropped as a mis-split spanning cell, regardless of width; (3) in a banded table whose
+header background is two side-by-side filled rectangles, the seam between them is not treated as a
+column rule, so it neither splits a value nor adds a phantom column. A genuine empty data column,
+and a genuine grouped header with real per-column sub-labels, are left intact; the one documented
+limit is that a real data column both narrower than the width ceiling and entirely blank on the page
+may be dropped by (1).
 
 **Space-thousands overflow:** when a number is typeset slightly wider than its ruled column,
 its trailing space-separated group can cross the column's right rule (its center landing just

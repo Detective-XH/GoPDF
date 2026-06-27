@@ -57,13 +57,13 @@ type classGate struct {
 // (N=4). The EIA staircase branch (N=1) is locked (430/430) + FP-safe via synthetic discriminators,
 // but is documented as best-effort — the EIA common-bottom nested-rect typesetting is a rare
 // publisher-specific artifact; a 2nd publisher is empirically unobtainable (exhaustive 2-front search
-// 2026-06-25/26). Decision: plans/decisions/Q2-PRD-GATE-RESCOPE-2026-06-26.md (option B2).
+// 2026-06-25/26). Decision: option B2 (accept the aggregate hard gate; EIA staircase best-effort).
 // Accuracy regression on each signature's representative is caught by a dedicated blocking gate
 // outside this file: TestLatticeAccuracyBEA (Errorf < 129/352) and TestLatticeAccuracyEIA (Errorf < 430/430).
 var inScopeQualityClasses = []classGate{
 	{name: "fully-ruled", hard: true},        // FBI NICS + HHS ASPE both extract -> count<2 is a build error
 	{name: "rect-bordered", hard: true},      // ERP B-1/B-2 + NASS (cross-publisher, 98.1% substantive) extract -> count<2 is a build error
-	{name: "group-ruled+banded", hard: true}, // B2 2026-06-26: hard=BEA N=4 (cross-publisher proven); EIA staircase N=1 best-effort — see plans/decisions/Q2-PRD-GATE-RESCOPE-2026-06-26.md
+	{name: "group-ruled+banded", hard: true}, // B2 2026-06-26: hard=BEA N=4 (cross-publisher proven); EIA staircase N=1 best-effort
 }
 
 // heldSubstThreshold is the substantive-content %% below which a HELD class is treated as

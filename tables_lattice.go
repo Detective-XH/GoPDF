@@ -2228,9 +2228,9 @@ type placedWord struct {
 // Purely additive and structure-preserving: only center-misses are considered, a weld only grows a
 // cell that already holds the all-digit anchor, no empty cell becomes non-empty, and the column set
 // dropGutterColumns/mergeNestedColumns operate on is unchanged. Word bounding boxes are untouched
-// (the weld is downstream of column derivation), so Words()/Lines() are unaffected — the layer the
-// prior word-level weld attempt was rejected for perturbing (plans/fix-targets/03-...md). No
-// chaining: a welded token never anchors another, so a contaminated fragment cannot cascade.
+// (the weld is downstream of column derivation), so Words()/Lines() are unaffected — the very layer
+// an earlier word-level weld attempt was rejected for perturbing. No chaining: a welded token never
+// anchors another, so a contaminated fragment cannot cascade.
 func weldStraddlingDigits(bucket map[[2]int][]Word, placed []placedWord, misses []Word, cells []lCell, rowReps []float64) {
 	if len(misses) == 0 || len(placed) == 0 {
 		return
@@ -2339,7 +2339,7 @@ const (
 )
 
 // colClusterTol is the single-linkage tolerance used to cluster cell x0 positions into column
-// representatives (reconstructGrid line 2100: cluster1D(x0s, colClusterTol)). It doubles as the
+// representatives (reconstructGrid: cluster1D(x0s, colClusterTol)). It doubles as the
 // span-interior margin in spanContainsRealColumn. Because cluster1D is single-linkage gap-based,
 // a legitimately edge-sharing column's cluster-mean colRep can drift INWARD from the shared rule
 // by up to ~one tolerance (members chain across gaps ≤ tol). Requiring a non-empty rep to lie

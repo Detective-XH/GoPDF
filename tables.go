@@ -35,12 +35,22 @@ type Table struct {
 // An open edge column is recovered only where the table's row rules overhang into it; a
 // column whose rules stop at the inner vertical is not recovered (a safe omission).
 //
-// A thin, entirely empty column produced by a decorative double-wall border rule (the two
-// parallel walls of a frame, common on report cover and navigation pages) is dropped as a
-// layout artifact. The drop is gated on column width — both relative to the table's median
-// data column and an absolute ceiling — so a normal-width empty column is preserved; a real
-// data column narrower than that ceiling is, in the rare case it is also entirely blank on
-// the page, the documented limit of this best-effort cleanup.
+// Phantom columns introduced by decorative or banded ruling are removed so they do not surface
+// as spurious empty columns. Three structural drops apply: (1) a thin, entirely empty column
+// from a decorative double-wall border rule (the two parallel walls of a frame, common on report
+// cover and navigation pages) is dropped, gated on column width — both relative to the table's
+// median data column and an absolute ceiling; (2) a normal-width all-empty column whose drawn
+// span encloses another column's representative position is dropped as a mis-split spanning cell,
+// regardless of width; (3) in a banded table whose header background is two side-by-side filled
+// rectangles, the seam between them is not treated as a column rule, so it neither splits a value
+// nor adds a phantom column. A genuine empty data column, and a genuine grouped header carrying
+// real per-column sub-labels, are left intact; the documented limit is that a real data column
+// that is both narrower than the width ceiling and entirely blank on the page may be dropped by (1).
+//
+// A space-separated thousands group whose trailing part overflows its ruled column — the value
+// typeset slightly wider than the column, so the trailing group straddles the column's right rule —
+// is re-attached to the number it continues, so the cell keeps the whole value instead of truncating
+// it. Only an all-digit trailing group is recovered; non-numeric text is never pulled across a rule.
 //
 // Verbatim caveat: a superscript renders at a distinct vertical position and font size, so
 // it extracts as a spaced token (for example "cm²" becomes "cm 2"). This is specific to
