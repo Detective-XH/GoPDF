@@ -700,6 +700,14 @@ navigation pages) is dropped as a layout artifact, so it does not appear as a ph
 column in the grid. The drop is width-gated — both relative to the table's median data
 column and an absolute ceiling — so a normal-width empty column is always preserved.
 
+**Space-thousands overflow:** when a number is typeset slightly wider than its ruled column,
+its trailing space-separated group can cross the column's right rule (its center landing just
+outside the cell). `Tables()` re-attaches such a trailing **all-digit** group to the number it
+continues, so the full value stays whole in its cell rather than being truncated. The recovery
+is narrow — only a digit group that straddles the rule within the normal intra-number spacing is
+pulled back — so labels, units, footnote markers, and adjacent columns are never drawn across a
+column boundary.
+
 **Error handling:** `Tables()` returns the same error type as `Words()`. A page with no
 extractable text returns `(nil, nil)`.
 
