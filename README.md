@@ -241,7 +241,7 @@ for the full provenance table and fixture inventory.
 
 Versions are published as **signed git tags** (mirrored as GitHub Releases —
 Go module resolution only needs the tag). Tags are signed with one of the
-maintainer's hardware-backed SSH keys; v0.8.2 was signed with:
+maintainer's hardware-backed SSH keys; v0.8.5 was signed with:
 
 ```
 256 SHA256:duCP4h22hb2oNAZMaFhUlpq0j8+qBbZuaXnS99yUhkY (ED25519-SK)
