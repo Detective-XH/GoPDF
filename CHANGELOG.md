@@ -9,6 +9,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `Page.Tables()` now recovers the data rows of "headers-only" ruled tables — a layout, common in
+  statistical yearbooks (e.g. quarterly tables), where the header is ruled into columns but the data body
+  is ruled only down the leftmost row-label column. Previously every data value fell outside the closed
+  cells and was dropped, so the grid came out with populated headers and entirely empty data columns even
+  though `Page.Lines()` held the data and the page renders correctly. `Page.Tables()` now synthesizes the
+  missing data cells at the header's column positions across the ruled data rows, but only for a column
+  whose values recur across two or more rows — so genuinely empty cells stay empty and a lone stray word
+  inside the table rectangle (e.g. a footnote) is not promoted to data. Recovery is confined to this
+  structural pattern; normally- and partially-ruled tables are left untouched, and `Page.Words()`,
+  `Page.Lines()`, and `Page.Blocks()` are unaffected. On tables whose columns are themselves only
+  whitespace-separated, the recovered values may land in a single fused column — the data is no longer
+  lost, but column splitting there remains a separate limitation.
 - `Page.Tables()` now reconstructs landscape tables that are embedded on a portrait page via a 90°
   counter-clockwise text matrix — a layout common in statistical yearbooks. Previously the rotation made
   each value extract character-reversed (`Birganj`→`jnagriB`, `1130.1`→`1.0311`) and the whole grid came
