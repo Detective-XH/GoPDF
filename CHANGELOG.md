@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `Page.Tables()` now reconstructs landscape tables that are embedded on a portrait page via a 90°
+  counter-clockwise text matrix — a layout common in statistical yearbooks. Previously the rotation made
+  each value extract character-reversed (`Birganj`→`jnagriB`, `1130.1`→`1.0311`) and the whole grid came
+  out transposed, so the table was unusable even though the page renders correctly. `Page.Tables()` now
+  detects a predominantly-90°-rotated page and remaps it to reading orientation before reconstruction, so
+  cells come out de-reversed and in the correct row/column order. The remap is internal to `Page.Tables()`;
+  `Page.Words()`, `Page.Lines()`, and `Page.Blocks()` continue to report such text in its raw rotated page
+  geometry. On very dense or sparsely-ruled rotated tables the data is recovered in the correct cells but
+  the grid may remain imperfect (a long number can be split, or a row flattened), so treat such a grid as
+  advisory.
 - `Page.Tables()` no longer pulls diagonal watermark or rotated chart-label text into table cells. When a
   document carries a watermark printed diagonally across the page, or a chart with slanted axis/arc labels,
   the individual letters are scattered over the page at an angle; where one fell within a data row it was
