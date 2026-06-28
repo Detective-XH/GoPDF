@@ -303,6 +303,66 @@ func (p Page) Words() ([]Word, error) {
 	return wordsFromContentRecovered(p.Content())
 }
 
+// skewAngleTolDeg: text whose rotation is within this many degrees of an axis
+// (0°/90°/180°/270°) is kept in table-reconstruction word assembly. Diagonal or
+// skew text — watermarks, arc-decoration labels — is dropped from the table path
+// only; public Words()/Lines()/Blocks() return all glyphs unfiltered.
+const skewAngleTolDeg = 10.0
+
+// dropSkewRotatedText filters out glyphs whose baseline is diagonal (not
+// axis-aligned to within skewAngleTolDeg degrees).  Axis-aligned text at 0°,
+// 90°, 180°, and 270° (including landscape tables and vertical headers) is
+// always kept.  Skew text (e.g. a 45° watermark) is dropped so it cannot
+// contaminate word boundaries or table cells.
+//
+// The distance to the nearest axis multiple is math.Mod(|rotation|, 90):
+//   - exactly 45 → d=45 > skewAngleTolDeg → dropped  (watermark ✓)
+//   - 0° or 360° → d=0 ≤ skewAngleTolDeg → kept      (body text ✓)
+//   - 90°/270° → d=0 ≤ skewAngleTolDeg → kept        (landscape / vertical headers ✓)
+//
+// It returns nil (not []Text{}) when the input is empty or all glyphs are
+// filtered, so that downstream nil-checks behave correctly.
+//
+// Fast path: the common page has NO skew text, so a single scan that finds none
+// returns the input slice unchanged — zero allocation, identical to the prior
+// direct `texts := c.Text` behaviour. Only a page that actually carries skew
+// glyphs pays for a filtered copy.
+func dropSkewRotatedText(texts []Text) []Text {
+	if len(texts) == 0 {
+		return nil
+	}
+	hasSkew := false
+	for _, t := range texts {
+		if isSkewRotated(t.Rotation) {
+			hasSkew = true
+			break
+		}
+	}
+	if !hasSkew {
+		return texts // no diagonal text → no allocation, no behaviour change
+	}
+	out := make([]Text, 0, len(texts))
+	for _, t := range texts {
+		if !isSkewRotated(t.Rotation) {
+			out = append(out, t) // axis-aligned (0/90/180/270) → keep
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// isSkewRotated reports whether a glyph baseline is diagonal — more than
+// skewAngleTolDeg degrees from an axis multiple of 90°.
+func isSkewRotated(rotation float64) bool {
+	d := math.Mod(math.Abs(rotation), 90) // distance to nearest 90° multiple
+	if d > 45 {
+		d = 90 - d
+	}
+	return d > skewAngleTolDeg
+}
+
 // wordsFromContent groups an already-interpreted Content's glyphs into words.
 // It may panic on a pathological band; callers needing the page's
 // degrade-to-empty contract use wordsFromContentRecovered.

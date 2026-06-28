@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Fixed
+
+- `Page.Tables()` no longer pulls diagonal watermark or rotated chart-label text into table cells. When a
+  document carries a watermark printed diagonally across the page, or a chart with slanted axis/arc labels,
+  the individual letters are scattered over the page at an angle; where one fell within a data row it was
+  absorbed into that table cell — turning a value like `8,9` into `G8,98,9`, merging adjacent rows, or
+  adding a spurious empty column. `Page.Tables()` now excludes text whose baseline is more than ~10° off an
+  axis (horizontal or vertical) from cell content, so diagonal decoration can no longer corrupt the grid.
+  Axis-aligned text is always kept, including 90°/270° landscape and vertical tables and headers.
+  `Page.Words()`, `Page.Lines()`, and `Page.Blocks()` are unaffected — they still return every glyph,
+  including diagonal text — so this narrows only the structured table view. Tables on heavily watermarked
+  statistical pages, previously garbled, now extract cleanly.
+
 ## v0.8.5 — 2026-06-27
 
 ### Fixed

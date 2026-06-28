@@ -65,22 +65,34 @@ type Table struct {
 // verbatim: decimal points, abbreviations ("U.S."), a trailing ellipsis ("continued..."), and a
 // dot-separated range ("1...3") are all preserved.
 //
+// Diagonal text — a watermark or rotated decoration whose baseline is more than ~10° off an
+// axis — is excluded from cell content: such glyphs overlap data cells spatially and would
+// otherwise fuse into cell values. Axis-aligned text is always kept, including vertical and
+// landscape text at 90°/270°. This filtering is specific to Tables; Page.Words, Page.Lines, and
+// Page.Blocks call Page.Content independently and return every glyph unfiltered.
+//
 // Experimental: the detection geometry and the Table type are additive-evolving, and the
 // reconstruction output may still change as extraction quality is stabilized across the
 // real-world table distribution (see API-STABILITY.md). Tables returns the same error as
 // Words. See EXAMPLES.md for usage.
 func (p Page) Tables() ([]Table, error) {
-	words, err := p.Words()
+	c := p.Content()
+	// Table reconstruction uses skew-filtered text: diagonal glyphs (watermarks,
+	// rotated arc labels) overlap data cells spatially and fuse into cell values
+	// during word assembly. Filtering at the Text/glyph level — before any word is
+	// formed — prevents that contamination. Public Words()/Lines()/Blocks() call
+	// p.Content() independently and return all glyphs unfiltered.
+	tableC := Content{Text: dropSkewRotatedText(c.Text), Rect: c.Rect, Stroke: c.Stroke}
+	tableWords, err := wordsFromContentRecovered(tableC)
 	if err != nil {
 		return nil, err
 	}
-	c := p.Content()
 	media := p.MediaBox()
 	vRules := verticalRules(c)
-	lattices := latticeTablesOpen(c, words, media)
+	lattices := latticeTablesOpen(c, tableWords, media)
 	tables := make([]Table, 0, len(lattices))
 	for _, cells := range lattices {
-		grid := reconstructGrid(cells, words, vRules...)
+		grid := reconstructGrid(cells, tableWords, vRules...)
 		if len(grid) == 0 {
 			continue
 		}
