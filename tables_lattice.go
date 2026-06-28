@@ -392,6 +392,10 @@ func latticeTablesOpen(c Content, words []Word, media [4]float64) [][]lCell {
 		tables[i] = append(tables[i], recoverOpenColumns(tables[i], words, hEdges, media)...)
 		tables[i] = inferRectBorderedRows(tables[i], words, hEdges, media)
 		tables[i] = inferFillBandedRows(tables[i], words, c, vEdges)
+		// Last: recover data cells for the headers-only class the passes above cannot form
+		// (header ruled into columns, data body ruled only down the label column). Runs on
+		// their output so it engages only when the data grid is still otherwise empty.
+		tables[i] = append(tables[i], inferHeaderRuledDataCells(tables[i], words)...)
 	}
 	return tables
 }
@@ -517,6 +521,156 @@ func recoverOpenColumns(cells []lCell, words []Word, hEdges []lEdge, media [4]fl
 	}
 
 	return out
+}
+
+// inferHeaderRuledDataCells recovers the "headers-only / partial-table-miss" class: a closed
+// lattice whose header is ruled into a multi-column row while the DATA body is ruled only down
+// the label column (col0). The data values then fall outside every closed cell and reconstructGrid
+// drops them (they survive only in Lines()) — the grid comes out with populated headers and empty
+// data columns. This synthesizes the missing data cells at (header column cell x-range) × (col0
+// data-row band), but ONLY where a word actually sits: a triple anchor (a real header x-cut, a
+// real ruled row band, real content) that adds no phantom column and splits no existing cell (the
+// data body has none to split — this is purely additive).
+//
+// Discriminator (0-FP, structural): a column-defining header row of >= headerRuledMinCols cells,
+// a data body ruled in exactly one column aligned to that header's label column, and a word
+// present in the target box. A normally-ruled table (data rows already carry their own column
+// cells) fails the distinctCols == 1 test and is returned untouched; the other recovery passes
+// run first, so a table they already reconstruct no longer presents a single-column data body.
+func inferHeaderRuledDataCells(cells []lCell, words []Word) []lCell {
+	cdCells, cdTop, ok := headerColumnDefiningRow(cells)
+	if !ok {
+		return nil
+	}
+	dataCells, ok := colOnlyDataBody(cells, cdTop, cdCells[0].x0)
+	if !ok {
+		return nil
+	}
+	// Trigger only on DROPPED words — those whose center fell inside no existing cell. A word
+	// already correctly placed (a col0 label, a value an earlier pass recovered) is therefore
+	// never re-grabbed or duplicated; only genuinely-missing data drives synthesis.
+	return synthHeaderDataCells(dataCells, cdCells, cdCells[0].x1, unplacedWords(cells, words))
+}
+
+// unplacedWords returns the words whose center anchor (top-origin) falls inside none of cells —
+// the words reconstructGrid would drop. Used as the sole trigger evidence for header-ruled data
+// recovery so it can only resurrect dropped content, never re-claim an already-placed word.
+func unplacedWords(cells []lCell, words []Word) []Word {
+	var out []Word
+	for _, w := range words {
+		ax := w.X + w.W/2
+		ay := -(w.Y + w.H/2)
+		placed := false
+		for _, c := range cells {
+			if ax >= c.x0 && ax <= c.x1 && ay >= c.top && ay <= c.bottom {
+				placed = true
+				break
+			}
+		}
+		if !placed {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// headerColumnDefiningRow returns the TOPMOST row band carrying the most cells — the header that
+// defines the column structure — sorted left-to-right, provided it has >= headerRuledMinCols
+// cells. The topmost-max choice is deterministic (map iteration order is randomized) and
+// semantically correct: it elects the header, never an interior fully-ruled data row (which would
+// leave a spurious single-row "data region" below it).
+func headerColumnDefiningRow(cells []lCell) (cdCells []lCell, cdTop float64, ok bool) {
+	if len(cells) < 2 {
+		return nil, 0, false
+	}
+	tops := make([]float64, len(cells))
+	for i, c := range cells {
+		tops[i] = c.top
+	}
+	rowReps := cluster1D(tops, 4) // the row tolerance reconstructGrid also uses
+	byBand := map[int][]lCell{}
+	for _, c := range cells {
+		byBand[nearestIdx(rowReps, c.top)] = append(byBand[nearestIdx(rowReps, c.top)], c)
+	}
+	bandKeys := make([]int, 0, len(byBand))
+	for b := range byBand {
+		bandKeys = append(bandKeys, b)
+	}
+	sort.Ints(bandKeys) // ascending band index == top-to-bottom (rowReps is sorted)
+	cdBand, cdN := -1, 0
+	for _, b := range bandKeys {
+		if len(byBand[b]) > cdN {
+			cdN, cdBand = len(byBand[b]), b
+		}
+	}
+	if cdN < headerRuledMinCols {
+		return nil, 0, false
+	}
+	cdCells = append([]lCell(nil), byBand[cdBand]...)
+	sort.Slice(cdCells, func(i, j int) bool { return cdCells[i].x0 < cdCells[j].x0 })
+	return cdCells, rowReps[cdBand], true
+}
+
+// colOnlyDataBody returns the cells strictly below the column-defining row, requiring that they
+// are ruled in exactly one column aligned to the header's label column (the headers-only
+// signature). It reports false for a normally/partially ruled table, which is then left untouched.
+func colOnlyDataBody(cells []lCell, cdTop, labelX0 float64) ([]lCell, bool) {
+	var dataCells []lCell
+	for _, c := range cells {
+		if c.top > cdTop+rectRowSnapTol {
+			dataCells = append(dataCells, c)
+		}
+	}
+	if len(dataCells) == 0 || distinctCols(dataCells) != 1 ||
+		math.Abs(dataCells[0].x0-labelX0) > colClusterTol {
+		return nil, false
+	}
+	return dataCells, true
+}
+
+// synthHeaderDataCells synthesizes data cells from the dropped words, but only for a header
+// data-column that receives dropped words in >= headerRuledMinColBands distinct data-row bands —
+// COLUMN-LEVEL cluster evidence, not a lone word. A single unplaced word geometrically inside one
+// (header-col × col0-band) box is indistinguishable from a real single value, so a lone hit (e.g.
+// a footnote/overprint word that happens to fall in the data rectangle) is NOT promoted to a cell;
+// a genuine data column reappears across multiple rows and clears the bar. The trigger is the
+// triple anchor (real header x-cut, real ruled row band, real dropped content) plus this cluster.
+func synthHeaderDataCells(dataCells, cdCells []lCell, labelX1 float64, dropped []Word) []lCell {
+	type hit struct{ di, hi int }
+	var hits []hit
+	colBands := map[int]int{} // header-column index → number of distinct data bands it hits
+	for di, dc := range dataCells {
+		for hi, hc := range cdCells {
+			if hc.x0 < labelX1 {
+				continue // skip the label column itself
+			}
+			if wordInBox(dropped, hc.x0, hc.x1, dc.top, dc.bottom) {
+				hits = append(hits, hit{di, hi})
+				colBands[hi]++
+			}
+		}
+	}
+	var out []lCell
+	for _, h := range hits {
+		if colBands[h.hi] < headerRuledMinColBands {
+			continue // lone in-envelope word — not a data column
+		}
+		dc, hc := dataCells[h.di], cdCells[h.hi]
+		out = append(out, lCell{x0: hc.x0, top: dc.top, x1: hc.x1, bottom: dc.bottom})
+	}
+	return out
+}
+
+// wordInBox reports whether any word's center anchor (top-origin) falls inside the box.
+func wordInBox(words []Word, x0, x1, top, bottom float64) bool {
+	for _, w := range words {
+		ax := w.X + w.W/2
+		ay := -(w.Y + w.H/2)
+		if ax >= x0 && ax <= x1 && ay >= top && ay <= bottom {
+			return true
+		}
+	}
+	return false
 }
 
 // admitOpenColumn applies the per-band structural confirmation for one side (left or right).
@@ -671,6 +825,15 @@ const (
 	// rect-bordered (a short header over one tall wrapped row dominating the body) — that input is
 	// indistinguishable from the target; see the rect-bordered decision record.
 	rectMinBodyFrac = 0.6
+	// headerRuledMinCols is the minimum cell count of the column-defining header row for the
+	// header-ruled data-cell recovery (inferHeaderRuledDataCells) to engage. >=3 ruled columns
+	// is a genuine multi-column header, not a 1-2 cell caption/frame band.
+	headerRuledMinCols = 3
+	// headerRuledMinColBands is the minimum number of distinct data-row bands a header data-column
+	// must receive dropped words in before that column is synthesized. >=2 demands column-level
+	// cluster evidence so a lone in-envelope word (geometrically indistinguishable from a single
+	// real value — e.g. a footnote inside the data rectangle) is never promoted to table data.
+	headerRuledMinColBands = 2
 )
 
 // inferRectBorderedRows splits each full-height data column (plus a synthesized open anchor
