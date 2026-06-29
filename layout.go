@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
@@ -300,13 +302,192 @@ type Word struct {
 // split across a TJ boundary is therefore not falsely segmented. Bounding boxes
 // are best-effort. Returns (nil, nil) for pages with no extractable text.
 func (p Page) Words() ([]Word, error) {
-	return wordsFromContentRecovered(p.Content())
+	return wordsFromContentRecovered(p.layoutContent())
+}
+
+// layoutContent returns the page Content used by the reading-order PROSE surfaces — Page.Words(),
+// Page.Lines(), and Page.Blocks(). When the document carries a cross-page diagonal WATERMARK (the
+// same skew stamp printed on ~every page, e.g. an agency mark), its glyphs are dropped here so a
+// watermark glyph cannot fuse into an adjacent value during geometry-based assembly (e.g. "11144"
+// → "111Ê44"). A document WITHOUT a watermark keeps its diagonal text untouched — page-specific
+// rotated content such as a chart-axis label is preserved on these prose surfaces (it is not a
+// watermark, and a reader may want it).
+//
+// NOTE: Page.Tables() does NOT go through layoutContent — its grid path drops skew text
+// UNCONDITIONALLY (reconstructTablesFromContent), because a grid cell never legitimately holds
+// diagonal text. The two surfaces have genuinely different requirements: a table cell must never
+// contain a rotated label; reading-order prose sometimes should keep one. The raw page geometry,
+// including any watermark glyphs, always stays available on Content() / Texts() / DebugJSON. See
+// Reader.hasWatermark for the cross-page detection.
+func (p Page) layoutContent() Content {
+	c := p.Content()
+	// Fast path: a page with NO diagonal text has nothing a watermark could pollute, so skip the
+	// (document-level, page-sampling) watermark detection entirely. This keeps the overwhelmingly
+	// common clean page free — the cross-page scan is paid only when this page actually carries
+	// skew glyphs (i.e. when a watermark could be present), and is cached once per Reader.
+	if !contentHasSkew(c.Text) {
+		return c
+	}
+	if r := p.V.r; r != nil && r.hasWatermark() {
+		return layoutFilter(c)
+	}
+	return c
+}
+
+// contentHasSkew reports whether any glyph is diagonal (skew-rotated). Cheap, allocation-free.
+func contentHasSkew(texts []Text) bool {
+	for i := range texts {
+		if isSkewRotated(texts[i].Rotation) {
+			return true
+		}
+	}
+	return false
+}
+
+// layoutFilter is the pure projection layoutContent applies on a watermarked document
+// (factored out so it is unit testable without a Page). It drops skew glyphs from c.Text and
+// leaves Rect/Stroke intact.
+func layoutFilter(c Content) Content {
+	return Content{Text: dropSkewRotatedText(c.Text), Rect: c.Rect, Stroke: c.Stroke}
+}
+
+// watermarkCache lazily memoizes the document-level watermark verdict (one detection per
+// Reader). Mirrors the pageMapCache sync.Once idiom.
+type watermarkCache struct {
+	once    sync.Once
+	present bool
+}
+
+// hasWatermark reports whether the document carries a cross-page diagonal watermark — the same
+// skew stamp printed across the document (distinct from page-specific rotated content like a
+// chart-axis label, which appears on only a few pages). Computed once per Reader by sampling
+// pages (detectWatermark) and memoized. Concurrency-safe; nil-safe.
+func (r *Reader) hasWatermark() bool {
+	if r == nil {
+		return false
+	}
+	r.watermark.once.Do(func() { r.watermark.present = r.detectWatermark() })
+	return r.watermark.present
+}
+
+const (
+	// watermarkSampleCap bounds how many pages detectWatermark interprets. A watermark is by
+	// definition repeated across the document, so an evenly-spaced sample detects it without
+	// scanning every page of a large file (the cost stays bounded for a single-page extraction).
+	watermarkSampleCap = 16
+	// watermarkPageFrac: the document is watermarked when the SAME diagonal signature recurs on
+	// at least this fraction of sampled pages. A cross-page watermark prints on ~every page
+	// (e.g. 1235/1236 ≈ 100%); page-specific diagonal chart-axis labels appear on a small
+	// minority and DIFFER per page, so 0.5 separates the two with a wide margin.
+	watermarkPageFrac = 0.5
+	// minWatermarkRunes: the recurring signature must be at least this many (non-space) runes — a
+	// watermark is a phrase/stamp ("TỔNG CỤC THỐNG KÊ", 14 runes), not a short rotated axis unit
+	// ("kWh"/"CO2"/"GDP", 3 runes) that a chart might repeat on every page. 5 excludes those short
+	// units with margin to the validated watermark; the trade-off is that a sub-5-rune watermark is
+	// not detected (a false negative, acceptable for this detection-relative flag).
+	minWatermarkRunes = 5
+)
+
+// detectWatermark samples up to watermarkSampleCap EVENLY-SPACED pages and reports whether the
+// SAME diagonal-text signature recurs across the document (cross-page continuity). Keying on the
+// recurring SIGNATURE — not merely "some skew on many pages" — is what separates a real watermark
+// (the identical stamp on every page) from page-specific rotated content whose text differs page
+// to page (chart-axis labels, section markers). Per-page panics are contained so a malformed page
+// cannot abort detection.
+//
+// Known limits (detection-relative — both bias toward NOT filtering, i.e. toward keeping text):
+//   - A watermark whose per-page signature VARIES (because a page also carries page-specific
+//     diagonal text that pollutes the whole-page rune set) lowers the dominant fraction and may go
+//     undetected (a false negative): the watermark then stays in Words/Lines, which is honest — no
+//     legitimate text is dropped.
+//   - A long diagonal label IDENTICALLY repeated on most pages (a fixed repeated chart) would match
+//     the recurring-signature test; this is rare (no instance in the measured corpus) and is exactly
+//     the "same text on every page" a watermark is, so treating it as one is defensible. The
+//     minWatermarkRunes floor keeps a SHORT repeated rotated unit (kWh/CO2/GDP) from tripping it.
+func (r *Reader) detectWatermark() bool {
+	n := r.NumPage()
+	if n <= 0 {
+		return false
+	}
+	idxs := samplePageIndices(n, watermarkSampleCap)
+	sigCount := map[string]int{}
+	for _, pg := range idxs {
+		if sig, ok := pageSkewSignature(r, pg); ok {
+			sigCount[sig]++
+		}
+	}
+	domSig, domCount := "", 0
+	for sig, c := range sigCount {
+		if c > domCount {
+			domSig, domCount = sig, c
+		}
+	}
+	return watermarkVerdict(domSig, domCount, len(idxs))
+}
+
+// samplePageIndices returns up to cap 1-based page indices spread EVENLY across [1,n], always
+// including the first and last page (so a watermark concentrated anywhere in the document is
+// sampled, not just a prefix). For n<=cap it returns every page.
+func samplePageIndices(n, cap int) []int {
+	if n <= cap {
+		idx := make([]int, n)
+		for i := range idx {
+			idx[i] = i + 1
+		}
+		return idx
+	}
+	idx := make([]int, cap)
+	for i := range idx {
+		idx[i] = 1 + int(math.Round(float64(i)*float64(n-1)/float64(cap-1)))
+	}
+	return idx
+}
+
+// pageSkewSignature returns an order-independent signature (sorted, space-stripped runes) of
+// page pg's diagonal glyph text, or ok=false when the page has no skew text. A genuine cross-page
+// watermark yields the SAME signature on every page (the same stamp); page-specific rotated
+// labels (chart axes, section markers) yield a DIFFERENT signature per page.
+func pageSkewSignature(r *Reader, pg int) (sig string, ok bool) {
+	defer func() { _ = recover() }()
+	p := r.Page(pg)
+	if p.V.IsNull() {
+		return "", false
+	}
+	var runes []rune
+	for _, t := range p.Content().Text {
+		if !isSkewRotated(t.Rotation) {
+			continue
+		}
+		for _, ru := range t.S {
+			if !unicode.IsSpace(ru) {
+				runes = append(runes, ru)
+			}
+		}
+	}
+	if len(runes) == 0 {
+		return "", false
+	}
+	slices.Sort(runes)
+	return string(runes), true
+}
+
+// watermarkVerdict reports a watermark when the dominant diagonal signature recurs on at least
+// watermarkPageFrac of the sampled pages (cross-page continuity) AND is a phrase of at least
+// minWatermarkRunes runes. Factored out so the threshold is unit testable.
+func watermarkVerdict(dominantSig string, dominant, sampled int) bool {
+	if sampled == 0 || float64(dominant)/float64(sampled) < watermarkPageFrac {
+		return false
+	}
+	return len([]rune(dominantSig)) >= minWatermarkRunes
 }
 
 // skewAngleTolDeg: text whose rotation is within this many degrees of an axis
-// (0°/90°/180°/270°) is kept in table-reconstruction word assembly. Diagonal or
-// skew text — watermarks, arc-decoration labels — is dropped from the table path
-// only; public Words()/Lines()/Blocks() return all glyphs unfiltered.
+// (0°/90°/180°/270°) is kept. Diagonal / skew text — watermarks, arc-decoration labels — is
+// dropped from the assembled-text surfaces so it cannot fuse into a value: UNCONDITIONALLY in the
+// table grid path (reconstructTablesFromContent — a cell never holds diagonal text), and for a
+// detected cross-page watermark in the reading-order prose path (layoutContent → Words/Lines/Blocks,
+// which otherwise keep a page-specific rotated label). The raw glyphs (incl. skew) remain on
+// Content()/Texts()/DebugJSON.
 const skewAngleTolDeg = 10.0
 
 // dropSkewRotatedText filters out glyphs whose baseline is diagonal (not
@@ -597,7 +778,7 @@ type Line struct {
 // Returns (nil, nil) for pages with no extractable text. Panics during content
 // parsing are recovered and returned as errors, matching Words() semantics.
 func (p Page) Lines() ([]Line, error) {
-	return linesFromContentRecovered(p.Content())
+	return linesFromContentRecovered(p.layoutContent())
 }
 
 // linesFromContent assembles lines (reading order, column-split) from an

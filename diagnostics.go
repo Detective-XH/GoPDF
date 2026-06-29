@@ -50,6 +50,7 @@ var warningMessages = map[ExtractionWarningCode]string{
 	WarningFallbackEncoding:    "text decoded via an approximate fallback encoding",
 	WarningUnsupportedEncoding: "font encoding is unsupported; bytes decoded as PDFDocEncoding",
 	WarningMissingGlyphMapping: "some glyphs cannot be mapped to Unicode",
+	WarningLegacyFont:          "a legacy non-Unicode Indic font was used; its text decodes to Latin gibberish rather than the intended script (numeric data may be intact)",
 	WarningUnsupportedFilter:   "stream filter is unsupported; the stream's contents were skipped",
 	WarningTruncated:           "warning storage limit reached; further distinct warnings were dropped",
 	WarningImageOnlyPage:       "page declares image content but yields no extractable text; OCR is not attempted",
@@ -161,6 +162,16 @@ const (
 	// unknown glyph names in /Differences, or a font resource missing from
 	// the page's resource dictionary.
 	WarningMissingGlyphMapping ExtractionWarningCode = "missing_glyph_mapping"
+	// WarningLegacyFont: a known legacy NON-Unicode Indic (Devanagari) font
+	// (Kruti Dev, DevLys, Walkman-Chanakya, Vivek, …) was selected. Such fonts
+	// carry no real Unicode mapping — their glyph codes follow a legacy keyboard
+	// layout — so every text surface (Words/Lines/GetPlainText/Tables) decodes
+	// the script to Latin gibberish (e.g. "rkfydk" for तालिका) though numeric data
+	// is usually intact. Detection only: the original characters are unrecoverable
+	// from a pure-text path (only OCR or a font-specific remap could recover them).
+	// Document-scoped (fonts are document-level); emitted at encoder selection. The
+	// per-table Tables() surface ALSO reports this as TableWarningLegacyFont.
+	WarningLegacyFont ExtractionWarningCode = "legacy_font_text"
 	// WarningUnsupportedFilter: a stream declares a filter this package
 	// cannot decode (e.g. /Crypt); the stream's contents were skipped.
 	WarningUnsupportedFilter ExtractionWarningCode = "unsupported_filter"

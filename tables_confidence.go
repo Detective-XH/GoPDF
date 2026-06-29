@@ -1,6 +1,9 @@
 package pdf
 
-import "fmt"
+import (
+	"fmt"
+	"unicode"
+)
 
 // TableConfidence is a coarse, DETECTION-RELATIVE quality level for one reconstructed table.
 // It is NOT a calibrated probability and NOT a correctness guarantee.
@@ -43,6 +46,16 @@ const (
 	// columns across all rows signals a structurally empty grid. Threshold: blankCol >= 0.6.
 	// (D1, PR1)
 	TableWarningPhantom TableWarningCode = "phantom_table"
+
+	// TableWarningLegacyFont signals that the table's text was rendered through a known
+	// legacy NON-Unicode Indic font (e.g. Kruti Dev, DevLys, Walkman-Chanakya) whose glyphs
+	// decode to Latin gibberish ("rkfydk" for तालिका) instead of the intended Devanagari
+	// script. The NUMERIC data is usually intact, but the text labels are unreliable. The
+	// PDF has no ToUnicode that would let any pure-text extractor recover the real characters
+	// (only OCR or a font-specific remap could), so this is an honest "labels are garbled"
+	// flag, not a recoverable defect. Detection: a table whose in-cell alphabetic text is
+	// predominantly from a legacy-Indic font AND carries no Devanagari codepoints. (D2, PR2)
+	TableWarningLegacyFont TableWarningCode = "legacy_font_text"
 )
 
 // TableWarning is one per-table quality flag. The field set is frozen for the v0.x line;
@@ -122,8 +135,15 @@ func (p Page) reconstructTables() ([]tableResult, error) {
 }
 
 // reconstructTablesFromContent is the single shared internal reconstruction path for
-// both Tables() and TableRegions(). It takes raw (unfiltered) page content and the
-// PORTRAIT MediaBox. Skew-text filtering and 90°-CCW de-rotation are applied internally.
+// both Tables() and TableRegions(). It takes raw page content and the PORTRAIT MediaBox.
+// Skew-text filtering and 90°-CCW de-rotation are applied internally.
+//
+// Skew (diagonal) text is dropped UNCONDITIONALLY here — a grid cell never legitimately holds
+// diagonal text, so a watermark or a rotated chart-axis label must never fuse into a cell value.
+// This differs from the reading-order prose surfaces (Words/Lines/Blocks via layoutContent), which
+// drop skew only for a detected cross-page watermark so a page-specific rotated label is preserved
+// there; the table grid has the stricter requirement, so it always filters (this is also why a
+// watermarked document's table grid was already clean before the reading-order watermark work).
 //
 // The empty-grid skip (len(grid)==0 → omit from results) is done here so that both
 // public methods skip the same tables, keeping the 1:1 index correspondence intact
@@ -164,6 +184,7 @@ func reconstructTablesFromContent(c Content, media [4]float64) ([]tableResult, e
 			region = cellsUnionRect(cells)
 		}
 		warnings := detectTableWarnings(grid)
+		warnings = append(warnings, detectLegacyFontText(cells, tableWords)...)
 		results = append(results, tableResult{
 			grid:     grid,
 			region:   region,
@@ -303,4 +324,177 @@ func detectTableWarnings(grid [][]string) []TableWarning {
 		}}
 	}
 	return nil
+}
+
+// legacyIndicFontFamilies lists known legacy NON-Unicode Devanagari (Hindi/Nepali/Marathi)
+// font families whose glyphs decode to Latin gibberish instead of the intended script. Matched
+// case-insensitively as a substring of Word.Font (the subset prefix like "ABCDEF+" is already
+// stripped by the font layer, and both "Kruti Dev 010" and "KrutiDev010" hit the "kruti" entry).
+// This is an EXTENSIBLE allowlist — like getEncoder's CMap switch and adobeCIDToUnicodeTable, new
+// families are added as evidence arrives — so the detector is DETECTION-RELATIVE: an unrecognized
+// legacy font is silently NOT flagged (honest — no false claim), never falsely flagged. The list is
+// deliberately confined to validated and unambiguous legacy-font tokens (broad/ambiguous tokens
+// like "shree"/"akshar" were dropped — a legitimate Latin font could coincidentally carry them).
+// The script-mismatch corroboration (hasIndicScript) is the second, load-bearing gate regardless.
+var legacyIndicFontFamilies = []string{
+	"kruti", "devlys", "chanakya", "walkman", "preeti", "kantipur", "shusha", "vivek",
+}
+
+// strictLegacyIndicFontFamilies is the high-confidence subset used by the DOCUMENT-scoped
+// warning (getEncoder), which fires on the font NAME alone — it runs before any text is
+// decoded, so unlike the per-table detector it CANNOT corroborate with the decoded script. It
+// therefore drops the family tokens that are also common given names / brands ("vivek",
+// "preeti") to stay FP-safe without corroboration; the distinctive legacy-font names that
+// remain are vanishingly unlikely to appear in a real Latin font. All three known fixtures
+// still match (Kruti-Dev/DevLys via "kruti"/"devlys"; Walkman-Chanakya via "chanakya").
+var strictLegacyIndicFontFamilies = []string{
+	"kruti", "devlys", "chanakya", "walkman", "kantipur", "shusha",
+}
+
+// isLegacyIndicFont reports whether font names a known legacy non-Unicode Devanagari family.
+// Used by the per-table detector, which corroborates each match with the no-Indic-script and
+// count gates — so it can afford the broader list (incl. the common-word "vivek", validated on
+// the in-ecosurvey fixture).
+func isLegacyIndicFont(font string) bool {
+	return matchesAnyFold(font, legacyIndicFontFamilies)
+}
+
+// isLegacyIndicFontStrict reports whether font names a HIGH-CONFIDENCE legacy family — used by
+// the uncorroborated document-scoped warning (see strictLegacyIndicFontFamilies).
+func isLegacyIndicFontStrict(font string) bool {
+	return matchesAnyFold(font, strictLegacyIndicFontFamilies)
+}
+
+// matchesAnyFold reports whether font contains any of fams as a case-insensitive substring.
+func matchesAnyFold(font string, fams []string) bool {
+	for _, fam := range fams {
+		if asciiContainsFold(font, fam) {
+			return true
+		}
+	}
+	return false
+}
+
+// asciiContainsFold reports whether needleLower occurs in haystack, comparing ASCII letters
+// case-insensitively WITHOUT allocating (font names are ASCII; isLegacyIndicFont runs per
+// in-cell word, so a strings.ToLower copy there showed up as +0.8% allocs/op). needleLower
+// MUST already be lower-case (the legacyIndicFontFamilies entries are).
+func asciiContainsFold(haystack, needleLower string) bool {
+	n := len(needleLower)
+	if n == 0 {
+		return true
+	}
+	for i := 0; i+n <= len(haystack); i++ {
+		match := true
+		for j := range n {
+			c := haystack[i+j]
+			if 'A' <= c && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			if c != needleLower[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAnyLetter reports whether s contains at least one Unicode letter (so pure-numeric /
+// punctuation cells are excluded from the legacy-font denominator).
+func hasAnyLetter(s string) bool {
+	for _, r := range s {
+		if unicode.IsLetter(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasIndicScript reports whether s carries any codepoint in the contiguous Indic Unicode block
+// (U+0900–U+0DFF: Devanagari, Bengali, Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada,
+// Malayalam, Sinhala). A legacy Indic font that decoded CORRECTLY would emit characters in this
+// range — for ANY Indic script, not only Devanagari; a broken legacy-font decode emits Latin /
+// Latin-1 gibberish (e.g. "rkfydk", or "vfèkdkfj;ksa" where è = U+00E8 is Latin-1, NOT ASCII —
+// which is why the test is "no Indic script", not "ASCII-only"). Its absence, combined with a
+// legacy-Indic font, is the script-mismatch tell that SEPARATES garble from a correct decode —
+// and checking the whole Indic block (not just Devanagari) avoids falsely flagging a correctly
+// decoded non-Devanagari Indic font (e.g. a Gujarati "Shree" variant emitting real Gujarati).
+func hasIndicScript(s string) bool {
+	for _, r := range s {
+		if r >= 0x0900 && r <= 0x0DFF {
+			return true
+		}
+	}
+	return false
+}
+
+// wordCenterInCells reports whether word w's center anchor falls inside any lattice cell, using
+// the same top-origin containment test reconstructGrid uses to bucket words into cells
+// (tables_lattice.go). Restricting the legacy-font scan to text that actually lands in the grid
+// means a clean-grid table with a garbled caption *outside* its cells is not falsely flagged.
+func wordCenterInCells(w Word, cells []lCell) bool {
+	ax := w.X + w.W/2
+	ay := -(w.Y + w.H/2) // top-origin anchor (mirrors reconstructGrid's word bucketing)
+	for _, c := range cells {
+		if ax >= c.x0 && ax <= c.x1 && ay >= c.top && ay <= c.bottom {
+			return true
+		}
+	}
+	return false
+}
+
+// legacyFontGarbleFrac / minLegacyGarbledWords: flag when BOTH (a) at least legacyFontGarbleFrac
+// of a table's in-cell alphabetic words are legacy-Indic-font glyphs that decoded to non-Indic
+// (Latin) gibberish, AND (b) there are at least minLegacyGarbledWords such words. The fraction
+// gate alone gives no protection for a 1–2-label table (a single coincidental match reaches
+// frac=1.0); the absolute floor requires a substantial body of garbled text, which a genuinely
+// garbled table always has (its row-label column alone is dozens of words). The signal SEPARATES
+// sharply — measured 0 on every clean corpus PDF (47/48) and fired on three legacy-font fixtures
+// across three publishers and two embedding styles (in-ecosurvey Walkman-Chanakya/Vivek; Rajasthan
+// Kruti-Dev/DevLys CID; Himachal Pradesh Kruti Dev TrueType).
+const (
+	legacyFontGarbleFrac  = 0.3
+	minLegacyGarbledWords = 3
+)
+
+// detectLegacyFontText flags a table whose in-cell text was rendered through a legacy non-Unicode
+// Indic font and decoded to Latin gibberish (see TableWarningLegacyFont). It is STRICTLY
+// READ-ONLY: it reads cells/words and returns a warning; it never mutates the grid or influences
+// which tables are emitted, so Tables().Cells stays byte-identical. words are the page words in
+// the same coordinate frame as cells (de-rotated when the table was rotated) — the same pair
+// reconstructGrid receives.
+func detectLegacyFontText(cells []lCell, words []Word) []TableWarning {
+	if len(cells) == 0 {
+		return nil
+	}
+	alpha, garbled := 0, 0
+	famSeen := ""
+	for _, w := range words {
+		if !hasAnyLetter(w.S) || !wordCenterInCells(w, cells) {
+			continue
+		}
+		alpha++
+		if isLegacyIndicFont(w.Font) && !hasIndicScript(w.S) {
+			garbled++
+			if famSeen == "" {
+				famSeen = w.Font
+			}
+		}
+	}
+	if alpha == 0 || garbled < minLegacyGarbledWords {
+		return nil
+	}
+	frac := float64(garbled) / float64(alpha)
+	if frac < legacyFontGarbleFrac {
+		return nil
+	}
+	return []TableWarning{{
+		Code:    TableWarningLegacyFont,
+		Message: "table text was rendered through a legacy non-Unicode Indic font (e.g. Kruti Dev / DevLys / Chanakya) and decoded to Latin gibberish — numeric data may be intact but the text labels are unreliable; verify the labels before relying on them",
+		Detail:  fmt.Sprintf("legacy_font=%s; garble_fraction=%.2f", famSeen, frac),
+	}}
 }

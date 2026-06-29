@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -116,6 +117,148 @@ func TestTablePhantomDetector(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ── D2 legacy-font-text detector ───────────────────────────────────────────────
+
+// legacyCellWord builds a Word whose center anchor lands inside the single test cell
+// [x0=0,x1=100] × top-origin [top=-20,bottom=0] (display Y around 10). Used to feed
+// detectLegacyFontText synthetic in-cell words without PDF I/O.
+func legacyCellWord(s, font string) Word {
+	return Word{S: s, X: 10, Y: 8, W: 12, H: 8, Font: font}
+}
+
+// TestDetectLegacyFontText is the unit gate for D2: a table whose in-cell text comes from a
+// legacy non-Unicode Indic font and decoded to non-Devanagari gibberish is flagged
+// legacy_font_text. It locks the font-family match, the no-Devanagari script-mismatch
+// corroboration (incl. the Latin-1 case), the High/clean cases, the threshold, and the
+// in-cell restriction (a garbled caption OUTSIDE the cells must not flag). Pure function.
+func TestDetectLegacyFontText(t *testing.T) {
+	t.Parallel()
+
+	// One cell covering x∈[0,100], top-origin y∈[-20,0]; legacyCellWord lands inside it.
+	cells := []lCell{{x0: 0, top: -20, x1: 100, bottom: 0}}
+
+	cases := []struct {
+		name     string
+		words    []Word
+		wantWarn bool
+		wantFont string // expected legacy_font= prefix in Detail (only when wantWarn)
+	}{
+		{
+			name: "kruti_dev_ascii_gibberish",
+			words: []Word{
+				legacyCellWord("rkfydk", "KrutiDev010"),
+				legacyCellWord("jktLFkku", "KrutiDev010"),
+				legacyCellWord("ljdkj", "Kruti-Dev680"),
+			},
+			wantWarn: true, wantFont: "KrutiDev010",
+		},
+		{
+			name: "walkman_chanakya_latin1_gibberish", // è = U+00E8 (Latin-1), not ASCII — no-Indic-script still fires
+			words: []Word{
+				legacyCellWord("vfèkdkfj;ksa", "Walkman-Chanakya905Bold"),
+				legacyCellWord("leh{kk", "Vivek-NormalA"),
+				legacyCellWord("jk\"Vªh;", "Walkman-Chanakya905Bold"),
+			},
+			wantWarn: true, wantFont: "Walkman-Chanakya905Bold",
+		},
+		{
+			name: "legacy_font_but_decoded_to_real_devanagari", // G3 separation: legacy NAME but correct decode → silent
+			words: []Word{
+				legacyCellWord("तालिका", "KrutiDev010"),
+				legacyCellWord("राष्ट्रीय", "KrutiDev010"),
+				legacyCellWord("निवल", "KrutiDev010"),
+			},
+			wantWarn: false,
+		},
+		{
+			name: "legacy_font_decoded_to_real_gujarati", // hasIndicScript covers ALL Indic blocks, not just Devanagari
+			words: []Word{
+				legacyCellWord("ગુજરાતી", "Walkman-Chanakya905Bold"),
+				legacyCellWord("વસ્તી", "Walkman-Chanakya905Bold"),
+				legacyCellWord("કુલ", "Walkman-Chanakya905Bold"),
+			},
+			wantWarn: false,
+		},
+		{
+			name: "two_garbled_below_count_gate", // frac=1.0 but only 2 garbled words < minLegacyGarbledWords
+			words: []Word{
+				legacyCellWord("rkfydk", "KrutiDev010"),
+				legacyCellWord("ljdkj", "KrutiDev010"),
+			},
+			wantWarn: false,
+		},
+		{
+			name: "ambiguous_family_name_dropped_from_list", // "shree"/"akshar" were removed — a legit Latin font must not match
+			words: []Word{
+				legacyCellWord("Total", "Shree-Regular"),
+				legacyCellWord("Population", "Akshar-Bold"),
+				legacyCellWord("Growth", "Akruti-Italic"),
+			},
+			wantWarn: false,
+		},
+		{
+			name: "normal_latin_font_english",
+			words: []Word{
+				legacyCellWord("Total", "TimesNewRomanPSMT"),
+				legacyCellWord("Population", "Arial-BoldMT"),
+			},
+			wantWarn: false,
+		},
+		{
+			name: "below_threshold_mostly_english", // 1 legacy of 5 alpha words = 0.2 < 0.3
+			words: []Word{
+				legacyCellWord("vkfFkZd", "KrutiDev010"),
+				legacyCellWord("Year", "Arial"),
+				legacyCellWord("Total", "Arial"),
+				legacyCellWord("Male", "Arial"),
+				legacyCellWord("Female", "Arial"),
+			},
+			wantWarn: false,
+		},
+		{
+			name: "legacy_word_outside_cells_not_flagged", // garbled caption above the grid → center anchor outside cells
+			words: []Word{
+				{S: "vkfFkZd", X: 10, Y: 200, W: 12, H: 8, Font: "KrutiDev010"}, // ay = -(204) ∉ [-20,0]
+				{S: "leh{kk", X: 30, Y: 200, W: 12, H: 8, Font: "KrutiDev010"},
+			},
+			wantWarn: false,
+		},
+		{
+			name:     "no_alpha_words_numeric_only",
+			words:    []Word{legacyCellWord("12,493", "TimesNewRomanPSMT"), legacyCellWord("265", "TimesNewRomanPSMT")},
+			wantWarn: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := detectLegacyFontText(cells, tc.words)
+			if tc.wantWarn {
+				if len(got) == 0 {
+					t.Fatalf("want legacy_font_text warning, got none")
+				}
+				if got[0].Code != TableWarningLegacyFont {
+					t.Errorf("Code: got %q, want %q", got[0].Code, TableWarningLegacyFont)
+				}
+				if got[0].Message == "" {
+					t.Error("Message must be non-empty")
+				}
+				if !strings.HasPrefix(got[0].Detail, "legacy_font="+tc.wantFont+";") {
+					t.Errorf("Detail: got %q, want prefix %q", got[0].Detail, "legacy_font="+tc.wantFont+";")
+				}
+			} else if len(got) != 0 {
+				t.Errorf("want no warning, got %+v", got)
+			}
+		})
+	}
+
+	// Empty cells → no warning (degenerate guard).
+	if got := detectLegacyFontText(nil, []Word{legacyCellWord("rkfydk", "KrutiDev010")}); len(got) != 0 {
+		t.Errorf("nil cells: want no warning, got %+v", got)
 	}
 }
 

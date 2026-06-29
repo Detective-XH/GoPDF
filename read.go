@@ -114,6 +114,12 @@ type Reader struct {
 	// bypass: getEncoder runs only during extraction, after decryption state is
 	// established, so a cached CMap is always parsed from decrypted bytes.
 	encoders encoderCache
+	// watermark lazily memoizes whether the document carries a cross-page diagonal
+	// watermark (layout.go): computed once by sampling pages, read-only after. When
+	// present, layoutContent drops diagonal text from the reading-order surfaces
+	// (Words/Lines/Blocks/Tables) so a page-wide watermark glyph cannot fuse into a
+	// word or cell value.
+	watermark watermarkCache
 }
 
 // Open opens a file for reading.
