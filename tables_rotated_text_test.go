@@ -335,7 +335,7 @@ func TestWatermarkVerdict(t *testing.T) {
 	}{
 		{"GKNTÔ", 16, 16, true, "same 5-rune watermark phrase on every sampled page (e.g. vn-gso)"},
 		{"ABCDE", 8, 16, true, "phrase recurs on exactly the 0.5 boundary → watermarked"},
-		{"Restaurantes", 2, 20, false, "chart labels recur on a minority of pages (ar-indec 2/20)"},
+		{"Restaurants", 2, 20, false, "chart labels recur on a minority of pages (ar-indec 2/20)"},
 		{"abc", 6, 908, false, "sparse recurrence (it-istat 6/908<1%)"},
 		{"GKNTÔ", 0, 0, false, "empty sample guard"},
 		{"", 0, 16, false, "no skew on any sampled page → clean"},
