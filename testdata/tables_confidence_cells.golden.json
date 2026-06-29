@@ -1,0 +1,32 @@
+[
+  {
+    "pdf": "tables/epa-egrid2022-t1.pdf",
+    "page": 1,
+    "hash": "1f8a7f6387674970df700ff493d819f63f32b748dc2164ff833f403a9199f8d7",
+    "n_tables": 3
+  },
+  {
+    "pdf": "tables/irs-soi-inpre-t1-2022.pdf",
+    "page": 1,
+    "hash": "731d75934b827cbc68e9198fd56b1b50c2c2aa38648cfabfeffd9342046926f4",
+    "n_tables": 2
+  },
+  {
+    "pdf": "tables/fbi-nics-by-state-2026.pdf",
+    "page": 1,
+    "hash": "f698be6b72c379f0065946d40b202c56a95737d15c97e52e8b01c62c3bea2594",
+    "n_tables": 1
+  },
+  {
+    "pdf": "tables/hhs-aspe-vsl-2024.pdf",
+    "page": 1,
+    "hash": "0aa8da0078d25085ad31329ee78e6dedd2c8cda3bfcf57bb79e821878df0fec1",
+    "n_tables": 2
+  },
+  {
+    "pdf": "tables/bea-scb-gdp-2024-t1.pdf",
+    "page": 1,
+    "hash": "4cf7130723d7b4bf0093d35be083ed3c3f2e18e93cee7ab4db634f9bc559ad1b",
+    "n_tables": 1
+  }
+]

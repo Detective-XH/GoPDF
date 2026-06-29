@@ -10,11 +10,22 @@ import (
 // cell is the empty string. Rows run top-to-bottom, columns left-to-right in page order.
 //
 // Experimental: the API is additive-evolving (see API-STABILITY.md). Cells is the stable
-// core; Table may gain fields (for example cell bounding boxes) in a future minor release,
-// and the detection output may still change as extraction quality stabilizes. See EXAMPLES.md.
+// core; Table may gain fields in a future minor release, and the detection output may still
+// change as extraction quality stabilizes. See EXAMPLES.md.
 type Table struct {
 	// Cells is the reconstructed grid indexed Cells[row][col]. Every row has equal length.
+	// FROZEN: semantics and field type will not change in the v0.x line (TABLES-API-SHAPE.md).
 	Cells [][]string
+
+	// Confidence is a coarse, detection-relative quality level for this table.
+	// Low if at least one Warning fired; High otherwise.
+	// High means "nothing flagged it" — NOT "verified correct". See TableConfidence.
+	Confidence TableConfidence
+
+	// Warnings lists the quality flags detected for this table, in detection order.
+	// Callers must tolerate unknown TableWarningCode values. An empty slice means no
+	// quality problem was detected by the current detector set (not that the table is correct).
+	Warnings []TableWarning
 }
 
 // Tables reconstructs the ruled ("lattice") tables on the page as grids of cell strings.
@@ -87,44 +98,39 @@ type Table struct {
 // real-world table distribution (see API-STABILITY.md). Tables returns the same error as
 // Words. See EXAMPLES.md for usage.
 func (p Page) Tables() ([]Table, error) {
-	c := p.Content()
-	// Table reconstruction uses skew-filtered text: diagonal glyphs (watermarks,
-	// rotated arc labels) overlap data cells spatially and fuse into cell values
-	// during word assembly. Filtering at the Text/glyph level — before any word is
-	// formed — prevents that contamination. Public Words()/Lines()/Blocks() call
-	// p.Content() independently and return all glyphs unfiltered.
-	tableC := Content{Text: dropSkewRotatedText(c.Text), Rect: c.Rect, Stroke: c.Stroke}
-	media := p.MediaBox()
-	// De-rotate predominantly 90°-CCW content (landscape tables embedded on portrait
-	// pages via a 90°-CCW text matrix) so the horizontal word-assembly pipeline
-	// reconstructs the table correctly. Non-rotated pages are a true no-op.
-	deRotC, deRotMedia, wasRotated := deRotateTableContent(tableC, media)
-	tableWords, err := wordsFromContentRecovered(deRotC)
+	results, err := p.reconstructTables()
 	if err != nil {
 		return nil, err
 	}
-	var vRules []lEdge
-	var lattices [][]lCell
-	if wasRotated {
-		// Use the rotated Content for rule detection so cell boundaries
-		// align with the de-rotated text frame.
-		vRules = verticalRules(deRotC)
-		lattices = latticeTablesOpen(deRotC, tableWords, deRotMedia)
-	} else {
-		// Non-rotated page: use the original Content so clean pages
-		// remain byte-identical by construction.
-		vRules = verticalRules(c)
-		lattices = latticeTablesOpen(c, tableWords, media)
-	}
-	tables := make([]Table, 0, len(lattices))
-	for _, cells := range lattices {
-		grid := reconstructGrid(cells, tableWords, vRules...)
-		if len(grid) == 0 {
-			continue
+	return tableResultsToTables(results), nil
+}
+
+// tableResultsToTables projects the internal shared reconstruction results into the public
+// []Table: each result's grid, its rolled-up Confidence, and its detected Warnings. This is
+// the exact field-population wiring Tables() exposes, factored out so it is testable end to
+// end (a synthetic phantom result must surface Warnings + Confidence Low through this path).
+func tableResultsToTables(results []tableResult) []Table {
+	tables := make([]Table, len(results))
+	for i, r := range results {
+		tables[i] = Table{
+			Cells:      r.grid,
+			Confidence: rollupConfidence(r.warnings),
+			Warnings:   r.warnings,
 		}
-		tables = append(tables, Table{Cells: grid})
 	}
-	return tables, nil
+	return tables
+}
+
+// rollupConfidence derives a table's Confidence from its detected Warnings: Low if any
+// Warning fired, High otherwise. This is the single definition of the roll-up rule —
+// Tables() projects through it so the rule is testable in isolation and cannot drift from
+// what the public API reports. High is detection-relative ("nothing flagged it"), not a
+// correctness guarantee; see TableConfidence.
+func rollupConfidence(warnings []TableWarning) TableConfidence {
+	if len(warnings) > 0 {
+		return TableConfidenceLow
+	}
+	return TableConfidenceHigh
 }
 
 // rotIdx90 records a ~90°-CCW glyph's index into the working texts slice

@@ -646,6 +646,69 @@ for ti, tbl := range tables {
 }
 ```
 
+### Per-table confidence and warnings
+
+Every `Table` carries two additive quality fields that an LLM or RAG consumer can use to decide
+whether to trust the grid or fall back to a rendered-image read:
+
+```go
+for ti, tbl := range tables {
+    switch tbl.Confidence {
+    case pdf.TableConfidenceHigh:
+        // "Nothing flagged it" — use the grid. High does NOT mean verified correct;
+        // it means the current detector set found no problem.
+    case pdf.TableConfidenceLow:
+        // At least one quality problem was detected. Inspect Warnings.
+        for _, w := range tbl.Warnings {
+            fmt.Printf("Table %d: [%s] %s — %s\n", ti, w.Code, w.Message, w.Detail)
+        }
+    }
+}
+```
+
+`Confidence` is **detection-relative**: `High` means nothing flagged it, not that the grid is
+verified correct. As new detectors are added in future minor releases, some tables that are
+currently `High` will drop to `Low` — that is the feature working, not a breaking change.
+Callers must tolerate unknown `TableWarningCode` values.
+
+**Warning codes (PR1):**
+
+| Code | Meaning |
+|------|---------|
+| `phantom_table` | `≥ 60%` of columns are entirely blank — likely a bar chart or infographic misread as a table. Check `w.Detail` for `blank_col_fraction=0.NN`. |
+
+### Page-space bounding boxes (`Page.TableRegions`)
+
+`Page.TableRegions()` returns the page display-space bounding boxes of the detected tables,
+1:1 with `Tables()` by index. Use the index to correlate a region with its `Table.Confidence`
+and `Table.Warnings`:
+
+```go
+tables, err := p.Tables()
+// handle err ...
+regions, err := p.TableRegions()
+// handle err ...
+
+for i, region := range regions {
+    tbl := tables[i] // 1:1 by index
+    if tbl.Confidence == pdf.TableConfidenceLow {
+        // This region's quality is flagged — candidate for image-fallback.
+        fmt.Printf("Table %d at (%.1f,%.1f)-(%.1f,%.1f): low confidence %v\n",
+            i, region.Rect.Min.X, region.Rect.Min.Y,
+            region.Rect.Max.X, region.Rect.Max.Y,
+            tbl.Warnings)
+    }
+}
+```
+
+`TableRegion.Rect` is in the same Y-up page display space as `Word`, `Stroke`, and `Text` from
+`Page.Words()` and `Page.Content()`. `Min` is the bottom-left corner, `Max` is the top-right.
+Both `Tables()` and `TableRegions()` share a single internal reconstruction, so the 1:1
+correspondence holds by construction regardless of how many tables are detected. Each call
+re-interprets the page content independently (the same convention as `Words()` / `Lines()` /
+`Tables()`), so a consumer that needs both pays the interpret cost twice — call each once and
+zip the slices by index rather than calling in a loop.
+
 **Documented scope:** two table classes are locked against regression by corpus accuracy gates
 (the determinism promise applies):
 
