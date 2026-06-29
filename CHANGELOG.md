@@ -5,10 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## Fixed, pending release
+## v0.8.6 — 2026-06-29
 
 ### Added
 
+- `Page.Tables()` and `Reader.Warnings()` now flag text drawn through a legacy non-Unicode font — a
+  pattern common in South Asian statistical PDFs where script labels (such as Devanagari/Hindi) are
+  rendered with fonts like Kruti Dev, DevLys, or Walkman-Chanakya, whose glyphs map to Latin
+  characters rather than the intended script. `Page.Tables()` emits a per-table
+  `TableWarningLegacyFont` (`legacy_font_text`) code on `Table.Warnings` when a table's alphabetic
+  cell text is predominantly garbled in this way; `Reader.Warnings()` emits the same
+  `legacy_font_text` code at the document level so consumers of `Words()`, `Lines()`, and
+  `GetPlainText()` also receive the signal. The warning is strictly additive — `Tables().Cells` is
+  byte-identical — and tells a caller that the garbled text cannot be recovered on a pure-text path.
+- `Page.Words()`, `Page.Lines()`, and `Page.Blocks()` now omit glyphs from a recurring diagonal
+  watermark printed across most pages of a document — for example an agency stamp repeated on every
+  page. GoPDF detects a recurring watermark by sampling up to 16 evenly-spaced pages; when the same
+  angled-text signature recurs on at least half of them, its glyphs are excluded from word assembly,
+  so a value like `11144` no longer arrives fused with watermark characters. Documents without a
+  recurring page-spanning watermark are byte-unchanged; `Page.Content()`, `Page.Texts()`, and
+  `DebugJSON` always return every glyph unfiltered. `Page.Tables()` is unaffected and byte-identical
+  — it already unconditionally excludes diagonal text from cell content.
 - `Page.Tables()` now reports per-table quality: each `Table` carries a `Confidence`
   (`TableConfidence` — `"high"` or `"low"`) and a `Warnings` slice (`[]TableWarning`, each with a
   `TableWarningCode`), so an LLM/RAG consumer can tell a trustworthy grid from a defective one
