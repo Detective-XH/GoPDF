@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `Page.Tables()` now recovers the data rows of "comb-body" tables — a layout, common in statistical
+  yearbooks, where the header is ruled into columns but the data body is ruled only with vertical lines
+  extending downward (no horizontal row rules and no closing bottom rule). Previously every data value
+  fell outside the closed cells and was dropped from the grid, even though `Page.Lines()` held the data
+  and the page rendered correctly. `Page.Tables()` now synthesizes the data cells at the header's column
+  positions across the vertically-ruled data rows, recovering the full grid. False-positive guards ensure
+  that non-table layouts — tables of contents, formula and prose blocks, bar charts, and infographic maps
+  — are left untouched; `Page.Words()`, `Page.Lines()`, and `Page.Blocks()` are unaffected.
 - `Page.Tables()` now recovers the data rows of "headers-only" ruled tables — a layout, common in
   statistical yearbooks (e.g. quarterly tables), where the header is ruled into columns but the data body
   is ruled only down the leftmost row-label column. Previously every data value fell outside the closed
