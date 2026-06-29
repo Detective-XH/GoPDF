@@ -109,6 +109,56 @@ func TestFontGetEncoderToUnicode(t *testing.T) {
 	}
 }
 
+// ---- TestGetEncoderLegacyFontWarning ---------------------------------------
+
+// TestGetEncoderLegacyFontWarning verifies getEncoder emits the document-scoped
+// WarningLegacyFont when a known legacy non-Unicode Indic font is selected, and stays
+// silent for an ordinary font — the word/document-level honest signal that complements
+// the per-table TableWarningLegacyFont.
+func TestGetEncoderLegacyFontWarning(t *testing.T) {
+	hasLegacyWarn := func(r *Reader) bool {
+		for _, w := range r.Warnings() {
+			if w.Code == WarningLegacyFont {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Legacy font (subset prefix + family) → warning fires.
+	r := fontTestEmptyReader()
+	f := fontTestFontValue(r, dict{name("BaseFont"): name("ABCDEF+Kruti-Dev680")})
+	f.getEncoder()
+	if !hasLegacyWarn(r) {
+		t.Errorf("legacy font ABCDEF+Kruti-Dev680: want WarningLegacyFont, got %v", r.Warnings())
+	}
+
+	// Ordinary font → no legacy warning.
+	r2 := fontTestEmptyReader()
+	f2 := fontTestFontValue(r2, dict{name("BaseFont"): name("ABCDEF+TimesNewRomanPSMT")})
+	f2.getEncoder()
+	if hasLegacyWarn(r2) {
+		t.Errorf("ordinary font TimesNewRomanPSMT: unexpected WarningLegacyFont in %v", r2.Warnings())
+	}
+
+	// Common-word family token ("vivek") is in the per-table list but NOT the strict
+	// document list: a font merely named like the common given name must NOT raise the
+	// uncorroborated document-scoped warning (the document path cannot inspect decoded text).
+	r3 := fontTestEmptyReader()
+	f3 := fontTestFontValue(r3, dict{name("BaseFont"): name("ABCDEF+VivekSans-Regular")})
+	f3.getEncoder()
+	if hasLegacyWarn(r3) {
+		t.Errorf("VivekSans-Regular: must NOT raise the uncorroborated document warning; got %v", r3.Warnings())
+	}
+	// But the strict matcher still recognizes the distinctive legacy families.
+	if !isLegacyIndicFontStrict("ABCDEF+Walkman-Chanakya905Bold") {
+		t.Error("strict matcher must recognize Walkman-Chanakya")
+	}
+	if isLegacyIndicFontStrict("ABCDEF+Vivek-NormalA") {
+		t.Error("strict matcher must NOT match the common-word-only family vivek")
+	}
+}
+
 // ---- TestFontGetEncoderDictEncoding ----------------------------------------
 
 // TestFontGetEncoderDictEncoding verifies that when there is no ToUnicode

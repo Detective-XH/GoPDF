@@ -392,7 +392,11 @@ for _, warning := range r.Warnings() {
 `warning.Code` is an `ExtractionWarningCode`; codes are additive across minor
 versions, so callers must tolerate unrecognised values. Decode-path codes flag
 text whose Unicode may be approximate — `missing_tounicode`, `malformed_tounicode`,
-`fallback_encoding`, `unsupported_encoding`, `missing_glyph_mapping`. Two geometry routing signals flag
+`fallback_encoding`, `unsupported_encoding`, `missing_glyph_mapping`. One decode-path code flags text
+that is not approximate but unrecoverable — `legacy_font_text` (a legacy non-Unicode Indic font such as
+Kruti Dev / DevLys / Walkman-Chanakya, whose glyphs decode to Latin gibberish on every text surface;
+numeric data may be intact but the script labels are garbled, and a pure-text path cannot recover them).
+Two geometry routing signals flag
 runs whose layout geometry is unreliable: `rotated_text` (a text run with a
 rotated, non-horizontal baseline — synthetic-italic shear is *not* flagged) and
 `vertical_writing_mode` (a vertical `-V` CMap whose advances are not honored). Both
@@ -671,11 +675,17 @@ verified correct. As new detectors are added in future minor releases, some tabl
 currently `High` will drop to `Low` — that is the feature working, not a breaking change.
 Callers must tolerate unknown `TableWarningCode` values.
 
-**Warning codes (PR1):**
+**Warning codes:**
 
 | Code | Meaning |
 |------|---------|
 | `phantom_table` | `≥ 60%` of columns are entirely blank — likely a bar chart or infographic misread as a table. Check `w.Detail` for `blank_col_fraction=0.NN`. |
+| `legacy_font_text` | The table's text was rendered through a legacy **non-Unicode Indic** font (e.g. Kruti Dev, DevLys, Walkman-Chanakya) that decodes to Latin gibberish (`rkfydk` for तालिका). Numeric data may be intact, but the text labels are unreliable. The original characters are unrecoverable from a pure-text path (only OCR/font remap could). Check `w.Detail` for `legacy_font=<name>; garble_fraction=0.NN`. |
+
+The same legacy-font condition is ALSO surfaced document-scoped on `Reader.Warnings()` as
+`WarningLegacyFont` (code `legacy_font_text`) at encoder selection, so `Page.Words()`, `Page.Lines()`,
+and `Reader.GetPlainText()` consumers — not only `Tables()` — get the signal (see
+[Diagnostics](#diagnostics) below).
 
 ### Page-space bounding boxes (`Page.TableRegions`)
 

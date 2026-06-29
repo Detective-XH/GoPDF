@@ -235,6 +235,16 @@ func isSimpleFontSubtype(subtype string) bool {
 // TextEncoding interface). The source mirrors the diagnostic emitted at each
 // branch 1:1.
 func (f Font) getEncoder() (TextEncoding, encSource) {
+	// A known legacy non-Unicode Indic font decodes its script to Latin gibberish on EVERY text
+	// surface, whatever encoder branch below is taken (a Kruti-Dev CID font even carries a
+	// /ToUnicode that reproduces the legacy keyboard codes). Flag it document-scoped at selection
+	// so Words/Lines/GetPlainText consumers — not only the per-table Tables() detector — get an
+	// honest signal. The STRICT family list is used here because this path cannot corroborate
+	// with decoded script (it runs before decoding), unlike the per-table detector. Warn-only:
+	// it does NOT change which encoder is returned (no decode change).
+	if isLegacyIndicFontStrict(f.BaseFont()) {
+		f.V.warn(WarningLegacyFont, fontRef(f)+": legacy non-Unicode Indic font; text decodes to Latin gibberish, not the intended script")
+	}
 	toUnicode := f.V.Key("ToUnicode")
 	if toUnicode.Kind() == Stream {
 		if m := f.cachedReadCmap(toUnicode); m != nil {
