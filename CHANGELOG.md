@@ -7,6 +7,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Fixed, pending release
 
+### Added
+
+- `Page.Tables()` now reports per-table quality: each `Table` carries a `Confidence`
+  (`TableConfidence` — `"high"` or `"low"`) and a `Warnings` slice (`[]TableWarning`, each with a
+  `TableWarningCode`), so an LLM/RAG consumer can tell a trustworthy grid from a defective one
+  without re-reading the page. `Confidence` is detection-relative: `"high"` means no quality
+  detector flagged the table — not that it is verified correct — so a table may move from `"high"`
+  to `"low"` in a future release as more detectors are added. The first detector flags a
+  `phantom_table`: a grid whose columns are mostly empty (≥ 60% entirely blank), the signature of a
+  bar chart or infographic misread as a ruled table (a genuinely very sparse table can also trip it,
+  and the warning text says so). The flag never alters the extracted cells.
+- `Page.TableRegions()` returns the page-space bounding box of each detected table, 1:1 with
+  `Page.Tables()` by index, so a consumer can locate a low-confidence table on the page (for example
+  to crop and re-read it). Boxes are in the same Y-up display space as `Page.Words()` and
+  `Page.Content()`. These additions do not change the reconstructed grids — `Page.Tables().Cells` is
+  unchanged.
+
 ### Fixed
 
 - `Page.Tables()` now recovers the data rows of "comb-body" tables — a layout, common in statistical
