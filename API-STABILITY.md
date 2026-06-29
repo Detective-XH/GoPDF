@@ -77,6 +77,18 @@ Additive-evolving API returns identical output, on every platform. Recoverable
 extraction problems produce partial results plus `Warnings()`, never silent
 loss where detectable.
 
+### Diagonal watermark text (reading-order surfaces vs raw geometry)
+
+When a document carries a cross-page diagonal **watermark** (the same skew-rotated stamp
+printed across the document — detected by sampling pages for a recurring diagonal signature),
+its glyphs are dropped from the **reading-order** surfaces — `Page.Words()`, `Page.Lines()`,
+`Page.Blocks()`, and `Page.Tables()` — so a watermark glyph cannot fuse into an adjacent word or
+cell value during geometry-based assembly (e.g. `11144` reading as `111Ê44`). A document WITHOUT a
+recurring watermark is unaffected: page-specific rotated content such as chart-axis labels is
+preserved. The **raw** geometry surfaces — `Page.Content()`, `Page.Texts()`, and `Page.DebugJSON()`
+— always return every glyph, including watermark glyphs, for callers that want the unfiltered
+signal. Word-grouping/layout quality (including this filtering) is a refining area, not frozen.
+
 ### Coordinate system
 
 All geometry is PDF-native user space: origin at the bottom-left of the page,
@@ -131,7 +143,7 @@ Planned, pre-announced additions (additive only — nothing existing changes):
 | Symbol | Planned additions |
 |--------|-------------------|
 | `PageExtractionSummary` | further per-page fields (the `ImageCoverage` image-coverage ratio has shipped; decode-path quality ratios shipped on `PageSignal`/`DocumentSummary` as `DecodeRatios`) |
-| `ExtractionWarningCode` | new warning codes (the enum is additive by design; match known codes, pass unknown ones through). Shipped: page-scoped `sparse_text` (page furniture, no body text) and `non_finite_geometry` (a coordinate `DebugJSON` sanitized to zero; page-scoped for page/text geometry, document-scoped with the page in `Detail` for link rects) |
+| `ExtractionWarningCode` | new warning codes (the enum is additive by design; match known codes, pass unknown ones through). Shipped: page-scoped `sparse_text` (page furniture, no body text) and `non_finite_geometry` (a coordinate `DebugJSON` sanitized to zero; page-scoped for page/text geometry, document-scoped with the page in `Detail` for link rects); document-scoped `legacy_font_text` (a legacy non-Unicode Indic font — Kruti Dev / DevLys / Walkman-Chanakya — whose glyphs decode to Latin gibberish on every text surface) |
 | `ImageRef` | image metadata fields (e.g. color space, inline-image dimensions) |
 | `Word`, `Line` | font name/size fields (per-word font info), aligning with the cross-ecosystem norm. Shipped: `Font string` + `FontSize float64` on both (first-glyph/first-word wins) |
 | `Text` | Shipped: `H float64` (nominal font-box height) and `Rotation float64` (text-baseline angle, degrees, CCW-positive) |
@@ -177,7 +189,7 @@ marked `Experimental` in its godoc.
 | `Page.Tables() ([]Table, error)` | Experimental — ruled-lattice table reconstruction. Accuracy on the documented scope (fully-ruled lattices + structurally-recovered half-open edge columns) is locked by corpus regression gates and deterministic, but the reconstruction **output may still change** as quality is stabilized across the real-world table distribution: borderless and partially-ruled/banded tables are out of scope today (best-effort, not a contract — they may yield no table or a merged grid). Graduates to Stable when the stable-extraction-quality bar is met. A superscript renders at a distinct vertical position and font size, so it extracts as a spaced token (`cm²`→`cm 2`) — a Y-offset effect specific to superscripts, not a general spacing artifact or lattice error. |
 | `Table` | Experimental — the grid type returned by `Page.Tables()`. `Cells [][]string` is the stable core; fields are added additively. Shipped: `Confidence TableConfidence` and `Warnings []TableWarning` — detection-relative per-table quality (see the two rows below). |
 | `Page.TableRegions() ([]TableRegion, error)` / `TableRegion` | Experimental — page display-space bounding boxes of the detected tables, 1:1 with `Tables()` by index; `TableRegion.Rect` is in the same Y-up display space as `Word` / `Stroke` / `Text`. Quality lives on the corresponding `Table` (correlate by index), not duplicated here. `TableRegion`'s field set is additive-stable; it shares `Tables()`'s Experimental status because the set of detected tables may change as reconstruction is refined. Returns the same error as `Tables`/`Words`; does not mutate `Reader`/`Page` state. |
-| `TableConfidence` / `TableWarning` / `TableWarningCode` | Experimental — per-table honest-quality signals carried on `Table`. `TableConfidence` (`"high"` / `"low"`) is **detection-relative**: `High` means no current detector flagged the table — NOT "verified correct" — so a table that is `High` today may become `Low` as detectors are added in a future minor release (that is the feature working, not a breaking change). `TableWarningCode` is an additive enum: callers MUST tolerate unknown codes (treat as "needs review"). `TableWarning`'s field set is frozen — new diagnostics arrive as new codes, not new fields. Shipped code: `phantom_table`. |
+| `TableConfidence` / `TableWarning` / `TableWarningCode` | Experimental — per-table honest-quality signals carried on `Table`. `TableConfidence` (`"high"` / `"low"`) is **detection-relative**: `High` means no current detector flagged the table — NOT "verified correct" — so a table that is `High` today may become `Low` as detectors are added in a future minor release (that is the feature working, not a breaking change). `TableWarningCode` is an additive enum: callers MUST tolerate unknown codes (treat as "needs review"). `TableWarning`'s field set is frozen — new diagnostics arrive as new codes, not new fields. Shipped codes: `phantom_table`, `legacy_font_text` (text rendered through a legacy non-Unicode Indic font, decoded to gibberish; also surfaced document-scoped on `Reader.Warnings()`). |
 | `Page.DebugJSON() ([]byte, error)` | Experimental — PyMuPDF-dict-shaped JSON of the page's text geometry + page-scoped warnings. Wire format may change. |
 | `Reader.DebugJSON() ([]byte, error)` | Experimental — document envelope (pages + fonts + links + warnings). Wire format may change. |
 | `Page.Blocks() ([]Block, error)` | Experimental — column-major visual blocks (gap-grouped lines, the RAG chunking unit). The grouping heuristic may change; the Go signature and field set are additive-stable. |

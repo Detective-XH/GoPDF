@@ -1,11 +1,13 @@
 // tables_rotated_text_test.go — unit tests for the skew-text drop filter and the
-// re-scope contract that confines it to the table path only.
+// "do it once" contract that applies it uniformly to every reading-order surface.
 //
-// dropSkewRotatedText removes diagonal/watermark glyphs from table-reconstruction
-// word assembly while keeping all axis-aligned text (0°/90°/180°/270°). Public
-// Words()/Lines()/Blocks() must return all glyphs unfiltered; only the table word
-// source applies the filter (before word assembly). These tests verify both the
-// filter's correctness and the scope boundary.
+// dropSkewRotatedText removes diagonal/watermark glyphs while keeping all axis-aligned text
+// (0°/90°/180°/270°). The table grid path applies it UNCONDITIONALLY (a cell never holds diagonal
+// text). The reading-order prose surfaces (Words/Lines/Blocks) apply it via layoutFilter/
+// layoutContent ONLY for a detected cross-page watermark, so a page-specific rotated label is
+// preserved there. The raw glyphs (incl. skew) remain on Content()/Texts()/DebugJSON. The
+// low-level wordsFromContent does NOT itself filter — it assembles whatever Content it is handed.
+// These tests verify the filter's correctness, the watermark detector, and layoutFilter.
 package pdf
 
 import (
@@ -319,18 +321,86 @@ func TestDeRotateTableContentWordOrder(t *testing.T) {
 	}
 }
 
-// TestTableWordsFilterScope is the re-scope contract test. It verifies that the
-// skew filter is confined to the table word-assembly path and does NOT suppress
-// diagonal text from the public word-assembly path:
+// TestWatermarkVerdict locks the cross-page watermark threshold: a document is watermarked only
+// when the SAME diagonal signature (a phrase of >= minWatermarkRunes) recurs on >= watermarkPageFrac
+// of sampled pages (a stamp on ~every page), NOT when a few pages carry skew, NOR when a lone short
+// rotated symbol recurs. Zero sample → false.
+func TestWatermarkVerdict(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		sig               string
+		dominant, sampled int
+		want              bool
+		note              string
+	}{
+		{"GKNTÔ", 16, 16, true, "same 5-rune watermark phrase on every sampled page (e.g. vn-gso)"},
+		{"ABCDE", 8, 16, true, "phrase recurs on exactly the 0.5 boundary → watermarked"},
+		{"Restaurantes", 2, 20, false, "chart labels recur on a minority of pages (ar-indec 2/20)"},
+		{"abc", 6, 908, false, "sparse recurrence (it-istat 6/908<1%)"},
+		{"GKNTÔ", 0, 0, false, "empty sample guard"},
+		{"", 0, 16, false, "no skew on any sampled page → clean"},
+		{"§", 16, 16, false, "lone rotated symbol recurs but is not a phrase (< minWatermarkRunes)"},
+		{"Whk", 16, 16, false, "short rotated unit (kWh, 3 runes) repeated every page is NOT a watermark (< minWatermarkRunes) — the reviewer's false-positive case"},
+	}
+	for _, tc := range cases {
+		if got := watermarkVerdict(tc.sig, tc.dominant, tc.sampled); got != tc.want {
+			t.Errorf("watermarkVerdict(%q,%d,%d)=%v want %v — %s", tc.sig, tc.dominant, tc.sampled, got, tc.want, tc.note)
+		}
+	}
+}
+
+// TestSamplePageIndices locks the EVENLY-SPACED sampling (the prefix-bias fix): for a document
+// larger than the cap, the sample must span the whole range — include the last page and not be a
+// mere prefix or a fixed parity class.
+func TestSamplePageIndices(t *testing.T) {
+	t.Parallel()
+	// n <= cap → every page.
+	if got := samplePageIndices(5, 16); len(got) != 5 || got[0] != 1 || got[4] != 5 {
+		t.Errorf("samplePageIndices(5,16)=%v; want all 5 pages", got)
+	}
+	// The prefix-bias case the reviewer flagged: n=60, cap=16 must NOT be pages 1..16.
+	got := samplePageIndices(60, 16)
+	if len(got) != 16 {
+		t.Fatalf("samplePageIndices(60,16) len=%d want 16", len(got))
+	}
+	if got[0] != 1 {
+		t.Errorf("first index = %d, want 1", got[0])
+	}
+	if got[len(got)-1] != 60 {
+		t.Errorf("last index = %d, want 60 (sample must reach the final page, not stop at a prefix)", got[len(got)-1])
+	}
+	// Must reach well beyond a 16-page prefix.
+	if got[len(got)-1] <= 16 {
+		t.Errorf("sample %v is a prefix — prefix-bias bug not fixed", got)
+	}
+	// Not a single parity class (the 64-page aliasing concern): indices must include both parities.
+	even, odd := 0, 0
+	for _, v := range samplePageIndices(64, 16) {
+		if v%2 == 0 {
+			even++
+		} else {
+			odd++
+		}
+	}
+	if even == 0 || odd == 0 {
+		t.Errorf("samplePageIndices(64,16) hit a single parity class (even=%d odd=%d) — aliasing", even, odd)
+	}
+}
+
+// TestLayoutFilterDropsSkew is the "do it once" contract test. It verifies that the
+// shared layoutFilter projection — the single drop point that Words()/Lines()/Blocks()/
+// Tables() all consume via layoutContent() — removes diagonal glyphs before assembly, while
+// the low-level wordsFromContent left alone does NOT filter (the filter is layoutFilter's
+// job, not the assembler's):
 //
-//	(a) wordsFromContent on an unfiltered Content KEEPS diagonal glyphs — this
-//	    is the behaviour Words()/Lines()/Blocks() depend on.
-//	(b) wordsFromContent on a dropSkewRotatedText-filtered Content DROPS diagonal
-//	    glyphs — this is exactly what Tables() does internally before assembling
-//	    words for grid reconstruction.
+//	(a) wordsFromContent on RAW Content KEEPS the diagonal glyph — the assembler itself
+//	    does not filter; the raw glyphs remain reachable via Content()/Texts().
+//	(b) wordsFromContent on layoutFilter(c) DROPS the diagonal glyph — this is what EVERY
+//	    reading-order surface now does (Words/Lines/Blocks/Tables all assemble from
+//	    layoutContent()), so a watermark glyph cannot fuse into a value on any of them.
 //
 // A synthetic Content is used so the test is self-contained and fixture-free.
-func TestTableWordsFilterScope(t *testing.T) {
+func TestLayoutFilterDropsSkew(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -345,44 +415,41 @@ func TestTableWordsFilterScope(t *testing.T) {
 
 	c := Content{Text: []Text{dataGlyph, skewGlyph}}
 
-	// ── (a) Public-API word-assembly path: unfiltered Content ─────────────────
-	// wordsFromContent(c) is the same function Words() drives. After the re-scope
-	// it must NOT call dropSkewRotatedText itself, so both glyphs appear in output.
-	publicWords := wordsFromContent(c)
+	// ── (a) Raw assembler: wordsFromContent does NOT filter ───────────────────
+	// The skew glyph survives — it is layoutFilter, not the assembler, that drops it.
+	// (This is why Content()/Texts(), which never pass through layoutFilter, keep the
+	// watermark glyphs.)
+	rawWords := wordsFromContent(c)
 	var gotData, gotSkew bool
-	for _, w := range publicWords {
-		if w.S == "9" {
-			gotData = true
-		}
-		if w.S == "W" {
-			gotSkew = true
-		}
+	for _, w := range rawWords {
+		gotData = gotData || w.S == "9"
+		gotSkew = gotSkew || w.S == "W"
 	}
 	if !gotData {
-		t.Error("public path (a): axis-aligned glyph '9' missing from Words output — unexpected regression")
+		t.Error("raw (a): axis-aligned glyph '9' missing from wordsFromContent — unexpected regression")
 	}
 	if !gotSkew {
-		t.Error("public path (a): diagonal glyph 'W' was dropped from Words output — re-scope broke public API; Words() must return diagonal text unfiltered")
+		t.Error("raw (a): wordsFromContent must not itself filter — diagonal 'W' should survive (the filter lives in layoutFilter)")
 	}
 
-	// ── (b) Table word-assembly path: skew-filtered Content ───────────────────
-	// Tables() builds tableC := Content{Text: dropSkewRotatedText(c.Text), ...}
-	// then calls wordsFromContent(tableC). The diagonal glyph must be absent.
-	tableC := Content{Text: dropSkewRotatedText(c.Text), Rect: c.Rect, Stroke: c.Stroke}
-	tableWords := wordsFromContent(tableC)
+	// ── (b) layoutFilter projection: skew dropped for the prose surfaces ──────
+	// On a watermarked document Words()/Lines()/Blocks() assemble from layoutContent() ==
+	// layoutFilter of the page Content (and the table grid path always filters), so the
+	// diagonal glyph must be absent.
+	filtered := layoutFilter(c)
+	if filtered.Rect == nil && c.Rect != nil || len(filtered.Stroke) != len(c.Stroke) {
+		t.Error("layoutFilter must pass Rect/Stroke through unchanged")
+	}
+	assembledWords := wordsFromContent(filtered)
 	gotData, gotSkew = false, false
-	for _, w := range tableWords {
-		if w.S == "9" {
-			gotData = true
-		}
-		if w.S == "W" {
-			gotSkew = true
-		}
+	for _, w := range assembledWords {
+		gotData = gotData || w.S == "9"
+		gotSkew = gotSkew || w.S == "W"
 	}
 	if !gotData {
-		t.Error("table path (b): axis-aligned glyph '9' missing — skew filter must not drop 0° text")
+		t.Error("filtered (b): axis-aligned glyph '9' missing — layoutFilter must not drop 0° text")
 	}
 	if gotSkew {
-		t.Error("table path (b): diagonal glyph 'W' survived in table words — skew filter must remove it before word assembly so watermarks do not contaminate cell values")
+		t.Error("filtered (b): diagonal glyph 'W' survived layoutFilter — watermark would contaminate every assembled surface")
 	}
 }

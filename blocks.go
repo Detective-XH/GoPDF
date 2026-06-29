@@ -52,7 +52,7 @@ type Block struct {
 // Returns (nil, nil) for pages with no extractable text. Panics during content
 // parsing are recovered and returned as errors, matching Words() and Lines().
 func (p Page) Blocks() ([]Block, error) {
-	return blocksFromContentRecovered(p.Content())
+	return blocksFromContentRecovered(p.layoutContent())
 }
 
 // blocksFromContent assembles column-major blocks from an already-interpreted
