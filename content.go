@@ -42,6 +42,13 @@ type contentState struct {
 func (s *contentState) appendText(str string) {
 	decoded := s.g.enc.Decode(str)
 	s.counters.record(s.g.encSource, decoded)
+	// A legacy-remap run reorders and changes the rune COUNT, so the byte-zip in layoutDecoded would
+	// pile the recount tail at one X and scramble the grid's X-sort. Lay it out with a strictly-
+	// monotonic per-glyph advance instead. Scoped to encSourceLegacyRemap (non-legacy is byte-identical).
+	if s.g.encSource == encSourceLegacyRemap {
+		s.layoutLegacyRun(str, decoded)
+		return
+	}
 	// Only a Type0 font with a degenerate /DW of 0 needs per-CID /W widths (the
 	// Bold-Cambria stacking bug); every other font keeps the cheap one-byte-per-
 	// rune path, byte-identical to before. The check is per text-show, not per glyph.
@@ -159,6 +166,35 @@ func (s *contentState) layoutDecoded(str, decoded string) {
 		}
 		n++
 		s.appendGlyph(ch, w0)
+	}
+}
+
+// layoutLegacyRun lays out a decoded legacy-remap run (Kruti Dev) with a strictly-monotonic per-glyph
+// X. The transducer reorders AND changes the rune count (a half-form byte → consonant+virama; ा+े → ो),
+// so layoutDecoded's one-rune-per-source-byte zip welds the recount tail to w0=0 — piling those glyphs
+// at a single X. In stream-order surfaces that is harmless, but a grid bucket sorts by X, so the pile
+// scrambles intra-cell order (दिसम्बर 2019 → िदसम्बर 2091). Distributing the run's TOTAL advance (the
+// sum of EVERY source byte's width) uniformly across the decoded runes keeps X strictly increasing —
+// restoring the M0 invariant that the band X-sort reproduces decode order — while the unchanged total
+// span keeps neighbours and adjacent cells positioned (also fixing the merge-down underhang).
+func (s *contentState) layoutLegacyRun(str, decoded string) {
+	runes := []rune(decoded)
+	if len(runes) == 0 {
+		return
+	}
+	var total float64
+	for i := 0; i < len(str); i++ {
+		total += s.g.Tf.effectiveWidth(int(str[i]))
+	}
+	per := total / float64(len(runes))
+	if per <= 0 {
+		// A canonical Kruti font with no /Widths yields total==0; without a positive per the glyphs
+		// would pile at one X and the grid X-sort would scramble them. Floor to a small positive
+		// advance so decode order is preserved (HP carries /Widths, so this is a latent guard).
+		per = 1
+	}
+	for _, ch := range runes {
+		s.appendGlyph(ch, per)
 	}
 }
 
@@ -483,6 +519,15 @@ const tjSpaceThreshold = 120.0
 
 // interpretTJArray handles the TJ operand array; numeric elements are kerning offsets.
 func (s *contentState) interpretTJArray(v Value) {
+	// A legacy-remap font (Kruti Dev) fragments one syllable across consecutive TJ string elements: a
+	// matra's two glyphs (e.g. ा + े = ो, or a half-form + its vertical bar) land in separate elements
+	// split by a SMALL kerning. Decoding each element on its own cannot compose those, so the run must
+	// be accumulated and decoded as a unit (the byte-level transducer reorders/composes across the
+	// join). Scoped to encSourceLegacyRemap so every other font keeps the byte-identical per-element path.
+	if s.g.encSource == encSourceLegacyRemap {
+		s.interpretTJArrayLegacy(v)
+		return
+	}
 	needSpace := false
 	for i := 0; i < v.Len(); i++ {
 		x := v.Index(i)
@@ -510,6 +555,60 @@ func (s *contentState) interpretTJArray(v Value) {
 			}
 		}
 	}
+}
+
+// interpretTJArrayLegacy is interpretTJArray for an encSourceLegacyRemap font. It accumulates the raw
+// bytes of consecutive string elements and decodes each accumulated run as ONE unit, so a matra
+// fragmented across elements is composed by the transducer. A sub-threshold kerning between elements is
+// intra-cluster micro-positioning that the byte concatenation absorbs — but its pen advance is NOT
+// discarded: it is summed into kernAcc and applied to the text matrix after the run is laid out, so the
+// cumulative text-state advance (and therefore every following glyph/word/cell position) matches the
+// base interpreter. A kerning at/beyond tjSpaceThreshold is a real word/column gap: it flushes the run,
+// advances the pen by the gap, and (for a forward gap) emits a separating space.
+func (s *contentState) interpretTJArrayLegacy(v Value) {
+	var buf []byte
+	var kernAcc float64 // text-space advance of the run's sub-threshold kernings, applied at flush
+	flush := func() {
+		if len(buf) > 0 {
+			s.appendText(string(buf))
+			buf = buf[:0]
+		}
+		if kernAcc != 0 {
+			s.g.advance(kernAcc, 0)
+			kernAcc = 0
+		}
+	}
+	for i := 0; i < v.Len(); i++ {
+		x := v.Index(i)
+		if x.Kind() == String {
+			buf = append(buf, x.RawString()...)
+			continue
+		}
+		mag := x.Float64()
+		adj := -mag / 1000 * s.g.Tfs
+		if mag <= -tjSpaceThreshold || mag >= tjSpaceThreshold {
+			flush() // a real gap ends the run
+			if s.g.vertical {
+				s.g.advance(0, adj)
+			} else {
+				s.g.advance(adj*s.g.Th, 0)
+			}
+			if mag <= -tjSpaceThreshold {
+				s.appendSeparator(" ")
+			}
+			continue
+		}
+		if len(buf) == 0 {
+			// A sub-threshold adjustment with no run in progress (leading, or just after a flush) is a
+			// normal pen advance applied BEFORE the next glyph — exactly as the base path; apply it now.
+			s.g.advance(adj*s.g.Th, 0)
+			continue
+		}
+		// Between buffered fragments the advance is absorbed into the composed run; carry it in kernAcc
+		// and restore it at flush so the cumulative downstream advance still matches the base path.
+		kernAcc += adj * s.g.Th
+	}
+	flush()
 }
 
 // handleTextShow handles text-show operators: Tj, TJ, ', and ".

@@ -2,46 +2,6 @@ package pdf
 
 import "testing"
 
-// Devanagari code points used by the reorder cases (explicit \u so the visual vs logical ordering is
-// unambiguous in source).
-const (
-	devTa     = "त" // त
-	devAa     = "ा" // ा  (aa matra, post-base)
-	devShortI = "ि" // ि  (i matra, pre-base — the reordered one)
-	devLa     = "ल" // ल
-	devKa     = "क" // क
-	devHalant = "्" // ्
-	devRa     = "र" // र
-)
-
-func TestReorderDevanagariVisualToLogical(t *testing.T) {
-	cases := []struct {
-		name, in, want string
-	}{
-		{"ki: short-i before single consonant", devShortI + devKa, devKa + devShortI},
-		{"talika: ता ि ल का -> ता ल ि का",
-			devTa + devAa + devShortI + devLa + devKa + devAa,
-			devTa + devAa + devLa + devShortI + devKa + devAa},
-		{"tri: short-i before a halant conjunct cluster त्र",
-			devShortI + devTa + devHalant + devRa,
-			devTa + devHalant + devRa + devShortI},
-		{"short-i before a non-consonant (matra) is left alone", devShortI + devAa, devShortI + devAa},
-		{"lone short-i", devShortI, devShortI},
-		{"two short-i clusters each move past their consonant",
-			devShortI + devLa + devShortI + devKa,
-			devLa + devShortI + devKa + devShortI},
-		{"no devanagari is unchanged", "abc", "abc"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := string(reorderDevanagariVisualToLogical([]rune(c.in)))
-			if got != c.want {
-				t.Errorf("reorder(%q) = %q, want %q", c.in, got, c.want)
-			}
-		})
-	}
-}
-
 // TestEncoderYieldsDevanagari proves the decode-change FP gate SEPARATES (not merely fires): an
 // encoder already producing Devanagari is detected (→ remap declines), while a Latin encoder is not
 // (→ remap proceeds). This is the stay-silent leg the Walkman round-trip (the fire leg) cannot cover.

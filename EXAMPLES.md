@@ -396,6 +396,11 @@ text whose Unicode may be approximate — `missing_tounicode`, `malformed_tounic
 that is not approximate but unrecoverable — `legacy_font_text` (a legacy non-Unicode Indic font such as
 Kruti Dev / DevLys / Walkman-Chanakya, whose glyphs decode to Latin gibberish on every text surface;
 numeric data may be intact but the script labels are garbled, and a pure-text path cannot recover them).
+**Recovered exception:** a **canonical-coded simple Kruti Dev 010** font is now remapped to REAL
+searchable Unicode Devanagari (`Words`/`Lines`/`Blocks`/`Tables`/`GetPlainText` all emit the recovered
+script via a built-in byte→Unicode transducer, ported from the SIL wsresources MIT data — see NOTICE);
+the warning does **not** fire when such a font is cleanly recovered. The composite (Type0) Kruti, the
+subsetted Walkman, and DevLys are NOT yet remapped — they still decode to gibberish and still warn.
 Two geometry routing signals flag
 runs whose layout geometry is unreliable: `rotated_text` (a text run with a
 rotated, non-horizontal baseline — synthetic-italic shear is *not* flagged) and
@@ -680,12 +685,19 @@ Callers must tolerate unknown `TableWarningCode` values.
 | Code | Meaning |
 |------|---------|
 | `phantom_table` | `≥ 60%` of columns are entirely blank — likely a bar chart or infographic misread as a table. Check `w.Detail` for `blank_col_fraction=0.NN`. |
-| `legacy_font_text` | The table's text was rendered through a legacy **non-Unicode Indic** font (e.g. Kruti Dev, DevLys, Walkman-Chanakya) that decodes to Latin gibberish (`rkfydk` for तालिका). Numeric data may be intact, but the text labels are unreliable. The original characters are unrecoverable from a pure-text path (only OCR/font remap could). Check `w.Detail` for `legacy_font=<name>; garble_fraction=0.NN`. |
+| `legacy_font_text` | The table's text was rendered through a legacy **non-Unicode Indic** font (e.g. Kruti Dev, DevLys, Walkman-Chanakya) that decodes to Latin gibberish (`rkfydk` for तालिका). Numeric data may be intact, but the text labels are unreliable. Most such fonts are unrecoverable from a pure-text path (only OCR/font remap could); the exception is a **canonical-coded simple Kruti Dev 010**, which GoPDF now remaps to real Unicode — its cells are cleanly recovered and the warning does not fire for them. Check `w.Detail` for `legacy_font=<name>; garble_fraction=0.NN`. |
 
 The same legacy-font condition is ALSO surfaced document-scoped on `Reader.Warnings()` as
 `WarningLegacyFont` (code `legacy_font_text`) at encoder selection, so `Page.Words()`, `Page.Lines()`,
 and `Reader.GetPlainText()` consumers — not only `Tables()` — get the signal (see
-[Diagnostics](#diagnostics) below).
+[Diagnostics](#diagnostics) below). A canonical-coded simple **Kruti Dev 010** font is the one legacy
+case GoPDF recovers: its bytes are remapped to real searchable Unicode Devanagari (a built-in byte→
+Unicode transducer ported from SIL wsresources MIT data — see NOTICE), so those surfaces emit the
+intended script instead of gibberish and the warning stays silent on the recovered text. The remap is
+**conservative**: it fires only for a strict-legacy-named, SIMPLE, canonical-coded font whose current
+decode is non-Indic — composite (Type0) Kruti, subsetted Walkman, and DevLys are not remapped and still
+warn. A page that overlaps a text column with a table in the same vertical band can mis-bucket a
+recovered label cell's leading glyphs into an adjacent row; numeric data and prose are unaffected.
 
 ### Page-space bounding boxes (`Page.TableRegions`)
 

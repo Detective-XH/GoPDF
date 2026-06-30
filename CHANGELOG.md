@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## v0.8.7 — 2026-06-30
+
+### Added
+
+- GoPDF now recovers real, searchable Unicode Devanagari from a **canonical-coded simple Kruti Dev 010**
+  font — a legacy non-Unicode font common in South Asian (Hindi) statistical PDFs whose bytes otherwise
+  decode to Latin gibberish (for example `fodk` instead of विका, or `,u-;w-,y-,e-` instead of एन.यू.एल.एम.).
+  Where the previous release only *flagged* such garble, `Page.Words()`, `Page.Lines()`, `Page.Blocks()`,
+  `Page.Tables()`, and `Reader.GetPlainText()` now emit the intended script for these fonts. The remap uses
+  a built-in byte→Unicode transducer ported from the SIL wsresources mapping data (MIT — see NOTICE); no
+  font files or external dependencies are bundled, and zero-width joiners are omitted so the recovered text
+  stays searchable. The `legacy_font_text` warning no longer fires on text that is cleanly recovered.
+- The remap is deliberately conservative: it fires only for a strict-legacy-named, **simple**,
+  canonical-coded font whose current decode is non-Indic. Composite (Type0) Kruti, subsetted
+  Walkman-Chanakya, and DevLys fonts are not remapped — they still decode to gibberish and still warn.
+  Extraction output for every non-matched font is byte-identical to before. One edge case: on a page that
+  overlaps a text column with a table in the same vertical band, a recovered table label's leading glyphs
+  can bucket into an adjacent row; the numeric data and surrounding prose are unaffected.
+
 ## v0.8.6 — 2026-06-29
 
 ### Added
