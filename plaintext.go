@@ -80,12 +80,44 @@ func (s *plainTextState) handlePlainTf(args []Value) {
 
 // showArray decodes and writes every String element of a TJ array operand.
 func (s *plainTextState) showArray(v Value) {
+	if s.encSource == encSourceLegacyRemap {
+		s.showArrayLegacy(v)
+		return
+	}
 	for i := 0; i < v.Len(); i++ {
 		x := v.Index(i)
 		if x.Kind() == String {
 			s.showEncoded(x.RawString())
 		}
 	}
+}
+
+// showArrayLegacy is showArray for an encSourceLegacyRemap font: it accumulates consecutive string
+// elements and decodes each run as ONE unit so a matra fragmented across elements is composed by the
+// transducer, flushing on a word/column-gap kerning (mirroring interpretTJArrayLegacy so the two sinks'
+// decode-path counters stay in agreement). The gap space is uncounted, like the content separator.
+func (s *plainTextState) showArrayLegacy(v Value) {
+	var buf []byte
+	flush := func() {
+		if len(buf) > 0 {
+			s.showEncoded(string(buf))
+			buf = buf[:0]
+		}
+	}
+	for i := 0; i < v.Len(); i++ {
+		x := v.Index(i)
+		if x.Kind() == String {
+			buf = append(buf, x.RawString()...)
+			continue
+		}
+		if mag := x.Float64(); mag <= -tjSpaceThreshold {
+			flush()
+			s.writeDecoded(" ")
+		} else if mag >= tjSpaceThreshold {
+			flush()
+		}
+	}
+	flush()
 }
 
 func (s *plainTextState) handlePlainShow(op string, args []Value) {

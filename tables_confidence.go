@@ -432,6 +432,19 @@ func hasIndicScript(s string) bool {
 	return false
 }
 
+// hasLatinLetters reports whether s contains any ASCII Latin letter. A legacy-Indic-font word that
+// still carries Latin letters has NOT been cleanly recovered to Unicode — it is either un-remapped
+// gibberish or a partial Devanagari+Latin remap; either way its labels are unreliable. (Distinct from
+// the Latin-1 range hasIndicScript discusses: this is the positive "still has Latin" tell.)
+func hasLatinLetters(s string) bool {
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			return true
+		}
+	}
+	return false
+}
+
 // wordCenterInCells reports whether word w's center anchor falls inside any lattice cell, using
 // the same top-origin containment test reconstructGrid uses to bucket words into cells
 // (tables_lattice.go). Restricting the legacy-font scan to text that actually lands in the grid
@@ -478,7 +491,13 @@ func detectLegacyFontText(cells []lCell, words []Word) []TableWarning {
 			continue
 		}
 		alpha++
-		if isLegacyIndicFont(w.Font) && !hasIndicScript(w.S) {
+		// A legacy-Indic-font word is "garbled / not cleanly recovered" unless it is pure Indic
+		// script with NO Latin letters. This catches BOTH the un-remapped case (all-Latin gibberish:
+		// no Indic) AND a PARTIALLY-remapped case (Devanagari + leftover Latin "soup": has Indic but
+		// still carries Latin). Without the Latin-letter test a partial remap would silence this
+		// per-table warning and flip Confidence to High over soup — strictly worse than flagged
+		// gibberish. A fully-recovered word (pure Devanagari, no Latin) is correctly NOT flagged.
+		if isLegacyIndicFont(w.Font) && (!hasIndicScript(w.S) || hasLatinLetters(w.S)) {
 			garbled++
 			if famSeen == "" {
 				famSeen = w.Font

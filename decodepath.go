@@ -26,6 +26,7 @@ const (
 	encSourceUnsupported                       // unknown/odd /Encoding → PDFDocEncoding fallback
 	encSourceSimple                            // declared base byte encoding (WinAnsi/MacRoman/PDFDoc)
 	encSourceCIDMap                            // Adobe CID→Unicode table (Identity-H/V, no ToUnicode, Adobe ordering)
+	encSourceLegacyRemap                       // legacy non-Unicode Indic font remapped to Unicode (per-variant byte→Unicode table + visual→logical reorder)
 	numEncSource
 )
 
