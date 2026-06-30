@@ -49,6 +49,16 @@ func (s *contentState) appendText(str string) {
 		s.layoutLegacyRun(str, decoded)
 		return
 	}
+	// Composite-legacy path (see legacy_krutidev010_widths.go): unlike the simple-font legacy-remap
+	// above, a composite run carries a REAL per-CID /W width that must survive the reorder, so this does
+	// NOT reuse layoutLegacyRun's uniform-spread-of-total approach (proven to scramble grid/word
+	// segmentation when forced onto a real proportional composite font).
+	if s.g.encSource == encSourceLegacyRemapComposite {
+		if e, ok := s.g.enc.(*legacyCompositeRemap); ok {
+			s.layoutCompositeLegacyRun(e, str)
+			return
+		}
+	}
 	// Only a Type0 font with a degenerate /DW of 0 needs per-CID /W widths (the
 	// Bold-Cambria stacking bug); every other font keeps the cheap one-byte-per-
 	// rune path, byte-identical to before. The check is per text-show, not per glyph.
@@ -238,6 +248,39 @@ func (s *contentState) layoutComposite(cd codeDecoder, str string) {
 			}
 		}
 		pos += nb
+	}
+}
+
+// layoutCompositeLegacyRun is the composite sibling of layoutComposite. Pass 1 (position): walk str
+// CID-by-CID at the bridge's fixed codeWidth (no per-glyph codespace matching needed — see
+// legacyCIDBridge), recording each CID's real cidWidth alongside the keystroke byte e.bridge.byCID
+// resolves it to. Pass 2 (content): run the WHOLE buffered keystroke sequence through the width-tracked
+// transducer — the visual→logical reorder needs the run's full context, not one CID at a time — which
+// returns the final (rune, width) sequence in LOGICAL emission order with every CID's real width
+// preserved (summed onto the last output rune wherever a step split or merged codes; see
+// decodeKrutiDev010Widths). An undersized tail consumes one byte and emits noRune (mirrors
+// legacyCompositeRemap.Decode); a full-width code with no bridge entry consumes the whole code and
+// emits noRune, still carrying that CID's real width so the run's total advance stays invariant.
+func (s *contentState) layoutCompositeLegacyRun(e *legacyCompositeRemap, str string) {
+	cw := e.bridge.codeWidth
+	units := make([]kdUnit, 0, len(str)/cw+1)
+	for pos := 0; pos < len(str); {
+		if pos+cw > len(str) {
+			units = append(units, kdUnit{code: int(noRune), w: s.g.Tf.cidWidth(int(str[pos]))})
+			pos++
+			continue
+		}
+		cid := beCID(str[pos : pos+cw])
+		w := s.g.Tf.cidWidth(cid)
+		if by, ok := e.bridge.byCID[cid]; ok {
+			units = append(units, kdUnit{code: int(by), w: w})
+		} else {
+			units = append(units, kdUnit{code: int(noRune), w: w})
+		}
+		pos += cw
+	}
+	for _, g := range decodeKrutiDev010Widths(units, e.fallback) {
+		s.appendGlyph(g.r, g.w)
 	}
 }
 
@@ -523,8 +566,10 @@ func (s *contentState) interpretTJArray(v Value) {
 	// matra's two glyphs (e.g. ा + े = ो, or a half-form + its vertical bar) land in separate elements
 	// split by a SMALL kerning. Decoding each element on its own cannot compose those, so the run must
 	// be accumulated and decoded as a unit (the byte-level transducer reorders/composes across the
-	// join). Scoped to encSourceLegacyRemap so every other font keeps the byte-identical per-element path.
-	if s.g.encSource == encSourceLegacyRemap {
+	// join). Scoped to encSourceLegacyRemap (and its composite sibling, which fragments the SAME way —
+	// confirmed by render-truth on the HP fixture: an un-accumulated composite run split "षि्ट"
+	// mid-syllable across TJ elements) so every other font keeps the byte-identical per-element path.
+	if s.g.encSource == encSourceLegacyRemap || s.g.encSource == encSourceLegacyRemapComposite {
 		s.interpretTJArrayLegacy(v)
 		return
 	}

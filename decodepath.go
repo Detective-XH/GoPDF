@@ -27,6 +27,10 @@ const (
 	encSourceSimple                            // declared base byte encoding (WinAnsi/MacRoman/PDFDoc)
 	encSourceCIDMap                            // Adobe CID→Unicode table (Identity-H/V, no ToUnicode, Adobe ordering)
 	encSourceLegacyRemap                       // legacy non-Unicode Indic font remapped to Unicode (per-variant byte→Unicode table + visual→logical reorder)
+	// encSourceLegacyRemapComposite: a composite (Type0) legacy Indic font whose CIDs are remapped to
+	// Unicode via a per-CID width-tracked transducer pass (legacy_krutidev010_widths.go), so the
+	// visual→logical reorder runs WITHOUT losing each CID's real /W-derived advance.
+	encSourceLegacyRemapComposite
 	numEncSource
 )
 
