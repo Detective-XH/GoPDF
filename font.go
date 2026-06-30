@@ -244,7 +244,18 @@ func (f Font) getEncoder() (TextEncoding, encSource) {
 	// it does NOT change which encoder is returned (no decode change).
 	if isLegacyIndicFontStrict(f.BaseFont()) {
 		f.V.warn(WarningLegacyFont, fontRef(f)+": legacy non-Unicode Indic font; text decodes to Latin gibberish, not the intended script")
+		// A per-variant byte→Unicode table recovers the real Devanagari as searchable text. Placed
+		// BEFORE the ToUnicode branch because these fonts carry a Latin /ToUnicode that would
+		// otherwise return first and bypass the remap (M2). Falls through to the warn-only path when
+		// no table exists for the variant, so a triggered-but-tableless font never corrupts.
+		if enc := f.legacyDevanagariEncoder(); enc != nil {
+			return enc, encSourceLegacyRemap
+		}
 	}
+	return f.getEncoderInner()
+}
+
+func (f Font) getEncoderInner() (TextEncoding, encSource) {
 	toUnicode := f.V.Key("ToUnicode")
 	if toUnicode.Kind() == Stream {
 		if m := f.cachedReadCmap(toUnicode); m != nil {
