@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## Fixed, pending release
+
+### Changed
+
+- Documentation: corrected stale README wording that described every legacy non-Unicode Indic font as
+  decoding to "Latin gibberish on every surface". Since v0.8.7, simple **Kruti Dev 010** fonts are
+  transcoded to real, searchable Unicode; only composite/Type0 Kruti, subsetted Walkman-Chanakya, and
+  DevLys still decode to gibberish. Adds a capability summary for legacy non-Unicode Indic font handling.
+
 ## v0.8.7 — 2026-06-30
 
 ### Added
