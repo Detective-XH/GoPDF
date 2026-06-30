@@ -89,3 +89,42 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
 CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+----------------------------------------------------------------------
+Walkman-Chanakya 905 legacy-font -> Unicode mapping data (SIL wsresources)
+----------------------------------------------------------------------
+
+The Walkman-Chanakya 905 byte->Unicode transducer in `legacy_walkmanc905.go`
+(the byte-class definitions and the three-pass mapping/reorder rules) is a
+pure-Go port of the TECkit mapping `W-C-905.map` distributed by SIL
+International in the silnrsi/wsresources repository. Only the character-
+equivalence DATA (byte codes, Unicode code points, and the documented
+reorder passes) is ported; no TECkit source code or runtime is included,
+and ZERO_WIDTH_JOINER/NON_JOINER are intentionally omitted for searchable
+text. The font binaries themselves are NOT included or required.
+
+  Source:  https://github.com/silnrsi/wsresources
+  File:    scripts/Deva/legacy/walkman-chanakya/mappings/W-C-905.map
+
+Licensed under the MIT License:
+
+Copyright (c) 2006 SIL International.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

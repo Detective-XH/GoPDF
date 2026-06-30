@@ -235,22 +235,18 @@ func isSimpleFontSubtype(subtype string) bool {
 // TextEncoding interface). The source mirrors the diagnostic emitted at each
 // branch 1:1.
 func (f Font) getEncoder() (TextEncoding, encSource) {
-	// A known legacy non-Unicode Indic font decodes its script to Latin gibberish on EVERY text
-	// surface, whatever encoder branch below is taken (a Kruti-Dev CID font even carries a
-	// /ToUnicode that reproduces the legacy keyboard codes). Flag it document-scoped at selection
-	// so Words/Lines/GetPlainText consumers — not only the per-table Tables() detector — get an
-	// honest signal. The STRICT family list is used here because this path cannot corroborate
-	// with decoded script (it runs before decoding), unlike the per-table detector. Warn-only:
-	// it does NOT change which encoder is returned (no decode change).
+	// A known legacy non-Unicode Indic font decodes its script to Latin gibberish unless a per-variant
+	// transducer recovers it. Try the remap FIRST; flag document-scoped ONLY on the fall-through (no
+	// transducer / declined gate), so Words/Lines/GetPlainText consumers get an honest signal on a
+	// still-gibberish font without a RECOVERED font carrying a now-false "decodes to gibberish" warning.
+	// The STRICT family list is used here because this path cannot corroborate with decoded script (it
+	// runs before decoding), unlike the per-table detector. The remap is placed BEFORE the ToUnicode
+	// branch because these fonts carry a Latin /ToUnicode that would otherwise return first (M2).
 	if isLegacyIndicFontStrict(f.BaseFont()) {
-		f.V.warn(WarningLegacyFont, fontRef(f)+": legacy non-Unicode Indic font; text decodes to Latin gibberish, not the intended script")
-		// A per-variant byte→Unicode table recovers the real Devanagari as searchable text. Placed
-		// BEFORE the ToUnicode branch because these fonts carry a Latin /ToUnicode that would
-		// otherwise return first and bypass the remap (M2). Falls through to the warn-only path when
-		// no table exists for the variant, so a triggered-but-tableless font never corrupts.
 		if enc := f.legacyDevanagariEncoder(); enc != nil {
 			return enc, encSourceLegacyRemap
 		}
+		f.V.warn(WarningLegacyFont, fontRef(f)+": legacy non-Unicode Indic font; text decodes to Latin gibberish, not the intended script")
 	}
 	return f.getEncoderInner()
 }
