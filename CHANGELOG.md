@@ -7,11 +7,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Fixed, pending release
 
+### Added
+
+- GoPDF now recovers real, searchable Unicode Devanagari from **subsetted Walkman-Chanakya 905** fonts —
+  a legacy non-Unicode font (common in Indian government statistical PDFs) whose content codes are
+  remapped to a compact subset range and which previously decoded to Latin gibberish on every surface.
+  `Page.Words()`, `Page.Lines()`, `Page.Blocks()`, `Page.Tables()`, and `Reader.GetPlainText()` now emit
+  the intended script. Recovery uses a per-font bridge over the font's `/Encoding /Differences` plus a
+  built-in transducer ported from the SIL wsresources mapping data (MIT — see NOTICE); no font files or
+  external dependencies are bundled. On the one statistical-appendix fixture available (~42,862 words),
+  roughly 99.9% of recovered words are correct. **Known limitation:** precomposed-ligature glyphs
+  (~0.1% of recovered words — e.g. a few proper nouns) may mis-decode, because a subsetted font names a
+  precomposed ligature with an arbitrary slot and its real identity lives in the embedded font program;
+  the orthographically-invalid subset of these is detected and flagged on `Page.Tables()` via the
+  `legacy_font_text` warning (Confidence Low, with `misdecoded_clusters=N` in the warning detail).
+
 ### Changed
 
+- The legacy non-Unicode Indic font warning is now **recovery-aware**: `Reader.Warnings()` no longer
+  flags a cleanly-recovered legacy font (this also stops a recovered simple Kruti Dev 010 font from
+  carrying a now-false "gibberish" warning). The per-table `legacy_font_text` warning message is
+  broadened to cover both un-recovered gibberish and recovered-but-mis-decoded ligature clusters; a
+  table containing an orthographically-invalid recovered cluster (including the rare simple Kruti Dev 010
+  transducer residual) now reports Confidence Low rather than High. Table cell text is unchanged.
 - Documentation: corrected stale README wording that described every legacy non-Unicode Indic font as
-  decoding to "Latin gibberish on every surface". Since v0.8.7, simple **Kruti Dev 010** fonts are
-  transcoded to real, searchable Unicode; only composite/Type0 Kruti, subsetted Walkman-Chanakya, and
+  decoding to "Latin gibberish on every surface". Simple **Kruti Dev 010** and subsetted
+  **Walkman-Chanakya 905** are now transcoded to real, searchable Unicode; only composite/Type0 Kruti and
   DevLys still decode to gibberish. Adds a capability summary for legacy non-Unicode Indic font handling.
 
 ## v0.8.7 — 2026-06-30

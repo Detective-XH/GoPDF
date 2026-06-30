@@ -445,6 +445,42 @@ func hasLatinLetters(s string) bool {
 	return false
 }
 
+// hasInvalidHalantMatra reports whether s contains a Devanagari virama / halant (U+094D) immediately
+// followed by a dependent vowel sign / matra (U+093E..U+094C). That sequence is orthographically
+// impossible in valid Devanagari — a halant suppresses the inherent vowel, so no matra can attach to
+// it — so it can only arise from a mis-decode. It is the signature of a precomposed-ligature glyph that
+// a subsetted-font /Differences bridge could not resolve (e.g. फ्रेंच mis-decoded to प्रफ्ेंच, where फ्
+// is followed by े), and also catches legacy-transducer residuals (e.g. क्ष्ोत्र for क्षेत्र). A single
+// occurrence is a DEFINITE mis-decode (zero false positives on cleanly-recovered text).
+func hasInvalidHalantMatra(s string) bool {
+	prevHalant := false
+	for _, r := range s {
+		if prevHalant && r >= 0x093E && r <= 0x094C {
+			return true
+		}
+		prevHalant = r == 0x094D
+	}
+	return false
+}
+
+// legacyWordFlags classifies a legacy-Indic-font word for detectLegacyFontText. garbled = the word is
+// not cleanly recovered: either un-remapped (all-Latin gibberish, no Indic) or PARTIALLY remapped
+// (Devanagari + leftover Latin "soup") — a fuzzy heuristic that needs a count/fraction gate to avoid
+// false-positiving a legit Latin word in an Indic table. misdecoded = the word recovered to pure Indic
+// but carries an orthographically-IMPOSSIBLE halant+matra cluster — the signature of a precomposed-
+// ligature glyph a subsetted-font /Differences bridge could not resolve (e.g. फ्रेंच → प्रफ्ेंच), or a
+// legacy-transducer residual (क्ष्ोत्र for क्षेत्र). A DEFINITE mis-decode (zero false positives), so a
+// single one flags. A non-legacy font, or a cleanly-recovered word, is neither.
+func legacyWordFlags(w Word) (garbled, misdecoded bool) {
+	if !isLegacyIndicFont(w.Font) {
+		return false, false
+	}
+	if !hasIndicScript(w.S) || hasLatinLetters(w.S) {
+		return true, false
+	}
+	return false, hasInvalidHalantMatra(w.S)
+}
+
 // wordCenterInCells reports whether word w's center anchor falls inside any lattice cell, using
 // the same top-origin containment test reconstructGrid uses to bucket words into cells
 // (tables_lattice.go). Restricting the legacy-font scan to text that actually lands in the grid
@@ -484,36 +520,34 @@ func detectLegacyFontText(cells []lCell, words []Word) []TableWarning {
 	if len(cells) == 0 {
 		return nil
 	}
-	alpha, garbled := 0, 0
+	alpha, garbled, misdecoded := 0, 0, 0
 	famSeen := ""
 	for _, w := range words {
 		if !hasAnyLetter(w.S) || !wordCenterInCells(w, cells) {
 			continue
 		}
 		alpha++
-		// A legacy-Indic-font word is "garbled / not cleanly recovered" unless it is pure Indic
-		// script with NO Latin letters. This catches BOTH the un-remapped case (all-Latin gibberish:
-		// no Indic) AND a PARTIALLY-remapped case (Devanagari + leftover Latin "soup": has Indic but
-		// still carries Latin). Without the Latin-letter test a partial remap would silence this
-		// per-table warning and flip Confidence to High over soup — strictly worse than flagged
-		// gibberish. A fully-recovered word (pure Devanagari, no Latin) is correctly NOT flagged.
-		if isLegacyIndicFont(w.Font) && (!hasIndicScript(w.S) || hasLatinLetters(w.S)) {
+		g, m := legacyWordFlags(w)
+		if g {
 			garbled++
-			if famSeen == "" {
-				famSeen = w.Font
-			}
+		} else if m {
+			misdecoded++
+		}
+		if (g || m) && famSeen == "" {
+			famSeen = w.Font
 		}
 	}
-	if alpha == 0 || garbled < minLegacyGarbledWords {
+	if alpha == 0 {
 		return nil
 	}
 	frac := float64(garbled) / float64(alpha)
-	if frac < legacyFontGarbleFrac {
+	gibberish := garbled >= minLegacyGarbledWords && frac >= legacyFontGarbleFrac
+	if !gibberish && misdecoded == 0 {
 		return nil
 	}
 	return []TableWarning{{
 		Code:    TableWarningLegacyFont,
-		Message: "table text was rendered through a legacy non-Unicode Indic font (e.g. Kruti Dev / DevLys / Chanakya) and decoded to Latin gibberish — numeric data may be intact but the text labels are unreliable; verify the labels before relying on them",
-		Detail:  fmt.Sprintf("legacy_font=%s; garble_fraction=%.2f", famSeen, frac),
+		Message: "table text was rendered through a legacy non-Unicode Indic font (e.g. Kruti Dev / DevLys / Chanakya); some labels did not cleanly recover — either left as Latin gibberish, or mis-decoded from a precomposed-ligature glyph into an orthographically-invalid cluster — so numeric data may be intact but verify the affected text labels before relying on them",
+		Detail:  fmt.Sprintf("legacy_font=%s; garble_fraction=%.2f; misdecoded_clusters=%d", famSeen, frac, misdecoded),
 	}}
 }
