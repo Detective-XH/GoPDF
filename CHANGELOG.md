@@ -21,6 +21,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   precomposed ligature with an arbitrary slot and its real identity lives in the embedded font program;
   the orthographically-invalid subset of these is detected and flagged on `Page.Tables()` via the
   `legacy_font_text` warning (Confidence Low, with `misdecoded_clusters=N` in the warning detail).
+- GoPDF now also recovers real, searchable Unicode Devanagari from **composite (Type0/CID-keyed) Kruti
+  Dev 010** fonts — confirmed on both a CFF-descendant and a TrueType-descendant fixture, including real
+  multi-column tables up to 11 columns by 31 rows. Recovery reads the font's own `/ToUnicode` CID map to
+  recover each character's original keystroke, then runs the same reordering transducer used for the
+  simple-font case, with column and cell boundaries preserved exactly. The recovery only activates when
+  the font's `/ToUnicode` data clears a confidence bar (a high fraction of entries must cleanly resolve
+  to a single legacy keystroke) — a font with already-correct Unicode text is never touched.
 
 ### Changed
 
@@ -31,9 +38,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   table containing an orthographically-invalid recovered cluster (including the rare simple Kruti Dev 010
   transducer residual) now reports Confidence Low rather than High. Table cell text is unchanged.
 - Documentation: corrected stale README wording that described every legacy non-Unicode Indic font as
-  decoding to "Latin gibberish on every surface". Simple **Kruti Dev 010** and subsetted
-  **Walkman-Chanakya 905** are now transcoded to real, searchable Unicode; only composite/Type0 Kruti and
-  DevLys still decode to gibberish. Adds a capability summary for legacy non-Unicode Indic font handling.
+  decoding to "Latin gibberish on every surface". Simple and composite **Kruti Dev 010**, plus subsetted
+  **Walkman-Chanakya 905**, are now transcoded to real, searchable Unicode; other legacy Devanagari
+  families (e.g. DevLys) still decode to gibberish. Adds a capability summary for legacy non-Unicode
+  Indic font handling.
 
 ## v0.8.7 — 2026-06-30
 

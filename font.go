@@ -246,6 +246,10 @@ func (f Font) getEncoder() (TextEncoding, encSource) {
 		if enc := f.legacyDevanagariEncoder(); enc != nil {
 			return enc, encSourceLegacyRemap
 		}
+		// Composite (Type0) sibling — see legacy_krutidev010_widths.go.
+		if enc := f.legacyDevanagariCompositeEncoder(); enc != nil {
+			return enc, encSourceLegacyRemapComposite
+		}
 		f.V.warn(WarningLegacyFont, fontRef(f)+": legacy non-Unicode Indic font; text decodes to Latin gibberish, not the intended script")
 	}
 	return f.getEncoderInner()

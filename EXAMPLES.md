@@ -396,9 +396,9 @@ text whose Unicode may be approximate — `missing_tounicode`, `malformed_tounic
 that is not approximate but unrecoverable — `legacy_font_text` (a legacy non-Unicode Indic font such as
 Kruti Dev / DevLys / Walkman-Chanakya, whose glyphs decode to Latin gibberish on every text surface;
 numeric data may be intact but the script labels are garbled, and a pure-text path cannot recover them).
-**Recovered families** — two legacy font families are now remapped to REAL searchable Unicode Devanagari
-via built-in byte→Unicode transducers ported from SIL wsresources MIT data (see NOTICE); the warning is
-**recovery-aware** and does **not** fire when a font is cleanly recovered:
+**Recovered families** — several legacy font families/variants are now remapped to REAL searchable
+Unicode Devanagari via built-in byte→Unicode transducers ported from SIL wsresources MIT data (see
+NOTICE); the warning is **recovery-aware** and does **not** fire when a font is cleanly recovered:
 - **Canonical-coded simple Kruti Dev 010**: fully recovered on all text surfaces.
 - **Subsetted Walkman-Chanakya 905** (fonts whose content codes are remapped to a compact subset range,
   carrying `/ToUnicode`): mostly recovered — ~99.9% of recovered words correct on the one tested fixture
@@ -407,8 +407,19 @@ via built-in byte→Unicode transducers ported from SIL wsresources MIT data (se
   may mis-decode; the orthographically-invalid subset is caught and flagged at the **`Tables()`** level
   — see the `legacy_font_text` entry in the Tables() warning table — not on this document-scoped path,
   which fires at encoder selection before per-cluster content analysis.
+- **Composite (Type0/CID-keyed) Kruti Dev 010** (fonts with no `/Encoding /Differences` to bridge —
+  recovery instead reads the font's own `/ToUnicode` CMap, which these fonts carry as a CID→original-
+  keystroke-codepoint breadcrumb): fully recovered on both a CFF-descendant (`CIDFontType0`) and a
+  TrueType-descendant (`CIDFontType2`) fixture, reusing the SAME keystroke→Devanagari transducer as the
+  simple-font case unchanged — only the bridge SOURCE differs. Real per-CID `/W` widths are preserved
+  through the visual-to-logical reorder, verified on real multi-column government-finance tables up to
+  11 columns. Detection is conservative: only the `krutidev010` variant qualifies, and a font's
+  `/ToUnicode` must affirmatively resolve ≥90% of its declared entries to single WinAnsi keystroke
+  bytes — a font whose `/ToUnicode` already yields real Devanagari (or any other genuine script) is
+  never touched.
 
-The composite (Type0) Kruti and DevLys are NOT yet remapped — they still decode to gibberish and still warn.
+Other composite legacy variants (e.g. Kruti Dev 680, DevLys) are NOT yet remapped — they still decode to
+gibberish and still warn.
 Two geometry routing signals flag
 runs whose layout geometry is unreliable: `rotated_text` (a text run with a
 rotated, non-horizontal baseline — synthetic-italic shear is *not* flagged) and
@@ -693,15 +704,15 @@ Callers must tolerate unknown `TableWarningCode` values.
 | Code | Meaning |
 |------|---------|
 | `phantom_table` | `≥ 60%` of columns are entirely blank — likely a bar chart or infographic misread as a table. Check `w.Detail` for `blank_col_fraction=0.NN`. |
-| `legacy_font_text` | The table's text was rendered through a legacy **non-Unicode Indic** font (e.g. Kruti Dev, DevLys, Walkman-Chanakya) that decodes to Latin gibberish (`rkfydk` for तालिका). Numeric data may be intact, but the text labels are unreliable. Most such fonts are unrecoverable from a pure-text path; the exceptions GoPDF now remaps to real Unicode are **canonical-coded simple Kruti Dev 010** (cleanly recovered — warning does not fire) and **subsetted Walkman-Chanakya 905** (mostly recovered, ~99.9% of recovered words correct; known limitation: precomposed-ligature glyphs ~0.1% of recovered words may mis-decode — the orthographically-invalid subset triggers the warning at `Confidence Low`). Check `w.Detail` for `legacy_font=<name>; garble_fraction=0.NN; misdecoded_clusters=N`. |
+| `legacy_font_text` | The table's text was rendered through a legacy **non-Unicode Indic** font (e.g. Kruti Dev, DevLys, Walkman-Chanakya) that decodes to Latin gibberish (`rkfydk` for तालिका). Numeric data may be intact, but the text labels are unreliable. Most such fonts are unrecoverable from a pure-text path; the exceptions GoPDF now remaps to real Unicode are **canonical-coded simple Kruti Dev 010** (cleanly recovered — warning does not fire), **subsetted Walkman-Chanakya 905** (mostly recovered, ~99.9% of recovered words correct; known limitation: precomposed-ligature glyphs ~0.1% of recovered words may mis-decode — the orthographically-invalid subset triggers the warning at `Confidence Low`), and **composite (Type0) Kruti Dev 010** (cleanly recovered via the font's own `/ToUnicode` CID→keystroke breadcrumb — warning does not fire). Check `w.Detail` for `legacy_font=<name>; garble_fraction=0.NN; misdecoded_clusters=N`. |
 
 The same legacy-font condition is ALSO surfaced document-scoped on `Reader.Warnings()` as
 `WarningLegacyFont` (code `legacy_font_text`) at encoder selection, so `Page.Words()`, `Page.Lines()`,
 and `Reader.GetPlainText()` consumers — not only `Tables()` — get the signal (see
 [Diagnostics](#diagnostics) below). The warning is **recovery-aware**: it fires for still-gibberish
-legacy fonts and stays silent when a font is cleanly recovered at the encoder level. Two legacy font
-families are now remapped to real searchable Unicode Devanagari (built-in byte→Unicode transducers
-ported from SIL wsresources MIT data — see NOTICE):
+legacy fonts and stays silent when a font is cleanly recovered at the encoder level. Several legacy
+font families/variants are now remapped to real searchable Unicode Devanagari (built-in byte→Unicode
+transducers ported from SIL wsresources MIT data — see NOTICE):
 
 - **Canonical-coded simple Kruti Dev 010**: fully recovered; warning stays silent.
 - **Subsetted Walkman-Chanakya 905**: mostly recovered — ~99.9% of recovered words correct on the
@@ -710,12 +721,18 @@ ported from SIL wsresources MIT data — see NOTICE):
   subset is caught and flagged at the **Tables()** level (see the `legacy_font_text` row above) — it
   does not surface on `Reader.Warnings()`, which fires at encoder selection before per-cluster
   content analysis.
+- **Composite (Type0/CID-keyed) Kruti Dev 010**: fully recovered on both a CFF-descendant
+  (`CIDFontType0`) and a TrueType-descendant (`CIDFontType2`) fixture; warning stays silent. The
+  bridge is sourced from the font's own `/ToUnicode` CMap (no `/Encoding /Differences` exists on a
+  composite font) but reuses the identical keystroke→Devanagari transducer as the simple-font case,
+  with real per-CID `/W` widths preserved through the reorder.
 
-The remaps are **conservative**: they fire only for strict-legacy-named SIMPLE fonts whose current
-decode is non-Indic — composite (Type0) Kruti and DevLys are not remapped and still warn. For
-Kruti Dev 010: a page that overlaps a text column with a table in the same vertical band can
-mis-bucket a recovered label cell's leading glyphs into an adjacent row; numeric data and prose
-are unaffected.
+The simple-font remaps fire only for strict-legacy-named SIMPLE fonts whose current decode is
+non-Indic; the composite remap additionally requires the font's `/ToUnicode` to affirmatively resolve
+most of its declared CIDs to single WinAnsi keystroke bytes. Other composite legacy variants (e.g.
+Kruti Dev 680, DevLys) are not remapped and still warn. For Kruti Dev 010: a page that overlaps a text
+column with a table in the same vertical band can mis-bucket a recovered label cell's leading glyphs
+into an adjacent row; numeric data and prose are unaffected.
 
 ### Page-space bounding boxes (`Page.TableRegions`)
 
