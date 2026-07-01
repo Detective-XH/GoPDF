@@ -204,6 +204,13 @@ var corpusManifest = []corpusEntry{
 		License: "US-Gov PD (17 USC 105)",
 		Purpose: "Cross-publisher (USDA, non-CEA/ERP) held-out RECT-bordered cell-grid ground truth (53x7, 3-tier header); open dot-leader State anchor, vertical column rules + outer frame, zero interior row rules; clean text layer",
 	},
+	{
+		Path: "tables/jo-dos-health-2023-t14-7.pdf", Golden: "tables/jo-dos-health-2023-t14-7.golden.txt",
+		Synthetic: false, Compare: compareNormalized, Feature: "table-cellgrid",
+		Source:  "Jordan Department of Statistics, Statistical Yearbook of Jordan 2023, Table 14.7 (Laboratory Tests at the Ministry of Health, 2019-2023), p.6, single-page qpdf excerpt, dosweb.dos.gov.jo",
+		License: "Jordanian Open Government Data License (2019), per Jordan's national open-data policy (opendata.gov.jo) — cited as best-available for this Department of Statistics publication; not confirmed document-specific",
+		Purpose: "Held-out SINGLE-AXIS-RULED cell-grid ground truth (12x7); bilingual English/Arabic mirror-column table (full-height vertical rules, zero horizontal rules between data rows — the shape single-axis-ruled Item 1's governing-rule-anchoring fix targets). col0=Test Type unique anchor. Extraction is exact (7/7 cols, byte-identical to render truth) post-fix; class is out-of-scope for TestPublicTablesQualityCorpus's coverage gate (single-axis-ruled not yet in inScopeQualityClasses), so this is diagnostic-only, not gate-bearing",
+	},
 	// Table-detection false-positive gate fixtures: dense 3-column Federal
 	// Register notices with ZERO tables — a detector must return nothing here.
 	{

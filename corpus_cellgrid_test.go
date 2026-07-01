@@ -361,6 +361,24 @@ var cellgridFixtures = []cellgridFixture{
 		rows:      53, cols: 7, headerRows: 3,
 		class: "rect-bordered", heldOut: true, anchorCol: 0, // col0 = State (unique); cross-publisher (USDA) generalization fixture for the rect-bordered gate
 	},
+	{
+		path:      "tables/jo-dos-health-2023-t14-7.cellgrid.tsv",
+		sourcePDF: "tables/jo-dos-health-2023-t14-7.pdf",
+		rows:      12, cols: 7, headerRows: 1,
+		// Held-out quality fixture (single-axis-ruled) — first committed regression fixture for the
+		// single-axis-ruled Item 1 topology fix (governingVRules/snapToGoverningRule in
+		// tables_lattice.go): a real-world bilingual (English/Arabic mirror column) table with
+		// full-height vertical rules and zero horizontal rules between data rows. Promoted from
+		// _local_corpus/pcg_pr4_fresh (jo-dos-health-2023.pdf p6, table 14.7) per
+		// plans/decisions/SINGLE-AXIS-RULED-TRIAGE-2026-07-01.md's "shipped when" bar, now that the
+		// fix is real (was blocked on this during the spike). col0 = Test Type (unique; includes the
+		// Total and Source footer rows, both non-empty/unique anchors). Extraction is exact (7/7 cols)
+		// post-fix — pre-fix this table split into 14 columns (see the spike verdict doc's calibration
+		// table). single-axis-ruled is NOT in inScopeQualityClasses (out-of-scope), so this fixture is
+		// scored as a diagnostic only and does not bear a coverage gate; heldOut=true keeps it out of
+		// TestPublicAccuracy* (which is reserved for the 3 threshold-tuning sources).
+		class: "single-axis-ruled", heldOut: true, anchorCol: 0,
+	},
 }
 
 // TestCorpusCellGridFixtures is the primary integrity gate for the cell-grid
