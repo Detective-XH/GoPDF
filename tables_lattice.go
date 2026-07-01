@@ -35,7 +35,20 @@ func (e lEdge) length() float64 {
 }
 
 // lCell is one closed cell in top-origin coordinates.
-type lCell struct{ x0, top, x1, bottom float64 }
+//
+// open marks provenance: true for a cell synthesized by recoverOpenColumns/synthOpenColumns
+// (an open/recovered column living outside the table's own rule-bounded core — e.g. a
+// footnote-marker or overhang label column). These cells have no real governing rule of their
+// own: their narrow width makes them prone to being pulled onto a neighboring REAL column's
+// rule if snapped like an ordinary rule-bounded cell — the single-axis-ruled Item 1 fix's
+// defect (1); see plans/decisions/SINGLE-AXIS-RULED-ITEM1-SPIKE-VERDICT-2026-07-01.md.
+// snapToGoverningRule excludes open cells from rule-snapping unconditionally. Every other
+// construction site (closed lattice cells and the other recovery passes: rect-bordered,
+// fill-banded, comb-body, header-ruled-data) leaves this at its zero value (false).
+type lCell struct {
+	x0, top, x1, bottom float64
+	open                bool
+}
 
 // pointKey is a quantized intersection point (0.01 pt) used as a float-map key.
 type pointKey struct{ x, y float64 }
@@ -264,7 +277,7 @@ func findClosingCell(pt pointKey, pts []pointKey, inters map[pointKey]*inter, s 
 			}
 			br := pointKey{r.x, b.y}
 			if _, ok := inters[br]; ok && s.shareV(br, r) && s.shareH(br, b) {
-				return lCell{pt.x, pt.y, r.x, b.y}, true
+				return lCell{x0: pt.x, top: pt.y, x1: r.x, bottom: b.y}, true
 			}
 		}
 	}
@@ -949,7 +962,11 @@ func synthHeaderDataCells(dataCells, cdCells []lCell, labelX1 float64, dropped [
 			continue // lone in-envelope word — not a data column
 		}
 		dc, hc := dataCells[h.di], cdCells[h.hi]
-		out = append(out, lCell{x0: hc.x0, top: dc.top, x1: hc.x1, bottom: dc.bottom})
+		// Defensive provenance carry: dc/hc are ordinarily real closed cells (this pass requires
+		// a ruled header row and a ruled label column), but cells is the AUGMENTED table set
+		// (recoverOpenColumns already ran), so either could in principle be an open/recovered
+		// cell — propagate rather than assume.
+		out = append(out, lCell{x0: hc.x0, top: dc.top, x1: hc.x1, bottom: dc.bottom, open: hc.open || dc.open})
 	}
 	return out
 }
@@ -983,7 +1000,7 @@ func admitOpenColumn(sideWords []Word, x0, x1 float64, rowTops []float64, overha
 		if !bandHasWord(sideWords, rowTops[i], rowTops[i+1]) {
 			continue
 		}
-		admitted = append(admitted, lCell{x0: x0, top: rowTops[i], x1: x1, bottom: rowTops[i+1]})
+		admitted = append(admitted, lCell{x0: x0, top: rowTops[i], x1: x1, bottom: rowTops[i+1], open: true})
 	}
 	return admitted
 }
@@ -1440,7 +1457,12 @@ func populatedSplits(splits []lCell, words []Word) int {
 }
 
 // splitCellAtXs splits cell c horizontally at each x-cut inside (c.x0, c.x1). The leftmost
-// piece keeps c.x0 so left-margin labels stay anchored; the rightmost piece keeps c.x1.
+// piece keeps c.x0 so left-margin labels stay anchored; the rightmost piece keeps c.x1. Every
+// sub-piece inherits c.open: a split of an open/recovered cell (recoverOpenColumns/
+// synthOpenColumns) is still an open/recovered cell — losing that provenance here would let
+// snapToGoverningRule treat a synthesized marker column like an ordinary closed cell after any
+// pass that splits it (e.g. inferRectBorderedRows splits synthOpenColumns output via
+// splitCellAtBands/splitCellAtXs before reconstructGrid ever sees it).
 // Returns []lCell{c} when no cuts fall inside (c.x0, c.x1).
 func splitCellAtXs(c lCell, xcuts []float64) []lCell {
 	var cuts []float64
@@ -1456,10 +1478,10 @@ func splitCellAtXs(c lCell, xcuts []float64) []lCell {
 	out := make([]lCell, 0, len(cuts)+1)
 	x0 := c.x0
 	for _, x := range cuts {
-		out = append(out, lCell{x0: x0, top: c.top, x1: x, bottom: c.bottom})
+		out = append(out, lCell{x0: x0, top: c.top, x1: x, bottom: c.bottom, open: c.open})
 		x0 = x
 	}
-	out = append(out, lCell{x0: x0, top: c.top, x1: c.x1, bottom: c.bottom})
+	out = append(out, lCell{x0: x0, top: c.top, x1: c.x1, bottom: c.bottom, open: c.open})
 	return out
 }
 
@@ -2338,13 +2360,13 @@ func synthOpenColumns(full []lCell, words []Word, hEdges []lEdge, media [4]float
 	leftWords := decodableWords(openSideWords(words, dataTop, tableBot, func(ax float64) bool { return ax < vMin }))
 	if len(leftWords) > 0 && edgeOverhangsLeft(hEdges, dataTop, vMin) && edgeOverhangsLeft(hEdges, tableBot, vMin) {
 		if x0 := clampLo(minWordLeft(leftWords)-openPad, llx); vMin-x0 >= minOpenColW {
-			out = append(out, lCell{x0: x0, top: dataTop, x1: vMin, bottom: tableBot})
+			out = append(out, lCell{x0: x0, top: dataTop, x1: vMin, bottom: tableBot, open: true})
 		}
 	}
 	rightWords := decodableWords(openSideWords(words, dataTop, tableBot, func(ax float64) bool { return ax > vMax }))
 	if len(rightWords) > 0 && edgeOverhangsRight(hEdges, dataTop, vMax) && edgeOverhangsRight(hEdges, tableBot, vMax) {
 		if x1 := clampHi(maxWordRight(rightWords)+openPad, urx); x1-vMax >= minOpenColW {
-			out = append(out, lCell{x0: vMax, top: dataTop, x1: x1, bottom: tableBot})
+			out = append(out, lCell{x0: vMax, top: dataTop, x1: x1, bottom: tableBot, open: true})
 		}
 	}
 	return out
@@ -2396,8 +2418,11 @@ func rowAligned(full []lCell, words []Word, bands []float64) bool {
 
 // splitCellAtBands tiles cell c into one sub-cell per row band, cutting at the midpoints between
 // consecutive band centers (the first sub-cell starts at c.top, the last ends at c.bottom). Each
-// sub-cell inherits c's x-extent, so columns are preserved and the shared cut lines keep tops
-// aligned across columns for reconstructGrid's row clustering.
+// sub-cell inherits c's x-extent AND c.open, so columns (and their open/recovered provenance) are
+// preserved and the shared cut lines keep tops aligned across columns for reconstructGrid's row
+// clustering. Provenance matters here: inferRectBorderedRows appends synthOpenColumns' open
+// cells to `full` and then runs every cell in `full` (including those) through this splitter —
+// dropping c.open here silently re-exposed the already-fixed open cells to rule-snapping.
 func splitCellAtBands(c lCell, bands []float64) []lCell {
 	if len(bands) < 2 {
 		return []lCell{c}
@@ -2409,7 +2434,7 @@ func splitCellAtBands(c lCell, bands []float64) []lCell {
 		if i < len(bands)-1 {
 			bottom = (center + bands[i+1]) / 2
 		}
-		out = append(out, lCell{x0: c.x0, top: top, x1: c.x1, bottom: bottom})
+		out = append(out, lCell{x0: c.x0, top: top, x1: c.x1, bottom: bottom, open: c.open})
 		top = bottom
 	}
 	return out
@@ -2605,21 +2630,348 @@ func verticalRules(c Content) []lEdge {
 	return v
 }
 
+// ruleSpanFrac is the minimum fraction of a table's own vertical extent that a page vertical
+// rule must overlap before reconstructGrid treats it as a genuine column-boundary rule (a
+// "governing" rule) rather than a decorative header-only box line. Real column dividers in
+// single-axis-ruled tables (full-height verticals, no horizontal rules between data rows)
+// overlap most of the table's height even when they stop short of a merged multi-tier header;
+// decorative per-cell header box lines cover only the header band. See
+// plans/decisions/SINGLE-AXIS-RULED-TRIAGE-2026-07-01.md and the Item 1 spike verdict.
+const ruleSpanFrac = 0.5
+
+// ruleSnapTol is how close (pt) a cell's own x0 must sit to a table's governing rule x-position
+// before reconstructGrid snaps that cell onto the rule for column-identity purposes. Wider than
+// colClusterTol (4.0pt) because a header label's own content x0 can sit several points inside
+// its true rule-bounded column. Calibrated against the single-axis-ruled fixtures (observed
+// offsets ranged 5.3-10.3pt across publishers).
+const ruleSnapTol = 12.0
+
+// governingLeftSlack is the tolerance (pt) by which a candidate rule may sit to the RIGHT of a
+// cell's own x0 and still be considered "at" that x0 rather than strictly to its right. It
+// exists only to absorb sub-point rounding jitter (a cell's own x0 landing a hair left of its
+// true governing rule due to float quantization) — it must stay much smaller than ruleSnapTol
+// so it never lets a genuinely different (neighboring) rule qualify as this cell's own left
+// boundary. See snapToGoverningRule's directional-boundary rationale (Item 1 fix, defect (2)).
+const governingLeftSlack = 0.75
+
+// governingVRules filters a page-wide vertical-rule pool (vRules is page-scoped: the same
+// slice is passed to reconstructGrid for every table on the page) down to the x-positions that
+// actually define THIS table's own column structure: within the table's own x-bounds (risk:
+// vRules pollution from another table/page-border on the same page) and overlapping at least
+// ruleSpanFrac of THIS table's own y-extent (risk: a rule whose vertical span is narrower than
+// the table — e.g. present only in the data body under a merged multi-tier header, or a
+// decorative box line confined to one header row — must be judged against the table's actual
+// row geometry, not assumed full-height). Returns clustered representative x-positions, or nil
+// if no rule qualifies (callers must leave column banding untouched in that case).
+func governingVRules(vRules []lEdge, cells []lCell) []float64 {
+	if len(vRules) == 0 || len(cells) == 0 {
+		return nil
+	}
+	vMin, vMax := colBounds(cells)
+	tableTop, tableBot := cellYSpan(cells)
+	tableH := tableBot - tableTop
+	if tableH <= 0 {
+		return nil
+	}
+	const xTol = 2.0
+	var xs []float64
+	for _, e := range vRules {
+		if e.orient != 'v' {
+			continue
+		}
+		if e.x0 < vMin-xTol || e.x0 > vMax+xTol {
+			continue // outside this table's own column bounds — a different table/page region
+		}
+		ovTop, ovBot := max(e.top, tableTop), min(e.bottom, tableBot)
+		if ovBot-ovTop < ruleSpanFrac*tableH {
+			continue // too short vertically for THIS table to be a governing column divider
+		}
+		xs = append(xs, e.x0)
+	}
+	if len(xs) == 0 {
+		return nil
+	}
+	return cluster1D(xs, colClusterTol)
+}
+
+// snapToGoverningRule resolves x's actual governing LEFT boundary among ruleXs and returns
+// that rule's x-position, or x unchanged if none governs it: the closest rule AT OR TO THE LEFT
+// of x (its left wall) — never a rule that sits to the right, however close, because that rule
+// belongs to the NEXT column (Defect (2) in the spike verdict doc's §5 adversarial-review
+// findings — choosing by raw absolute distance, either side, is what let a single real column's
+// cells flip between two adjacent rules and checkerboard-split, confirmed on
+// destatis-erzeugerpreise-dez2022.pdf p19 table[64], case B9). governingLeftSlack absorbs only
+// sub-point rounding, so a rule fractionally right of x from quantization still qualifies, but a
+// rule genuinely to the right (the next column's own boundary) never does.
+//
+// Callers, not this function, decide WHETHER a given x is even eligible to be snapped at all:
+// see reconstructGrid's per-RAW-CLUSTER sparse/dense gate (Defect found in the follow-up
+// hkcsd-monthly-digest-2024-01.pdf p169 investigation: two independently real, 21/21-row-
+// coverage columns sitting 9pt apart were both "close enough" to trigger a snap despite neither
+// needing one) and the open/closed separation in mergeColumnReps (Defect (1): an open/recovered
+// cell, from recoverOpenColumns/synthOpenColumns, is never passed to this function at all).
+func snapToGoverningRule(x float64, ruleXs []float64) float64 {
+	if len(ruleXs) == 0 {
+		return x
+	}
+	best, found := math.Inf(-1), false
+	for _, rx := range ruleXs {
+		if rx > x+governingLeftSlack {
+			continue // to the right of x — the NEXT column's boundary, never this one's
+		}
+		if rx > best {
+			best, found = rx, true
+		}
+	}
+	if found && x-best <= ruleSnapTol {
+		return best
+	}
+	return x
+}
+
+// sparseRowCoverageFrac is the row-coverage fraction (of the table's total distinct rows) below
+// which a raw (unsnapped) column cluster is treated as a sparse, possibly-anomalous artifact
+// (e.g. a header/label row whose own cell x0 differs from the data body's established column)
+// and is therefore eligible for governing-rule reconciliation. At or above this fraction, a
+// cluster is treated as an independently-established real column and is NEVER snapped onto a
+// nearby rule, however close. This closes the hkcsd-monthly-digest-2024-01.pdf p169 defect: two
+// genuinely distinct columns, EACH with 21/21 (100%) row coverage, sat 9.12pt apart — well
+// within ruleSnapTol(12) of the same governing rule — and a naive per-cell/per-cluster snap
+// (with no coverage awareness) collapsed one into the other, gluing a footnote marker onto the
+// wrong neighboring column's value. Calibrated against real data: the Jordan 14.7-shaped
+// (jo-dos-health-2023.pdf p6/p7) header-artifact clusters needing reconciliation had 1-2 rows out
+// of 12-17 (8-17%); the dense columns they reconcile onto had 11-17 rows (92-100%). 0.5 sits with
+// a wide margin on both sides of that real-data gap.
+const sparseRowCoverageFrac = 0.5
+
+// clusterRowSets returns, for each representative in reps, the SET of distinct row bands
+// (indices into rowReps, via nearestIdx) among the cells at the given indices that map to it —
+// i.e. which of the table's rows this column cluster actually appears in. Used to gate
+// governing-rule snapping to sparse clusters only (sparseRowCoverageFrac, via each set's size).
+//
+// NOTE on a discarded alternative: an earlier version of this fix also vetoed a snap whenever
+// the sparse cluster and its snap target shared a row (reasoning: they must then be two
+// genuinely distinct, simultaneous columns, not alternate different-row representations of one
+// column). That is REFUTED by the Jordan 14.7-shaped header case (jo-dos-health-2023.pdf p6
+// table[0]): the sparse header-label cluster and the dense data-column cluster it must merge
+// into DO share row 0 (the header row itself splits into two adjacent raw cells — one empty,
+// one holding the header text) — yet the merge is required to reach the correct 7-column result.
+// Row co-occurrence alone cannot distinguish "a header row split into two adjacent pieces of the
+// same column" from "two genuinely different side-by-side columns" — clusterHasContent (content-
+// emptiness) is the guard that actually holds; see there.
+func clusterRowSets(cells []lCell, idx []int, reps []float64, rowReps []float64) []map[int]bool {
+	seen := make([]map[int]bool, len(reps))
+	for i := range seen {
+		seen[i] = map[int]bool{}
+	}
+	for _, ci := range idx {
+		c := cells[ci]
+		ri := nearestIdx(reps, c.x0)
+		seen[ri][nearestIdx(rowReps, c.top)] = true
+	}
+	return seen
+}
+
+// clusterRowCoverage returns the size of each set from clusterRowSets — how many of the table's
+// rows each column cluster appears in.
+func clusterRowCoverage(rowSets []map[int]bool) []int {
+	cov := make([]int, len(rowSets))
+	for i, m := range rowSets {
+		cov[i] = len(m)
+	}
+	return cov
+}
+
+// clusterHasContent reports, for each representative in reps, whether ANY cell (among the given
+// indices) mapping to it contains at least one word — i.e. whether this raw column cluster
+// carries real content anywhere, as opposed to being a purely geometric sliver with nothing in
+// it. Governing-rule snapping is gated on this (alongside sparseRowCoverageFrac): a sparse
+// cluster is only worth reconciling with a nearby rule when it actually holds text that needs to
+// reunite with its true column (e.g. a header label whose own cell geometry differs from the
+// data rows beneath it) — a purely EMPTY sparse sliver has nothing to reconcile, and forcing a
+// snap on it can pull it out of an unrelated run of adjacent thin/empty columns that the
+// pre-existing dropGutterColumns/mergeNestedColumns cascade (unrelated to this Item 1 fix) relies
+// on to consolidate step-by-step. Confirmed on eGRID2022 p1's cover-frame box: snapping an empty
+// geometric sliver onto an unrelated empty gutter cluster (both otherwise harmless in isolation)
+// broke that cascade and left one extra phantom column behind (4×4 instead of the correct 4×3).
+func clusterHasContent(cells []lCell, idx []int, reps []float64, words []Word) []bool {
+	byCluster := make([][]lCell, len(reps))
+	for _, ci := range idx {
+		c := cells[ci]
+		ri := nearestIdx(reps, c.x0)
+		byCluster[ri] = append(byCluster[ri], c)
+	}
+	has := make([]bool, len(reps))
+	for i, cs := range byCluster {
+		for _, c := range cs {
+			if wordInBox(words, c.x0, c.x1, c.top, c.bottom) {
+				has[i] = true
+				break
+			}
+		}
+	}
+	return has
+}
+
+// mergeColumnReps merges SEPARATELY-clustered closed and open column representative
+// x-positions into one sorted, reading-order column list, without ever letting an open
+// (recovered/synthesized) cluster's identity collapse into — or absorb — a closed (rule-
+// anchored) cluster's identity merely because their representative x-values land within
+// colClusterTol of each other. Clustering the two provenances in one cluster1D call (as an
+// earlier version of this fix did) reopens exactly the defect Fix (1)/(2) close at the cell
+// level: a protected open cell's raw x0 could still be chained into a neighboring closed
+// column's cluster by single-linkage proximity, silently undoing the protection one step later.
+// Returns the merged, x-sorted representative list plus, for each input slice, the merged-list
+// index its entry landed at: closedFinal[j] is the final column index for closedReps[j],
+// openFinal[j] for openReps[j].
+func mergeColumnReps(closedReps, openReps []float64) (colReps []float64, closedFinal, openFinal []int) {
+	type repEntry struct {
+		x    float64
+		open bool
+		idx  int
+	}
+	entries := make([]repEntry, 0, len(closedReps)+len(openReps))
+	for i, x := range closedReps {
+		entries = append(entries, repEntry{x, false, i})
+	}
+	for i, x := range openReps {
+		entries = append(entries, repEntry{x, true, i})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].x < entries[j].x })
+	colReps = make([]float64, len(entries))
+	closedFinal = make([]int, len(closedReps))
+	openFinal = make([]int, len(openReps))
+	for fi, e := range entries {
+		colReps[fi] = e.x
+		if e.open {
+			openFinal[e.idx] = fi
+		} else {
+			closedFinal[e.idx] = fi
+		}
+	}
+	return colReps, closedFinal, openFinal
+}
+
 // reconstructGrid bands a table's cells into (row,col) by their own bbox geometry (top->row,
 // x0->col — the banding IS the geometric mapping) and fills each cell with the reading-order
 // join of the words geometrically contained in it. vRules are the page's vertical rules (empty
 // in unit tests that build cells directly); mergeAbuttingWords uses them to avoid welding across
-// a real column rule.
+// a real column rule. Column identity (x0->col) is additionally anchored to this table's own
+// governing rule x-positions (governingVRules/snapToGoverningRule) so a header label whose
+// content x0 differs from the data value's x0 beneath it — but which shares the same
+// rule-bounded column — is not split into a phantom extra column (single-axis-ruled fix).
+//
+// Three provenance/eligibility layers close the defects found across this fix's two rounds of
+// verification (spike verdict doc §5 + the follow-up hkcsd investigation):
+//
+//   - Open (recovered/synthesized, c.open) cells are clustered SEPARATELY from closed cells and
+//     never snapped (Fix 1/mergeColumnReps): an open cell's raw x0 could otherwise chain into a
+//     neighboring closed column merely by falling within colClusterTol.
+//   - Closed cells are clustered RAW (unsnapped) first — rawClosedReps, identical to pre-fix
+//     behavior — and governing-rule reconciliation is decided ONCE PER RAW CLUSTER, never per
+//     individual cell: this is what stops one real column's rows from flipping between two
+//     nearby rules row-by-row (the destatis-erzeugerpreise-dez2022.pdf p19 table[64]
+//     checkerboard, case B9).
+//   - A raw closed cluster is only ELIGIBLE for that reconciliation when its row-coverage is
+//     sparse relative to the table (sparseRowCoverageFrac): a dense, already-established column
+//     is never snapped onto a nearby rule however close, which is what stops two independently
+//     real, fully-populated columns from collapsing into each other (hkcsd-monthly-digest-
+//     2024-01.pdf p169 table[0]: two 21/21-row columns 9pt apart, both "close enough" under a
+//     naive per-cluster snap despite neither needing one).
+//
+// Every cell's stored x0 (in `snapped`) is the FINAL colReps value for its own column, so every
+// downstream consumer that maps a cell back to a column via plain nearestIdx(colReps, cell.x0)
+// (dropGutterColumns/mergeNestedColumns and the columnWidths/columnLeafX1 helpers they call)
+// resolves to an EXACT (distance-0) match — Fix (3) — rather than re-deriving column membership
+// by raw distance, which could re-admit the same cross-provenance/cross-cluster ambiguity.
+// resolveGridColumns computes final column identity for every entry in cells: closed and open
+// cells are clustered SEPARATELY (mergeColumnReps), and a raw closed cluster is reconciled onto
+// governingVRules only when it is BOTH sparse (sparseRowCoverageFrac) AND carries real content
+// (clusterHasContent) — see reconstructGrid's doc for what each of these three provenance/
+// eligibility layers closes. Returns the final column x-representatives (colReps), each cell's
+// column index by index into cells (cellCol), and cells with x0 snapped to their final column
+// (snapped, consumed by dropGutterColumns/mergeNestedColumns per the Fix (3) note above).
+func resolveGridColumns(cells []lCell, words []Word, ruleXs, rowReps []float64) (colReps []float64, cellCol []int, snapped []lCell) {
+	nRows := len(rowReps)
+
+	var closedIdx, openIdx []int
+	var closedXs, openXs []float64
+	for i, c := range cells {
+		if c.open {
+			openIdx = append(openIdx, i)
+			openXs = append(openXs, c.x0)
+		} else {
+			closedIdx = append(closedIdx, i)
+			closedXs = append(closedXs, c.x0)
+		}
+	}
+
+	// Closed cells: raw cluster first, then a per-cluster (never per-cell) governing-rule
+	// reconciliation pass, gated to clusters that are BOTH sparse AND carry real content — see
+	// the function doc above and clusterHasContent's doc for what each guard closes.
+	rawClosedReps := cluster1D(closedXs, colClusterTol)
+	rowSets := clusterRowSets(cells, closedIdx, rawClosedReps, rowReps)
+	rowCoverage := clusterRowCoverage(rowSets)
+	hasContent := clusterHasContent(cells, closedIdx, rawClosedReps, words)
+	resolvedClosed := make([]float64, len(rawClosedReps))
+	for i, x := range rawClosedReps {
+		resolvedClosed[i] = x // default: unchanged
+		if nRows > 0 && float64(rowCoverage[i]) >= sparseRowCoverageFrac*float64(nRows) {
+			continue // dense/established column — never snapped, however close a rule is
+		}
+		if !hasContent[i] {
+			continue // purely empty geometric sliver — nothing to reconcile; leave it for
+			// dropGutterColumns/mergeNestedColumns, which already consolidate pure-empty runs
+			// on their own (clusterHasContent doc)
+		}
+		resolvedClosed[i] = snapToGoverningRule(x, ruleXs)
+	}
+	// Re-cluster the resolved values: a sparse cluster snapped onto a rule may now coincide
+	// (exactly or near-exactly) with the dense cluster already anchored there — merge them.
+	closedReps := cluster1D(resolvedClosed, colClusterTol)
+	rawClosedToClosed := make([]int, len(rawClosedReps))
+	for i, x := range resolvedClosed {
+		rawClosedToClosed[i] = nearestIdx(closedReps, x)
+	}
+
+	// Open cells: clustered separately, never snapped (Fix 1).
+	openReps := cluster1D(openXs, colClusterTol)
+
+	colReps, closedFinal, openFinal := mergeColumnReps(closedReps, openReps)
+
+	cellCol = make([]int, len(cells)) // final column index per cell, by index into `cells`
+	snapped = make([]lCell, len(cells))
+	for _, ci := range closedIdx {
+		c := cells[ci]
+		ri := nearestIdx(rawClosedReps, c.x0)
+		fi := closedFinal[rawClosedToClosed[ri]]
+		cellCol[ci] = fi
+		snapped[ci] = c
+		snapped[ci].x0 = colReps[fi] // exact colReps entry — see Fix (3) note above
+	}
+	for _, oi := range openIdx {
+		c := cells[oi]
+		ri := nearestIdx(openReps, c.x0)
+		fi := openFinal[ri]
+		cellCol[oi] = fi
+		snapped[oi] = c
+		snapped[oi].x0 = colReps[fi]
+	}
+	return colReps, cellCol, snapped
+}
+
 func reconstructGrid(cells []lCell, words []Word, vRules ...lEdge) [][]string {
 	words = mergeAbuttingWords(cells, words, vRules) // re-join zero-advance-space-fragmented tokens
+	ruleXs := governingVRules(vRules, cells)
+
 	tops := make([]float64, len(cells))
-	x0s := make([]float64, len(cells))
 	for i, c := range cells {
 		tops[i] = c.top
-		x0s[i] = c.x0
 	}
 	rowReps := cluster1D(tops, 4)
-	colReps := cluster1D(x0s, colClusterTol)
+
+	colReps, cellCol, snapped := resolveGridColumns(cells, words, ruleXs, rowReps)
+
 	grid := make([][]string, len(rowReps))
 	for i := range grid {
 		grid[i] = make([]string, len(colReps))
@@ -2631,10 +2983,10 @@ func reconstructGrid(cells []lCell, words []Word, vRules ...lEdge) [][]string {
 		ax := w.X + w.W/2
 		ay := -(w.Y + w.H/2) // top-origin anchor
 		matched := false
-		for _, c := range cells {
+		for ci, c := range cells {
 			if ax >= c.x0 && ax <= c.x1 && ay >= c.top && ay <= c.bottom {
 				r := nearestIdx(rowReps, c.top)
-				cc := nearestIdx(colReps, c.x0)
+				cc := cellCol[ci]
 				key := [2]int{r, cc}
 				bucket[key] = append(bucket[key], w)
 				placed = append(placed, placedWord{w: w, key: key, cellX1: c.x1})
@@ -2650,8 +3002,8 @@ func reconstructGrid(cells []lCell, words []Word, vRules ...lEdge) [][]string {
 	for key, ws := range bucket {
 		grid[key[0]][key[1]] = stripLeaderDots(joinReading(trimDotLeaders(ws)))
 	}
-	grid = dropGutterColumns(grid, cells, colReps)
-	return mergeNestedColumns(grid, cells, colReps)
+	grid = dropGutterColumns(grid, snapped, colReps)
+	return mergeNestedColumns(grid, snapped, colReps)
 }
 
 // placedWord records a word the primary center anchor mapped, with its (row,col) cell key and that

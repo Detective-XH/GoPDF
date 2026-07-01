@@ -1,0 +1,16 @@
+# cellgrid v1
+# source=jo-dos-health-2023-t14-7 | pdf_page=1 | dims=12x7 | header_rows=1
+# values=as-printed | companion=none (Jordan Department of Statistics, Statistical Yearbook of Jordan 2023, Table 14.7)
+# model=bilingual (English + Arabic mirror column) single-axis-ruled table: Test Type + {2023,2022,2021,2020,2019} + Arabic label mirror (7 cols); full-height vertical rules, zero horizontal rules between data rows (the single-axis-ruled shape this fix targets). Row10 is the Total row; row11 is the Source footer row (English label col0, Arabic label col6, numeric cols empty) — both are genuine printed rows, not section labels, kept as scored data rows since their anchor (col0) is non-empty and unique.
+Test Type	2023	2022	2021	2020	2019	صحفلا عون
+Bacteriology	365,571	304,837	237,199	182,154	236,850	يجولويتركب
+Urine	1,175,832	1,198,135	1,039,658	855,210	1,132,524	راردلاا
+Stool	201,898	171,708	155,316	130,997	169,689	طئاغ
+T.B.	730	685	483	758	441	لسلا
+Blood Test	17,477,185	17,229,630	15,495,952	12,537,253	17,369,973	مدلا صحف
+Serology	1,583,816	1,765,064	1,608,976	1,154,424	1,433,114	ةيلصم تلاعافت
+Bio - chemistry	26,145,430	24,443,147	19,544,617	14,211,817	16,791,498	ةيويح ءايميك
+Special Chemical	138,017	203,007	248,987	140,072	227,224	ةصاخ ءايميك
+Other Tests	446,215	515,982	608,934	218,101	172,466	ىرخأ تاصوحف
+Total	47,534,694	45,832,195	38,940,122	29,430,786	37,533,779	عوملمجا
+Source: Ministry of Health						ةحصلا ةرازو :ردصلما

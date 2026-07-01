@@ -29,6 +29,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   the font's `/ToUnicode` data clears a confidence bar (a high fraction of entries must cleanly resolve
   to a single legacy keystroke) — a font with already-correct Unicode text is never touched.
 
+### Fixed
+
+- `Page.Tables()` no longer over-splits tables whose columns are separated only by full-height
+  vertical rules with no horizontal rules between data rows (a common statistical-table layout). A
+  header label's own text position often differs slightly from the data value's position beneath it;
+  previously this produced extra phantom columns, always reported at `Confidence High` with no
+  warning. Column identity is now anchored to the table's own detected vertical rules instead of raw
+  text position, so a header label and its data column are correctly recognized as one column. Two
+  known real-world failure shapes are fixed: a footnote marker getting glued onto the wrong
+  neighboring column's value, and a real numeric column getting split into two alternating columns.
+  **Known limitation:** on tables with very few rows, or in a narrow synthetic edge case (two distinct
+  columns, one unusually sparse, sitting close together), the new column-anchoring logic may not fully
+  resolve — no occurrence of this causing incorrect output has been found in real-world testing.
+
 ### Changed
 
 - The legacy non-Unicode Indic font warning is now **recovery-aware**: `Reader.Warnings()` no longer
