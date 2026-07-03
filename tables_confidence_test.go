@@ -481,7 +481,7 @@ func TestTableRegionsRotated(t *testing.T) {
 	}
 
 	c := Content{Text: texts, Stroke: strokes}
-	results, err := reconstructTablesFromContent(c, media)
+	results, err := reconstructTablesFromContent(c, nil, media)
 	if err != nil {
 		t.Fatalf("reconstructTablesFromContent: %v", err)
 	}
@@ -562,7 +562,7 @@ func TestTablesWarningsEndToEnd(t *testing.T) {
 		{S: "B", X: 62, Y: 112, W: 8, H: 10, FontSize: 10},
 	}
 
-	results, err := reconstructTablesFromContent(Content{Text: texts, Stroke: strokes}, media)
+	results, err := reconstructTablesFromContent(Content{Text: texts, Stroke: strokes}, nil, media)
 	if err != nil {
 		t.Fatalf("reconstructTablesFromContent: %v", err)
 	}

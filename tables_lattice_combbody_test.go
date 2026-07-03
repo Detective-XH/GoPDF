@@ -394,7 +394,7 @@ func TestLatticeTablesOpenCombBodyFires(t *testing.T) {
 	words := combBodyStrokeWords()
 	media := [4]float64{0, 0, 300, 200}
 
-	lattices := latticeTablesOpen(c, words, media)
+	lattices := latticeTablesOpen(c, words, media, nil)
 	if len(lattices) != 1 {
 		t.Fatalf("lattices: got %d tables, want 1\n%v", len(lattices), lattices)
 	}
@@ -427,7 +427,7 @@ func TestLatticeTablesOpenCombBodyNoDuplicate(t *testing.T) {
 	words := combBodyStrokeWords()
 	media := [4]float64{0, 0, 300, 200}
 
-	lattices := latticeTablesOpen(c, words, media)
+	lattices := latticeTablesOpen(c, words, media, nil)
 	if len(lattices) != 1 {
 		t.Fatalf("lattices: got %d tables, want 1", len(lattices))
 	}

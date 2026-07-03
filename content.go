@@ -26,6 +26,8 @@ type contentState struct {
 	rect          []Rect
 	stroke        []Stroke  // accumulated stroked straight-line segments
 	subpaths      [][]Point // current path under construction (display space)
+	fillRect      []Rect    // re rects actually closed by a fill-class paint op (f F f* B B* b b*)
+	pendingRect   []Rect    // re rects constructed since the last paint op, awaiting fill/no-fill resolution
 	gstack        []gstate
 	p             Page
 	resources     Value
@@ -307,7 +309,9 @@ func (s *contentState) handleGraphics(op string, args []Value) {
 			panic("bad re")
 		}
 		x, y, w, h := args[0].Float64(), args[1].Float64(), args[2].Float64(), args[3].Float64()
-		s.rect = append(s.rect, rectFromCTM(s.g.CTM, x, y, w, h))
+		r := rectFromCTM(s.g.CTM, x, y, w, h)
+		s.rect = append(s.rect, r)
+		s.pendingRect = append(s.pendingRect, r)
 	case "q":
 		s.gstack = append(s.gstack, s.g)
 	case "Q":
@@ -419,9 +423,14 @@ func (s *contentState) closeSubpath() {
 
 // paintPath consumes the current path. A stroke-painting operator (S s B B* b b*)
 // emits each subpath's consecutive point pairs as Stroke segments; the close
-// variants (s b b*) close first. Every painting operator then clears the path.
-// Fill-only (f F f*) and end-path (n) emit nothing; clip (W W*) keeps the path
-// for the following painter.
+// variants (s b b*) close first. A fill-class operator (f F f* B B* b b*) commits
+// any re rects constructed since the last paint op into fillRect — the donor-
+// provenance signal inferShadedSiblingRows uses to tell a genuine shading fill
+// apart from a stroked-only re rectangle (Content.Rect alone cannot: re appends
+// to it unconditionally, regardless of the paint op that follows). Every painting
+// operator then clears the path. Fill-only (f F f*) and end-path (n) emit no
+// strokes; clip (W W*) keeps the path (and any pending rects) for the following
+// painter.
 func (s *contentState) paintPath(op string) {
 	switch op {
 	case "W", "W*":
@@ -433,7 +442,12 @@ func (s *contentState) paintPath(op string) {
 	case "S", "s", "B", "B*", "b", "b*":
 		s.emitStrokes()
 	}
+	switch op {
+	case "f", "F", "f*", "B", "B*", "b", "b*":
+		s.fillRect = append(s.fillRect, s.pendingRect...)
+	}
 	s.subpaths = s.subpaths[:0]
+	s.pendingRect = s.pendingRect[:0]
 }
 
 // emitStrokes appends each subpath's consecutive point pairs to s.stroke.
@@ -718,6 +732,7 @@ func (s *contentState) interpretXObject(name string) {
 	Interpret(xobj, sub.interpret)
 	s.text = append(s.text, sub.text...)
 	s.rect = append(s.rect, sub.rect...)
+	s.fillRect = append(s.fillRect, sub.fillRect...)
 	s.counters.merge(sub.counters)
 }
 
@@ -814,11 +829,24 @@ func (s *contentState) interpret(stk *Stack, op string) {
 // If the content stream causes a panic (e.g. malformed operator arguments),
 // the defer/recover returns whatever text and rectangles were collected before
 // the crash rather than propagating the panic to the caller.
-func (p Page) Content() (out Content) {
+func (p Page) Content() Content {
+	c, _ := p.contentAndFillRects()
+	return c
+}
+
+// contentAndFillRects runs the same interpretation as Content but additionally returns the
+// fill-only rects: the subset of Content.Rect whose re rectangle was actually closed by a
+// fill-class paint operator (f F f* B B* b b*), as opposed to a stroked-only or unpainted
+// (clip/no-op) re. Content.Rect alone cannot make this distinction — re appends to it
+// unconditionally regardless of the paint op that follows (see contentState.pendingRect /
+// paintPath) — so this is the sole source for a genuine fill/shading-provenance signal.
+// Internal only: the public Content type is not extended with this, to keep its documented
+// "any drawn rectangles" contract and every existing caller's observed behavior unchanged.
+func (p Page) contentAndFillRects() (out Content, fillRects []Rect) {
 	var s *contentState
 	defer func() {
 		if recover() != nil && s != nil {
-			out = Content{s.text, s.rect, s.stroke}
+			out, fillRects = Content{s.text, s.rect, s.stroke}, s.fillRect
 		}
 	}()
 	s = newContentState(p)
@@ -826,7 +854,7 @@ func (p Page) Content() (out Content) {
 		return
 	}
 	Interpret(p.V.Key("Contents"), s.interpret)
-	return Content{s.text, s.rect, s.stroke}
+	return Content{s.text, s.rect, s.stroke}, s.fillRect
 }
 
 func newContentState(p Page) *contentState {

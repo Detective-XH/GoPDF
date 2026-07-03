@@ -894,3 +894,86 @@ func TestContentStrokeReStaysInRectOnly(t *testing.T) {
 		t.Errorf("re must not enter Stroke: got %d strokes", len(c.Stroke))
 	}
 }
+
+// --- contentAndFillRects: fill-paint provenance (inferShadedSiblingRows's donor-provenance
+// input; see rectOnlyHEdges / TestInferShadedSiblingRowsStrokedDonorNoSplit) ---
+
+// openContentAndFillRects mirrors openContent but also returns the fill-only rects.
+func openContentAndFillRects(t *testing.T, stream string) (Content, []Rect) {
+	t.Helper()
+	r, err := OpenBytes(buildTextPDF(stream))
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	c, fillRects := r.Page(1).contentAndFillRects()
+	return c, fillRects
+}
+
+// TestContentFillRectsExcludesStrokedRe locks the round-1 fix: Content.Rect alone cannot tell
+// a genuine fill apart from a stroked-only re rectangle (both populate it identically), so
+// donor-provenance must use fillRects, which must stay empty here.
+func TestContentFillRectsExcludesStrokedRe(t *testing.T) {
+	c, fillRects := openContentAndFillRects(t, "10 20 100 50 re S")
+	if len(c.Rect) != 1 {
+		t.Fatalf("Rect: want 1, got %d", len(c.Rect))
+	}
+	if len(fillRects) != 0 {
+		t.Errorf("stroked-only re: want 0 fillRects, got %d: %v", len(fillRects), fillRects)
+	}
+}
+
+// TestContentFillRectsIncludesFilledRe is the positive counterpart: a re closed by a
+// fill-class paint op (f) must appear in fillRects with the same bounds as Content.Rect.
+func TestContentFillRectsIncludesFilledRe(t *testing.T) {
+	c, fillRects := openContentAndFillRects(t, "10 20 100 50 re f")
+	if len(c.Rect) != 1 {
+		t.Fatalf("Rect: want 1, got %d", len(c.Rect))
+	}
+	if len(fillRects) != 1 {
+		t.Fatalf("filled re: want 1 fillRect, got %d", len(fillRects))
+	}
+	if fillRects[0] != c.Rect[0] {
+		t.Errorf("fillRects[0] = %v, want %v (same bounds as Rect[0])", fillRects[0], c.Rect[0])
+	}
+}
+
+// TestContentFillRectsUnpaintedReExcluded covers the third paint class (round-2 review's other
+// named case): a re that is only used for a clip path (W n), never actually filled or stroked,
+// must not appear in fillRects.
+func TestContentFillRectsUnpaintedReExcluded(t *testing.T) {
+	_, fillRects := openContentAndFillRects(t, "10 20 100 50 re W n")
+	if len(fillRects) != 0 {
+		t.Errorf("clip-only re: want 0 fillRects, got %d: %v", len(fillRects), fillRects)
+	}
+}
+
+// TestContentFillRectsMergedFromFormXObject locks the round-2 fix: interpretXObject merged
+// sub.text and sub.rect back into the parent contentState but not sub.fillRect, so a filled re
+// drawn inside a Form XObject was silently dropped from the donor-provenance pool (the table
+// row-collapse fix would silently no-op for any table embedded in a Form XObject). A filled re
+// inside the form, invoked via Do from the page content, must surface in the page-level
+// contentAndFillRects() result.
+func TestContentFillRectsMergedFromFormXObject(t *testing.T) {
+	formBody := "10 20 100 50 re f"
+	pageContent := "/Fm0 Do"
+	r, err := OpenBytes(buildPDFFromObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Fm0 4 0 R >> >> /Contents 5 0 R >>",
+		formXObjStream(formBody, ""),
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(pageContent), pageContent),
+	}))
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	c, fillRects := r.Page(1).contentAndFillRects()
+	if len(c.Rect) != 1 {
+		t.Fatalf("Rect: want 1 (merged from the Form XObject), got %d", len(c.Rect))
+	}
+	if len(fillRects) != 1 {
+		t.Fatalf("fillRects: want 1 (merged from the Form XObject, matching Rect), got %d", len(fillRects))
+	}
+	if fillRects[0] != c.Rect[0] {
+		t.Errorf("fillRects[0] = %v, want %v (same bounds as the merged Rect)", fillRects[0], c.Rect[0])
+	}
+}

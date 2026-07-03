@@ -131,7 +131,8 @@ func (p Page) TableRegions() ([]TableRegion, error) {
 // and MediaBox. Both Tables() and TableRegions() call this so they share one reconstruction
 // path by construction (the binding constraint in CONFIDENCE-WARNINGS-API.md).
 func (p Page) reconstructTables() ([]tableResult, error) {
-	return reconstructTablesFromContent(p.Content(), p.MediaBox())
+	c, fillRects := p.contentAndFillRects()
+	return reconstructTablesFromContent(c, fillRects, p.MediaBox())
 }
 
 // reconstructTablesFromContent is the single shared internal reconstruction path for
@@ -154,7 +155,7 @@ func (p Page) reconstructTables() ([]tableResult, error) {
 // media[2] (urx) — NOT the de-rotated MediaBox. Using the de-rotated MediaBox here
 // would return a wrong-frame region (the #1 coordinate bug risk); see
 // cellsUnionRectRotated for the derivation.
-func reconstructTablesFromContent(c Content, media [4]float64) ([]tableResult, error) {
+func reconstructTablesFromContent(c Content, fillRects []Rect, media [4]float64) ([]tableResult, error) {
 	tableC := Content{Text: dropSkewRotatedText(c.Text), Rect: c.Rect, Stroke: c.Stroke}
 	deRotC, deRotMedia, wasRotated := deRotateTableContent(tableC, media)
 	tableWords, err := wordsFromContentRecovered(deRotC)
@@ -164,11 +165,16 @@ func reconstructTablesFromContent(c Content, media [4]float64) ([]tableResult, e
 	var vRules []lEdge
 	var lattices [][]lCell
 	if wasRotated {
+		// fillRects needs the SAME 90°-CCW transform deRotateTableContent applied to c.Rect,
+		// using the same lly/urx it derives internally, so donor-provenance geometry in
+		// inferShadedSiblingRows stays consistent with the de-rotated cell frame.
+		lly, urx := media[1], media[2]
+		deRotFillRects := rotateRects90CCW(fillRects, lly, urx)
 		vRules = verticalRules(deRotC)
-		lattices = latticeTablesOpen(deRotC, tableWords, deRotMedia)
+		lattices = latticeTablesOpen(deRotC, tableWords, deRotMedia, deRotFillRects)
 	} else {
 		vRules = verticalRules(c)
-		lattices = latticeTablesOpen(c, tableWords, media)
+		lattices = latticeTablesOpen(c, tableWords, media, fillRects)
 	}
 	var results []tableResult
 	for _, cells := range lattices {

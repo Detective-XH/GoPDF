@@ -59,7 +59,7 @@ func TestLatticeAccuracyIRS(t *testing.T) {
 	}
 
 	// --- OPEN table (closed + recovered edge columns) ---
-	openTables := latticeTablesOpen(c, words, media)
+	openTables := latticeTablesOpen(c, words, media, nil)
 	if len(openTables) == 0 {
 		t.Fatalf("open lattice found NO table on IRS p1")
 	}

@@ -140,7 +140,7 @@ func TestLatticeAccuracyEPA(t *testing.T) {
 	// latticeTablesOpen must produce an identical grid to the closed-only latticeTables on
 	// a fully-bordered table (open-edge recovery is a structural no-op when there are no
 	// words outside [vMin,vMax] within the table Y-span that span >= minOpenRows bands).
-	openTablesEPA := latticeTablesOpen(c, words, p.MediaBox())
+	openTablesEPA := latticeTablesOpen(c, words, p.MediaBox(), nil)
 	if len(openTablesEPA) == 0 {
 		t.Errorf("EPA open: latticeTablesOpen found NO tables")
 	} else {

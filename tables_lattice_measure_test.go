@@ -145,7 +145,7 @@ func TestLatticeFalsePositiveGate(t *testing.T) {
 			}
 			// open-recovery (new gate): nil words + zero media — safe because
 			// recoverOpenColumns is never called when latticeTables returns 0 tables.
-			openTables := latticeTablesOpen(c, nil, [4]float64{})
+			openTables := latticeTablesOpen(c, nil, [4]float64{}, nil)
 			for _, tbl := range openTables {
 				if len(tbl) > 1 {
 					openTotal++
