@@ -36,7 +36,7 @@ func TestLatticeAccuracyBEA(t *testing.T) {
 	}
 
 	// --- OPEN table (BEA phantom-clamp via inferFillBandedRows BEA branch) ---
-	openTables := latticeTablesOpen(c, words, p.MediaBox())
+	openTables := latticeTablesOpen(c, words, p.MediaBox(), nil)
 	if len(openTables) == 0 {
 		t.Fatalf("latticeTablesOpen found NO table on BEA p1")
 	}

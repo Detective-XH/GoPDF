@@ -390,7 +390,14 @@ const (
 //
 // media is the page MediaBox [llx, lly, urx, ury] in PDF coordinates; only llx (media[0])
 // and urx (media[2]) are used as the outer clamps.
-func latticeTablesOpen(c Content, words []Word, media [4]float64) [][]lCell {
+//
+// fillRects is the fill-provenance-verified subset of c.Rect (only re rects actually closed
+// by a fill-class paint op — see contentState.fillRect); inferShadedSiblingRows uses it, never
+// c.Rect directly, since c.Rect alone cannot distinguish a genuine shading fill from a
+// stroked-only or unpainted re rectangle. Callers with no fill-provenance available (most
+// existing tests) may pass nil — inferShadedSiblingRows degrades to a no-op, matching prior
+// behavior before this pass existed.
+func latticeTablesOpen(c Content, words []Word, media [4]float64, fillRects []Rect) [][]lCell {
 	edges := mergeEdges(edgesFromContent(c), 3, 3) // same pool latticeTables uses
 	var hEdges, vEdges []lEdge
 	for _, e := range edges {
@@ -413,9 +420,17 @@ func latticeTablesOpen(c Content, words []Word, media [4]float64) [][]lCell {
 		pristine[i] = append([]lCell(nil), tbl...)
 	}
 
+	// rectOnlyHEdges: the shading-provenance pool inferShadedSiblingRows needs to tell a
+	// row split derived from an alternating-row-shading fill-rect apart from one derived from
+	// an ordinary ruling stroke (or, sharing Content.Rect's own ambiguity, a stroked-only re
+	// rectangle — hence fillRects, not c.Rect, as the input). Computed once here (page-wide,
+	// like hEdges/vEdges) and passed into every table's pass rather than recomputed per table.
+	rectH := rectOnlyHEdges(fillRects)
+
 	for i := range tables {
 		tables[i] = append(tables[i], recoverOpenColumns(tables[i], words, hEdges, media)...)
 		tables[i] = inferRectBorderedRows(tables[i], words, hEdges, media)
+		tables[i] = inferShadedSiblingRows(tables[i], words, rectH)
 		tables[i] = inferFillBandedRows(tables[i], words, c, vEdges)
 		// Last: recover data cells for the headers-only class the passes above cannot form
 		// (header ruled into columns, data body ruled only down the label column). Runs on
@@ -1178,6 +1193,284 @@ func inferRectBorderedRows(cells []lCell, words []Word, hEdges []lEdge, media [4
 		out = append(out, splitCellAtBands(c, bands)...)
 	}
 	return out
+}
+
+// --- shaded-sibling row inference (column-selective alternating-row shading) ---
+//
+// The problem: alternating-row shading applied to only SOME conceptual columns of a table
+// causes those columns' fill-rects to become real per-row lattice cells, while sibling columns
+// with no shading arrive as one tall cell spanning the whole shaded span — inferRectBorderedRows
+// never engages because its own guards (splitFullHeight's whole-table-bottom predicate,
+// interiorHRuleCount seeing the shaded siblings' own rules as "this table is already ruled")
+// are not column-aware. This pass is additive and narrowly scoped: it borrows an already
+// row-closed sibling column's row Y-boundaries onto a same-table, same-y-span tall cell,
+// gated by a per-instance consequence invariant (never a shape/content discriminator) plus a
+// donor-provenance requirement described below.
+//
+// A first version of this pass (reverted, see the spike-verdict doc) accepted ANY column with
+// >= rectMinRowClusters contiguous already-split same-x0 cells as a valid donor, regardless of
+// WHY those cells were already split. That regressed a real table: a wrapped 3-line column
+// HEADER, sitting beside an unrelated header sub-column that happened to already be split into
+// the same row count for its own (stroke-ruled) reasons, got torn into per-line row-cells. The
+// donor-provenance gate below closes exactly that gap: a stack only qualifies as a donor when
+// EVERY one of its cells' top AND bottom boundaries coincides with an edge that itself derives
+// from a Content.Rect FILL operation (rectOnlyHEdges) — never from the general merged
+// stroke+rect edge pool, and never from an ordinary ruling stroke. A stroke-ruled header split
+// fails this gate; a genuine alternating-shading-derived stack passes it.
+//
+// Known, NOT-yet-closed residual risk (see the spike-verdict doc's follow-on note): a
+// genuinely shading-derived donor stack paired with a RECIPIENT that is a real, legitimate
+// row-spanning label/footnote cell whose wrapped text happens to fall one line per shaded band
+// would pass both this gate and the consequence invariant, and get wrongly split. No known fix
+// exists for that case yet; each round that changes this pass must explicitly sweep for it.
+const (
+	// shadedSiblingColTol clusters cell left edges (x0) into column groups when locating a
+	// candidate donor stack. Tighter than rectRowSnapTol because two genuinely distinct
+	// columns can sit within a few points of each other in a dense grid.
+	shadedSiblingColTol = 2.0
+	// shadedSiblingRectSpanTol bounds how closely a candidate rect-derived edge's OWN x-span
+	// must match the donor cell's x-span for the boundary to count as shading-derived. An
+	// overlap-only test (any rect edge whose x-range intersects the cell's) is NOT enough: a
+	// real-world page's table-wide background/frame fill (e.g. x=[43,784] spanning the whole
+	// table) trivially overlaps every narrow column's x-range at the table's own top/bottom Y,
+	// so an overlap test cannot tell "this fill rect IS this cell's own per-row shading" apart
+	// from "some unrelated, much wider fill rect happens to pass through this Y". Measured on
+	// the real irs-p1040 shaded columns, a genuine per-row shading fill's edge x-span matches
+	// the cell's own x-span to within 0.01-0.08pt; measured on the destatis regression's donor,
+	// its wide-frame false match has a x-span mismatch of hundreds of points — tol=3.0 (matching
+	// rectRowSnapTol's scale) cleanly separates the two without being a corpus-frequency bet.
+	shadedSiblingRectSpanTol = 3.0
+)
+
+// inferShadedSiblingRows borrows an already row-closed sibling column's row boundaries onto a
+// same-table, same-y-span tall cell that a shading-column-selective layout left uncollapsed.
+// Returns cells unchanged when no donor stack qualifies for any candidate recipient.
+func inferShadedSiblingRows(cells []lCell, words []Word, rectH []lEdge) []lCell {
+	// A qualifying donor run needs >= rectMinRowClusters stacked cells, which needs
+	// >= rectMinRowClusters+1 distinct rect-derived h-edge Y-positions (N cells share N+1
+	// boundaries). Below that, no run can possibly qualify — skip the O(cells log cells)
+	// column-grouping pass entirely rather than paying it just to find nothing. This keeps
+	// the common case (a page with a handful of unrelated fill-rects, no real shading donor)
+	// cheap: measured to remove most of this pass's added cost on BenchmarkTables' stroke-
+	// bordered fixture, which has no shading donor but was still paying the full scan.
+	if len(cells) == 0 || len(rectH) < rectMinRowClusters+1 {
+		return cells
+	}
+	var donors [][]lCell
+	for _, g := range shadedSiblingColumnGroups(cells) {
+		donors = append(donors, shadedSiblingStackRuns(g, rectH)...)
+	}
+	if len(donors) == 0 {
+		return cells
+	}
+	donorCells := make(map[lCell]bool)
+	for _, run := range donors {
+		for _, c := range run {
+			donorCells[c] = true
+		}
+	}
+	out := make([]lCell, 0, len(cells))
+	for _, cell := range cells {
+		if cell.open || donorCells[cell] {
+			out = append(out, cell)
+			continue
+		}
+		if split, ok := shadedSiblingBestSplit(cell, donors, words); ok {
+			out = append(out, split...)
+			continue
+		}
+		out = append(out, cell)
+	}
+	return out
+}
+
+// shadedSiblingColumnGroups clusters cells into column groups by x0 (tol shadedSiblingColTol),
+// each group sorted top-to-bottom, ready for shadedSiblingStackRuns to scan for donor stacks.
+func shadedSiblingColumnGroups(cells []lCell) [][]lCell {
+	xs := make([]float64, len(cells))
+	for i, c := range cells {
+		xs[i] = c.x0
+	}
+	reps := cluster1D(xs, shadedSiblingColTol)
+	groups := make([][]lCell, len(reps))
+	for _, c := range cells {
+		idx := nearestIdx(reps, c.x0)
+		groups[idx] = append(groups[idx], c)
+	}
+	for _, g := range groups {
+		sort.Slice(g, func(i, j int) bool { return g[i].top < g[j].top })
+	}
+	return groups
+}
+
+// shadedSiblingStackRuns scans one x0-clustered, top-sorted column group for maximal
+// contiguous runs of >= rectMinRowClusters vertically-abutting cells (bottom[i] within
+// rectRowSnapTol of top[i+1]) whose every cell's top AND bottom boundary is donor-provenance
+// verified (shadedSiblingRunIsRectDerived). Non-qualifying runs (too short, or provenance
+// fails) contribute no donor.
+func shadedSiblingStackRuns(group []lCell, rectH []lEdge) [][]lCell {
+	var runs [][]lCell
+	i := 0
+	for i < len(group) {
+		j := i + 1
+		for j < len(group) && math.Abs(group[j].top-group[j-1].bottom) <= rectRowSnapTol {
+			j++
+		}
+		if j-i >= rectMinRowClusters && shadedSiblingRunIsRectDerived(group[i:j], rectH) {
+			runs = append(runs, group[i:j])
+		}
+		i = j
+	}
+	return runs
+}
+
+// shadedSiblingRunIsRectDerived is the donor-provenance gate: every cell in run must have both
+// its top and its bottom boundary trace back to a Content.Rect fill operation, not merely to
+// the general merged stroke+rect edge pool (which any ordinary ruling stroke also populates).
+func shadedSiblingRunIsRectDerived(run []lCell, rectH []lEdge) bool {
+	for _, c := range run {
+		if !shadedSiblingBoundaryIsRectDerived(c.top, c.x0, c.x1, rectH) ||
+			!shadedSiblingBoundaryIsRectDerived(c.bottom, c.x0, c.x1, rectH) {
+			return false
+		}
+	}
+	return true
+}
+
+// shadedSiblingBoundaryIsRectDerived reports whether some rect-only h-edge sits within
+// rectRowSnapTol of y AND whose own x-span matches [x0,x1] within shadedSiblingRectSpanTol —
+// i.e. the fill rect actually BOUNDS this specific cell (a genuine per-row shading fill), not
+// merely a wider unrelated rect (a table frame/background) that happens to overlap this
+// column's x-range at this Y. A plain overlap test is deliberately NOT used here; see
+// shadedSiblingRectSpanTol's doc comment for the real-world false-match this rejects.
+//
+// Known limitation (false-negative only, no observed case in either committed corpus): this is
+// an exact single-edge span match, not a coverage match. If a PDF producer emits one donor
+// cell's own boundary as several adjacent same-Y fill rects (e.g. [0,10]+[10,20] for a [0,20]
+// cell) instead of one rect spanning the full cell, none of the segments matches [x0,x1] alone
+// and the donor is missed — never wrongly split, since a narrower segment can only fail the
+// match, not spuriously satisfy a wider one. Coverage-matching (accept several same-Y edges
+// whose union covers [x0,x1]) would recover this but needs its own gap/overhang tolerance,
+// calibrated against a real example this codebase has not yet seen — deferred rather than
+// adding an uncalibrated threshold ahead of evidence.
+func shadedSiblingBoundaryIsRectDerived(y, x0, x1 float64, rectH []lEdge) bool {
+	for _, e := range rectH {
+		if math.Abs(e.top-y) <= rectRowSnapTol &&
+			math.Abs(e.x0-x0) <= shadedSiblingRectSpanTol && math.Abs(e.x1-x1) <= shadedSiblingRectSpanTol {
+			return true
+		}
+	}
+	return false
+}
+
+// shadedSiblingBoundaries returns the run's N+1 row-boundary Y positions (donor cell tops
+// followed by every donor cell's bottom), ready to cut a same-span recipient into N sub-cells
+// at the EXACT donor boundaries (no clustering/midpoint reconstruction needed — the donor
+// stack's own cell edges already ARE the boundaries).
+func shadedSiblingBoundaries(run []lCell) []float64 {
+	b := make([]float64, 0, len(run)+1)
+	b = append(b, run[0].top)
+	for _, c := range run {
+		b = append(b, c.bottom)
+	}
+	return b
+}
+
+// shadedSiblingSpanMatches reports whether cell's own [top,bottom] matches the donor run's
+// overall span within rectRowSnapTol — the recipient must be a genuine same-table-section
+// sibling of the donor, not merely some other tall cell elsewhere on the page.
+func shadedSiblingSpanMatches(cell lCell, run []lCell) bool {
+	top, bot := run[0].top, run[len(run)-1].bottom
+	return math.Abs(cell.top-top) <= rectRowSnapTol && math.Abs(cell.bottom-bot) <= rectRowSnapTol
+}
+
+// shadedSiblingBestSplit tries every donor run whose span matches cell, in stable column/top
+// order, and returns the first one whose consequence invariant (shadedSiblingTrySplit) commits.
+func shadedSiblingBestSplit(cell lCell, donors [][]lCell, words []Word) ([]lCell, bool) {
+	for _, run := range donors {
+		if !shadedSiblingSpanMatches(cell, run) {
+			continue
+		}
+		if split, ok := shadedSiblingTrySplit(cell, shadedSiblingBoundaries(run), words); ok {
+			return split, true
+		}
+	}
+	return nil, false
+}
+
+// shadedSiblingTrySplit is the per-instance consequence invariant (unchanged from the prior,
+// independently-verified spike — see the spike-verdict doc's Task 1): commit a candidate split
+// of cell at boundaries only if (a) every resulting band holds >=1 word (lossless) and (b) no
+// natural row-of-data — cell's own words, single-linkage clustered by rectRowGapTol, the same
+// tolerance/algorithm cellRowClusters/rowBands use elsewhere in this file — has its members
+// land in more than one borrowed band (non-destructive).
+func shadedSiblingTrySplit(cell lCell, boundaries []float64, words []Word) ([]lCell, bool) {
+	if len(boundaries) < rectMinRowClusters+1 {
+		return nil, false
+	}
+	ys := shadedSiblingCellWordYs(words, cell)
+	if len(ys) == 0 {
+		return nil, false
+	}
+	counts, ok := shadedSiblingBandCounts(ys, boundaries)
+	if !ok {
+		return nil, false
+	}
+	if slices.Contains(counts, 0) {
+		return nil, false // every band must hold >=1 word (lossless)
+	}
+	out := make([]lCell, 0, len(boundaries)-1)
+	for i := 0; i < len(boundaries)-1; i++ {
+		out = append(out, lCell{x0: cell.x0, top: boundaries[i], x1: cell.x1, bottom: boundaries[i+1], open: cell.open})
+	}
+	return out, true
+}
+
+// shadedSiblingCellWordYs returns the sorted Y-centers of words anchored inside cell c.
+func shadedSiblingCellWordYs(words []Word, c lCell) []float64 {
+	ys := wordYCentersIn(words, c)
+	sort.Float64s(ys)
+	return ys
+}
+
+// shadedSiblingBandOf returns the index of the band in boundaries (len(boundaries)-1 bands,
+// band i spanning [boundaries[i],boundaries[i+1])) that y falls into, clamping to the nearest
+// end band for a y that lands fractionally outside due to float rounding.
+func shadedSiblingBandOf(y float64, boundaries []float64) int {
+	if y < boundaries[0] {
+		return 0
+	}
+	for i := 0; i < len(boundaries)-1; i++ {
+		if y < boundaries[i+1] {
+			return i
+		}
+	}
+	return len(boundaries) - 2
+}
+
+// shadedSiblingBandCounts single-linkage clusters ys by rectRowGapTol (matching cellRowClusters'
+// own algorithm) and returns, per band, how many clusters landed SOLELY within that band. ok is
+// false the moment any single cluster's members span more than one band (a natural row-of-data
+// would be torn by the borrowed boundaries — the non-destructive half of the invariant).
+func shadedSiblingBandCounts(ys []float64, boundaries []float64) (counts []int, ok bool) {
+	counts = make([]int, len(boundaries)-1)
+	ok = true
+	i := 0
+	for i < len(ys) {
+		j := i + 1
+		for j < len(ys) && ys[j]-ys[j-1] <= rectRowGapTol {
+			j++
+		}
+		b0 := shadedSiblingBandOf(ys[i], boundaries)
+		for k := i + 1; k < j; k++ {
+			if shadedSiblingBandOf(ys[k], boundaries) != b0 {
+				ok = false
+			}
+		}
+		counts[b0]++
+		i = j
+	}
+	return counts, ok
 }
 
 // --- fill-banded staircase row inference (group-ruled + fill-banded tables) ---
@@ -2147,6 +2440,39 @@ func strokeOnlyHEdges(c Content) []lEdge {
 	var h []lEdge
 	for _, e := range raw {
 		if e.orient == 'h' {
+			h = append(h, e)
+		}
+	}
+	return h
+}
+
+// rectOnlyHEdges returns h-edges derived from fillRects — the fill-provenance-verified subset of
+// Content.Rect (see latticeTablesOpen's fillRects param / contentState.fillRect), never from
+// Content.Stroke line segments and never from a merely-constructed-but-unfilled re rectangle.
+// The general hEdges pool (mergeEdges(edgesFromContent(c), ...)) merges Rect and Stroke
+// together indiscriminately — exactly right for detecting a table's structural rules but wrong
+// for inferShadedSiblingRows's donor-provenance gate: that gate must tell "this sibling
+// column's row split comes from a real alternating-row SHADING fill" apart from "this sibling
+// column's row split comes from an ordinary ruling stroke, or a stroked-only/unpainted re
+// rectangle that Content.Rect alone cannot distinguish from a fill" (see the shaded-sibling doc
+// comment above inferShadedSiblingRows for the real-world regression this distinguishes).
+//
+// Deliberately snaps Y (snapEdges) but does NOT join X-spans (joinEdges) the way the general
+// hEdges pool does: joinEdges extends a fill edge's x-span across any OTHER collinear,
+// touching-or-near fill edge at the same Y — exactly wrong for this gate, whose whole signal IS
+// each individual donor cell's own x-span. Two adjacent genuinely-shaded sibling columns sharing
+// a row boundary would otherwise have their edges joined into one wide edge before
+// shadedSiblingBoundaryIsRectDerived ever sees them, so BOTH donors would fail their own x-span
+// match — a false negative (a real fix silently not firing), never a false positive (joining can
+// only WIDEN a span, which makes the x-span-match check strictly harder to satisfy, never easier
+// — so this cannot manufacture a spurious donor match either way). rectOnlyHEdges is this gate's
+// only consumer; the shared structural hEdges/vEdges pool (which DOES need joining, e.g. for
+// thin-rect ruling lines) is computed separately in latticeTablesOpen and is unaffected.
+func rectOnlyHEdges(fillRects []Rect) []lEdge {
+	snapped := snapEdges(edgesFromContent(Content{Rect: fillRects}), 3)
+	var h []lEdge
+	for _, e := range snapped {
+		if e.orient == 'h' && e.length() >= 3.0 { // edge_min_length, matching mergeEdges' own filter
 			h = append(h, e)
 		}
 	}

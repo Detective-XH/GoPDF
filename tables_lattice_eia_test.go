@@ -36,7 +36,7 @@ func TestLatticeAccuracyEIA(t *testing.T) {
 	// --- OPEN table (fill-banded split via inferFillBandedRows) ---
 	// latticeTablesOpen is mandatory: latticeTables (closed-only) does NOT split
 	// fill bands, so the EIA table appears as ~33 rows instead of ~45.
-	openTables := latticeTablesOpen(c, words, p.MediaBox())
+	openTables := latticeTablesOpen(c, words, p.MediaBox(), nil)
 	if len(openTables) == 0 {
 		t.Fatalf("latticeTablesOpen found NO table on EIA p1 (edges=%d)", len(mergeEdges(edgesFromContent(c), 3, 3)))
 	}

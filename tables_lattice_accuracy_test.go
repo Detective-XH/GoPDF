@@ -155,7 +155,7 @@ func TestLatticeAccuracyNISTArea(t *testing.T) {
 	// The structural gate requires h-rule overhang
 	// > overhangTol=6 pt past vMin/vMax. NIST p23's min h-edge x0=78.5, vMin=79.51 → gap=~1 pt
 	// < 6 pt → no admitted bands → no phantom left column. This is now a hard t.Errorf.
-	openTablesNIST := latticeTablesOpen(c, words, p.MediaBox())
+	openTablesNIST := latticeTablesOpen(c, words, p.MediaBox(), nil)
 	if len(openTablesNIST) == 0 {
 		t.Logf("NIST p23 open: latticeTablesOpen found NO tables (unexpected)")
 	} else {

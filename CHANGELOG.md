@@ -42,6 +42,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   **Known limitation:** on tables with very few rows, or in a narrow synthetic edge case (two distinct
   columns, one unusually sparse, sitting close together), the new column-anchoring logic may not fully
   resolve — no occurrence of this causing incorrect output has been found in real-world testing.
+- `Page.Tables()` now recovers full row data from a table where alternating-row background shading is
+  applied to only some of its columns (a layout seen in government tax-bracket tables): the unshaded
+  columns previously collapsed into one blob cell per section instead of one cell per row, silently
+  losing data while still reporting `Confidence High` with no warning. Recovery only fires when a
+  neighboring column's own row boundaries can be traced back to a real background-fill paint operation
+  (not merely an outline or an unrelated already-split column), so a genuine multi-line label or
+  footnote sitting beside a shaded column is left untouched. The same recovery also fixes a previously
+  collapsed multi-line header or label column whenever an adjacent, already-correctly-split column
+  shares its row boundaries — confirmed against real-world statistical tables. **Known limitation:**
+  if a single column's own shading boundary is drawn as several adjoining fill shapes rather than one,
+  recovery may not fire for that column — no occurrence of this causing incorrect output has been
+  found in real-world testing.
 
 ### Changed
 
