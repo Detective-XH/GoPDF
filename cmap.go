@@ -297,6 +297,12 @@ func (s *cmapInterp) handleEndBfrange(stk *Stack) {
 	}
 	for i := 0; i < s.n; i++ {
 		dst, srcHi, srcLo := stk.Pop(), stk.Pop().RawString(), stk.Pop().RawString()
+		if len(srcHi) != len(srcLo) {
+			if DebugOn {
+				println("bad bfrange endpoints")
+			}
+			continue
+		}
 		// Bucket by source-code length (1..4) so lookupBfrange binary-searches
 		// only the matching-length entries. Lengths outside 1..4 could never
 		// match decodeOne's n=1..4 probes, so dropping them preserves behaviour.

@@ -260,8 +260,9 @@ func TestExtractionSummaryFormNestedImage(t *testing.T) {
 
 // TestExtractionSummaryMalformedContent — an unsupported /Crypt filter on
 // the content stream makes the summary error out; extraction failure is
-// never classified as image-only (the document-scoped unsupported_filter
-// from Value.Reader is the only warning).
+// never classified as image-only. Two warnings result: the document-scoped
+// unsupported_filter from Value.Reader, and content_truncated because the
+// unreadable stream also aborts content interpretation.
 func TestExtractionSummaryMalformedContent(t *testing.T) {
 	r := mustOpen(t, buildPDFFromObjects([]string{
 		"<< /Type /Catalog /Pages 2 0 R >>",
@@ -277,12 +278,25 @@ func TestExtractionSummaryMalformedContent(t *testing.T) {
 	if sum.Page != 1 {
 		t.Errorf("summary.Page: got %d, want 1 (preserved for routing)", sum.Page)
 	}
+	var haveFilter, haveTruncated bool
 	for _, w := range r.Warnings() {
-		if w.Code == WarningImageOnlyPage {
+		switch w.Code {
+		case WarningImageOnlyPage:
 			t.Errorf("image_only_page emitted on extraction failure: %v", w)
+		case WarningUnsupportedFilter:
+			if strings.Contains(w.Detail, "Crypt") && w.Page == 0 {
+				haveFilter = true
+			}
+		case WarningContentTruncated:
+			haveTruncated = true
 		}
 	}
-	assertOneWarning(t, r, WarningUnsupportedFilter, "Crypt")
+	if !haveFilter {
+		t.Errorf("Warnings: missing document-scoped unsupported_filter for Crypt: %v", r.Warnings())
+	}
+	if !haveTruncated {
+		t.Errorf("Warnings: missing content_truncated for the aborted interpretation: %v", r.Warnings())
+	}
 }
 
 // TestExtractionSummaryBadOperatorNoClassify — the residual corner: a

@@ -29,8 +29,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   the font's `/ToUnicode` data clears a confidence bar (a high fraction of entries must cleanly resolve
   to a single legacy keystroke) — a font with already-correct Unicode text is never touched.
 
+- New extraction warning `content_truncated` on `Reader.Warnings()`: when a page's content stream
+  aborts mid-parse (a malformed operator or an unreadable stream), the text surfaces
+  (`Page.Words()`/`Lines()`/`Blocks()`/`Content()`) still return the partial pre-failure output —
+  previously with no signal at all. The new page-scoped warning is the honest indicator that the
+  page may be incomplete. The doc comments on those surfaces now describe the real contract:
+  interpretation-stage failures degrade to partial content plus this warning; failures in the later
+  assembly stage are returned as errors.
+
 ### Fixed
 
+- **Security/robustness:** a malformed ToUnicode CMap whose replacement text has an odd byte length
+  (legal hex-string syntax) no longer panics the decoder — the panic was previously swallowed
+  internally and silently truncated the page's extracted text with no diagnostic. Odd trailing bytes
+  now decode to U+FFFD, and CMap range entries with mismatched endpoint lengths are ignored instead
+  of producing wrong mappings.
+- `Page.Tables()` and `Page.TableRegions()` now return an error instead of panicking if table
+  reconstruction fails unexpectedly, matching the long-documented error contract of `Page.Words()`.
 - `Page.Tables()` no longer over-splits tables whose columns are separated only by full-height
   vertical rules with no horizontal rules between data rows (a common statistical-table layout). A
   header label's own text position often differs slightly from the data value's position beneath it;

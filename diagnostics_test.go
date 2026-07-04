@@ -132,6 +132,7 @@ func TestWarningMessagesFixed(t *testing.T) {
 		WarningMissingGlyphMapping,
 		WarningUnsupportedFilter,
 		WarningTruncated,
+		WarningContentTruncated,
 	}
 	for _, c := range codes {
 		if warningMessages[c] == "" {
@@ -366,7 +367,34 @@ func TestWarningsUnsupportedFilterCrypt(t *testing.T) {
 			if len(out.Text) != 0 {
 				t.Errorf("Content text: got %d runs, want 0 (existing degradation)", len(out.Text))
 			}
-			assertOneWarning(t, r, WarningUnsupportedFilter, "filter Crypt")
+			// The unreadable /Crypt stream now ALSO aborts content-stream
+			// interpretation (the errorReadCloser's read error surfaces as a
+			// panic inside Interpret), so contentAndFillRects's recover fires
+			// too: unsupported_filter (Page 0, the stream-open warning) plus
+			// content_truncated (Page 1, the newly-signalled interpretation
+			// abort) rather than unsupported_filter alone.
+			ws := r.Warnings()
+			if len(ws) != 2 {
+				t.Fatalf("Warnings: got %d entries (%v), want 2 (unsupported_filter + content_truncated)", len(ws), ws)
+			}
+			foundFilter, foundTruncated := false, false
+			for _, w := range ws {
+				switch w.Code {
+				case WarningUnsupportedFilter:
+					foundFilter = true
+					if w.Page != 0 || !strings.Contains(w.Detail, "filter Crypt") {
+						t.Errorf("unsupported_filter warning: got %+v", w)
+					}
+				case WarningContentTruncated:
+					foundTruncated = true
+					if w.Page != 1 || !strings.HasPrefix(w.Detail, "content: ") {
+						t.Errorf("content_truncated warning: got %+v", w)
+					}
+				}
+			}
+			if !foundFilter || !foundTruncated {
+				t.Errorf("Warnings: got %v, want both unsupported_filter and content_truncated", ws)
+			}
 		})
 	}
 }
@@ -427,15 +455,22 @@ func TestWarningsAdversarialSizes(t *testing.T) {
 			fmt.Sprintf("<< /Length 4 /Filter [%s] >>\nstream\nABCD\nendstream", sb.String()),
 		}))
 		_ = r.Page(1).Content()
+		// As in TestWarningsUnsupportedFilterCrypt, the unreadable stream now
+		// also emits content_truncated (Page 1) alongside unsupported_filter
+		// (Page 0); sorting by (Page, Code, Detail) keeps ws[0] the
+		// unsupported_filter entry this test's clamping assertions target.
 		ws := r.Warnings()
-		if len(ws) != 1 {
-			t.Fatalf("want 1 warning, got %d", len(ws))
+		if len(ws) != 2 {
+			t.Fatalf("want 2 warnings (unsupported_filter + content_truncated), got %d: %v", len(ws), ws)
 		}
 		if len(ws[0].Detail) > maxWarningDetailLen+len("...") {
 			t.Errorf("Detail not clamped: %d bytes (%q...)", len(ws[0].Detail), ws[0].Detail[:80])
 		}
 		if !strings.HasSuffix(ws[0].Detail, "+...") {
 			t.Errorf("array truncation marker missing: %q", ws[0].Detail)
+		}
+		if len(ws[1].Detail) > maxWarningDetailLen+len("...") {
+			t.Errorf("content_truncated Detail not clamped: %d bytes (%q...)", len(ws[1].Detail), ws[1].Detail[:min(80, len(ws[1].Detail))])
 		}
 	})
 }
@@ -561,4 +596,64 @@ func TestWarningsConcurrent(t *testing.T) {
 		}(g)
 	}
 	wg.Wait()
+}
+
+// ---------------------------------------------------------------------------
+// content_truncated: interpretation-stage panics now signal via Reader.Warnings
+// ---------------------------------------------------------------------------
+
+// hasContentTruncatedWarning reports whether ws contains a content_truncated
+// warning for page whose Detail carries the given recovery-site prefix.
+func hasContentTruncatedWarning(ws []ExtractionWarning, page int, detailPrefix string) bool {
+	for _, w := range ws {
+		if w.Code == WarningContentTruncated && w.Page == page && strings.HasPrefix(w.Detail, detailPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestWarningsContentTruncatedOnInterpretationPanic locks the gap this change
+// closes: an interpretation-stage panic (as opposed to a post-interpretation
+// assembly panic) used to be recovered with zero signal. buildMalformedTruncatedPDF's
+// content stream — "BT /F1 12 Tf (delta) Tj TJ" — shows "delta" via Tj, then
+// panics on a bare TJ with no preceding array operand (args[0] indexes an empty
+// slice), in BOTH the Content()/Words() interpreter (content.go) and the
+// GetPlainText interpreter (plaintext.go). Each recovery site must now also
+// record a content_truncated warning instead of staying silent.
+func TestWarningsContentTruncatedOnInterpretationPanic(t *testing.T) {
+	r := mustOpen(t, buildMalformedTruncatedPDF())
+
+	// Words(): the interpretation panic is recovered inside contentAndFillRects
+	// (silently, pre-existing behavior) and the outer word-assembly step never
+	// itself panics on the resulting partial Content, so Words() returns the
+	// pre-panic text with a nil error — the exact "zero signal" gap this change closes.
+	words, err := r.Page(1).Words()
+	if err != nil {
+		t.Fatalf("Words(): unexpected error %v", err)
+	}
+	if len(words) != 1 || words[0].S != "delta" {
+		t.Fatalf("Words(): got %+v, want a single %q word (pre-panic partial text)", words, "delta")
+	}
+
+	// GetPlainText(): plainTextAndCounters's own interpreter panics on the same
+	// bare TJ; its recover already returns an error (unlike Content's), and must
+	// now ALSO record the warning.
+	text, gpErr := r.Page(1).GetPlainText(nil)
+	if gpErr == nil {
+		t.Fatalf("GetPlainText(): want an error (interpretation panic), got nil (text %q)", text)
+	}
+
+	ws := r.Warnings()
+	if !hasContentTruncatedWarning(ws, 1, "content: ") {
+		t.Errorf("Warnings() = %v, want a content_truncated warning for page 1 with Detail prefix %q", ws, "content: ")
+	}
+	if !hasContentTruncatedWarning(ws, 1, "plaintext: ") {
+		t.Errorf("Warnings() = %v, want a content_truncated warning for page 1 with Detail prefix %q", ws, "plaintext: ")
+	}
+	for _, w := range ws {
+		if w.Code == WarningContentTruncated && w.Message != warningMessages[WarningContentTruncated] {
+			t.Errorf("content_truncated Message: got %q, want the fixed table entry", w.Message)
+		}
+	}
 }

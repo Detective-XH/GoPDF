@@ -795,3 +795,54 @@ func TestCmapInterpretCmapDefineresource(t *testing.T) {
 		t.Errorf("interpretCmap defineresource: stk.Len()=%d, want 1", stk.Len())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestCmapDecodeGuardsMalformedEntries — a bfchar with an odd-length (1-byte)
+// destination must decode as U+FFFD without panicking, and a bfrange whose
+// hi/lo endpoints differ in length must be dropped without panicking; in both
+// cases other well-formed entries in the same CMap keep decoding correctly.
+// ---------------------------------------------------------------------------
+
+func TestCmapDecodeGuardsMalformedEntries(t *testing.T) {
+	t.Run("bfchar_odd_length_destination", func(t *testing.T) {
+		// 0x41 -> a single raw byte (0xFF): utf16Decode cannot pair it into a
+		// full UTF-16 code unit. 0x42 -> a well-formed 2-byte destination.
+		body := standardCmapHeader +
+			"1 begincodespacerange\n<00> <FF>\nendcodespacerange\n" +
+			"2 beginbfchar\n<41> <FF>\n<42> <0042>\nendbfchar\n" +
+			standardCmapFooter
+		m := readCmap(makeCmapStream(body))
+		if m == nil {
+			t.Fatal("readCmap returned nil for stream with one odd-length bfchar destination")
+		}
+		if got := m.Decode("\x41"); got != string(rune(noRune)) {
+			t.Errorf("Decode(\\x41) odd-length destination: got %q, want %q", got, string(rune(noRune)))
+		}
+		if got := m.Decode("\x42"); got != "B" {
+			t.Errorf("Decode(\\x42): got %q, want %q", got, "B")
+		}
+	})
+
+	t.Run("bfrange_mismatched_endpoint_lengths", func(t *testing.T) {
+		// First declared range has a 1-byte lo and a 3-byte hi (mismatched); it
+		// must be dropped. Second declared range is well-formed and must still
+		// decode correctly.
+		body := standardCmapHeader +
+			"1 begincodespacerange\n<00> <FF>\nendcodespacerange\n" +
+			"2 beginbfrange\n<10> <109090> <2000>\n<20> <22> <0020>\nendbfrange\n" +
+			standardCmapFooter
+		m := readCmap(makeCmapStream(body))
+		if m == nil {
+			t.Fatal("readCmap returned nil for stream with one mismatched-endpoint bfrange")
+		}
+		if len(m.bfrange[0]) != 1 {
+			t.Fatalf("bfrange[0]: got %d entries, want 1 (mismatched entry must be dropped)", len(m.bfrange[0]))
+		}
+		if got := m.Decode("\x10"); got != string(rune(noRune)) {
+			t.Errorf("Decode(\\x10) for dropped range: got %q, want %q (no match)", got, string(rune(noRune)))
+		}
+		if got := m.Decode("\x21"); got != "!" {
+			t.Errorf("Decode(\\x21): got %q, want %q", got, "!")
+		}
+	})
+}

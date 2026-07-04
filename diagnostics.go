@@ -59,6 +59,7 @@ var warningMessages = map[ExtractionWarningCode]string{
 	WarningVerticalWritingMode: "a vertical writing-mode CMap was selected; glyphs advance vertically using a default one-em displacement (per-glyph vertical metrics are not applied)",
 	WarningSparseText:          "page text is only sparse page furniture (e.g. a page number) at the margin; it may be a scanned page",
 	WarningNonFiniteGeometry:   "geometry held a non-finite coordinate that DebugJSON sanitized to zero",
+	WarningContentTruncated:    "content stream interpretation aborted; page output may be truncated",
 }
 
 // warningStore accumulates deduplicated extraction warnings for one Reader.
@@ -139,7 +140,9 @@ type ExtractionWarningCode string
 // Extraction warning codes reported by this package. Most warnings are
 // document-scoped (Page == 0); image_only_page, sparse_text, and null_page_slot
 // are page-scoped. non_finite_geometry is page-scoped for page/text geometry and
-// document-scoped (page in Detail) for link geometry.
+// document-scoped (page in Detail) for link geometry. content_truncated is
+// page-scoped when the recovering call can resolve a page number (see
+// pageNumberOf) and document-scoped (Page 0) otherwise.
 const (
 	// WarningMissingToUnicode: a font has no usable /ToUnicode CMap (absent
 	// for an Identity CMap, or present but unparseable), so extracted bytes
@@ -217,6 +220,17 @@ const (
 	// geometry, surfaced only by Reader.DebugJSON, is document-scoped (Page == 0, in the
 	// envelope) with the affected page in Detail ("link on page N").
 	WarningNonFiniteGeometry ExtractionWarningCode = "non_finite_geometry"
+	// WarningContentTruncated: an interpretation-stage panic (e.g. a malformed
+	// content-stream operator) was recovered mid-stream, by Page.Content /
+	// Page.GetPlainText's own interpreter loop, or by the watermark detector's
+	// per-page skew sample — NOT by the post-interpretation assembly step that
+	// Words/Lines/Blocks/Tables already turn into a returned error. The
+	// caller's result reflects only what was collected before the crash, so
+	// page output may be truncated. Page is the page number when cheaply
+	// resolvable (see pageNumberOf), else 0. Detail identifies the recovery
+	// site ("content: ", "plaintext: ", or "watermark-sample: ") followed by
+	// the clamped panic text.
+	WarningContentTruncated ExtractionWarningCode = "content_truncated"
 )
 
 // ExtractionWarning describes one non-fatal issue observed while reading or
@@ -281,6 +295,18 @@ func (v Value) warn(code ExtractionWarningCode, detail string) {
 	if v.r != nil {
 		v.r.warn(0, code, detail)
 	}
+}
+
+// pageNumberOf resolves p's 1-based page number via the Reader's cached page
+// map (cachedPageMap, page_summary.go) — the same lookup Page.ExtractionSummary
+// already pays for — or 0 when p carries no Reader, matching the Page==0
+// convention document-scoped warnings use. Only paid on the (already rare)
+// interpretation-panic recovery paths that call it.
+func pageNumberOf(p Page) int {
+	if p.V.r == nil {
+		return 0
+	}
+	return p.V.r.cachedPageMap()[p.V.ptr.id]
 }
 
 // fontRef builds the Detail discriminator for font-scoped warnings:

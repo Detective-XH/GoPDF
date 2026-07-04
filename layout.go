@@ -301,6 +301,10 @@ type Word struct {
 // string — carry no visual advance and so are treated as non-breaking; a word
 // split across a TJ boundary is therefore not falsely segmented. Bounding boxes
 // are best-effort. Returns (nil, nil) for pages with no extractable text.
+// Interpretation-stage failures (a malformed content-stream operator) degrade
+// to partial content and record a content_truncated Reader warning (see
+// Reader.Warnings) rather than surfacing here; panics during the
+// post-interpretation word-assembly step are recovered and returned as errors.
 func (p Page) Words() ([]Word, error) {
 	return wordsFromContentRecovered(p.layoutContent())
 }
@@ -448,7 +452,11 @@ func samplePageIndices(n, cap int) []int {
 // watermark yields the SAME signature on every page (the same stamp); page-specific rotated
 // labels (chart axes, section markers) yield a DIFFERENT signature per page.
 func pageSkewSignature(r *Reader, pg int) (sig string, ok bool) {
-	defer func() { _ = recover() }()
+	defer func() {
+		if rec := recover(); rec != nil {
+			r.warn(pg, WarningContentTruncated, "watermark-sample: "+clampDetail(fmt.Sprint(rec)))
+		}
+	}()
 	p := r.Page(pg)
 	if p.V.IsNull() {
 		return "", false
@@ -775,8 +783,11 @@ type Line struct {
 // right col row 1, left col row 2, ...) rather than read down each column in
 // full. Column-major ordering is intentionally out of scope here.
 //
-// Returns (nil, nil) for pages with no extractable text. Panics during content
-// parsing are recovered and returned as errors, matching Words() semantics.
+// Returns (nil, nil) for pages with no extractable text. Interpretation-stage
+// failures degrade to partial content and record a content_truncated Reader
+// warning (see Reader.Warnings) rather than surfacing here; panics during the
+// post-interpretation line-assembly step are recovered and returned as
+// errors, matching Words() semantics.
 func (p Page) Lines() ([]Line, error) {
 	return linesFromContentRecovered(p.layoutContent())
 }

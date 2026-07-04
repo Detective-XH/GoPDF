@@ -5,6 +5,7 @@
 package pdf
 
 import (
+	"fmt"
 	"math"
 	"strings"
 )
@@ -828,7 +829,9 @@ func (s *contentState) interpret(stk *Stack, op string) {
 // with endpoints in the same display space as Rect; see Stroke.
 // If the content stream causes a panic (e.g. malformed operator arguments),
 // the defer/recover returns whatever text and rectangles were collected before
-// the crash rather than propagating the panic to the caller.
+// the crash rather than propagating the panic to the caller; the recovery also
+// records a content_truncated Reader warning (WarningContentTruncated, see
+// Reader.Warnings) noting that the page output may be truncated.
 func (p Page) Content() Content {
 	c, _ := p.contentAndFillRects()
 	return c
@@ -845,9 +848,14 @@ func (p Page) Content() Content {
 func (p Page) contentAndFillRects() (out Content, fillRects []Rect) {
 	var s *contentState
 	defer func() {
-		if recover() != nil && s != nil {
+		rec := recover()
+		if rec == nil {
+			return
+		}
+		if s != nil {
 			out, fillRects = Content{s.text, s.rect, s.stroke}, s.fillRect
 		}
+		p.V.r.warn(pageNumberOf(p), WarningContentTruncated, "content: "+clampDetail(fmt.Sprint(rec)))
 	}()
 	s = newContentState(p)
 	if s == nil {
