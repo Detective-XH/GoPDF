@@ -32,6 +32,19 @@ func TestUTF16Decode(t *testing.T) {
 	}
 }
 
+// TestUTF16DecodeOddLength verifies that utf16Decode does not panic on an
+// odd-length input and decodes the even-byte prefix normally, appending
+// U+FFFD (the replacement character) for the unpaired trailing byte.
+func TestUTF16DecodeOddLength(t *testing.T) {
+	// Bytes: 0x00 0x41 ('A'), 0x00 0x42 ('B'), then a lone trailing 0x40.
+	textInput := "\x00A\x00B\x40"
+	got := utf16Decode(textInput)
+	want := "AB" + string(rune(noRune))
+	if got != want {
+		t.Errorf("utf16Decode(%q) = %q; want %q", textInput, got, want)
+	}
+}
+
 // textPDFDocByte returns the expected rune for a pdfDocEncoding byte,
 // looked up directly from the package-level table.
 func textPDFDocByte(b byte) rune {

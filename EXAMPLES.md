@@ -390,7 +390,11 @@ for _, warning := range r.Warnings() {
 ```
 
 `warning.Code` is an `ExtractionWarningCode`; codes are additive across minor
-versions, so callers must tolerate unrecognised values. Decode-path codes flag
+versions, so callers must tolerate unrecognised values. `content_truncated` flags a
+page whose content-stream interpretation aborted mid-parse (malformed operator or
+unreadable stream): the text surfaces (`Words`/`Lines`/`Blocks`/`Content`) still return
+the partial pre-failure output with a nil error, and this warning is the signal that
+the page may be incomplete. Decode-path codes flag
 text whose Unicode may be approximate — `missing_tounicode`, `malformed_tounicode`,
 `fallback_encoding`, `unsupported_encoding`, `missing_glyph_mapping`. One decode-path code flags text
 that is not approximate but unrecoverable — `legacy_font_text` (a legacy non-Unicode Indic font such as

@@ -46,8 +46,14 @@ func isUTF16(s string) bool {
 
 func utf16Decode(s string) string {
 	var u []uint16
-	for i := 0; i < len(s); i += 2 {
+	i := 0
+	for ; i+1 < len(s); i += 2 {
 		u = append(u, uint16(s[i])<<8|uint16(s[i+1]))
+	}
+	if i < len(s) {
+		// Odd trailing byte has no pairing byte to form a full unit; emit the
+		// replacement rune instead of indexing s[i+1] out of range.
+		u = append(u, uint16(noRune))
 	}
 	return string(utf16.Decode(u))
 }

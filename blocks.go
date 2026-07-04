@@ -49,8 +49,11 @@ type Block struct {
 // A full-width line spanning the gutters is assigned to the column its left edge
 // falls in; reading order around such interruptions is best-effort.
 //
-// Returns (nil, nil) for pages with no extractable text. Panics during content
-// parsing are recovered and returned as errors, matching Words() and Lines().
+// Returns (nil, nil) for pages with no extractable text. Interpretation-stage
+// failures degrade to partial content and record a content_truncated Reader
+// warning (see Reader.Warnings) rather than surfacing here; panics during the
+// post-interpretation block-assembly step are recovered and returned as
+// errors, matching Words() and Lines().
 func (p Page) Blocks() ([]Block, error) {
 	return blocksFromContentRecovered(p.layoutContent())
 }

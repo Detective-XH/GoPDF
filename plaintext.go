@@ -234,6 +234,7 @@ func (p Page) plainTextAndCounters(fonts map[string]*Font) (result string, count
 				counters = s.counters
 			}
 			err = errors.New(fmt.Sprint(r))
+			p.V.r.warn(pageNumberOf(p), WarningContentTruncated, "plaintext: "+clampDetail(fmt.Sprint(r)))
 		}
 	}()
 

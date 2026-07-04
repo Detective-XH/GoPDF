@@ -1,6 +1,7 @@
 package pdf
 
 import (
+	"errors"
 	"fmt"
 	"unicode"
 )
@@ -129,10 +130,34 @@ func (p Page) TableRegions() ([]TableRegion, error) {
 
 // reconstructTables delegates to reconstructTablesFromContent using this page's content
 // and MediaBox. Both Tables() and TableRegions() call this so they share one reconstruction
-// path by construction (the binding constraint in CONFIDENCE-WARNINGS-API.md).
+// path by construction (the binding constraint in CONFIDENCE-WARNINGS-API.md). The whole
+// delegation runs inside recoverTableResults so a panic anywhere in the lattice
+// reconstruction chain (latticeTablesOpen, reconstructGrid, detectTableWarnings,
+// cellsUnionRect, ...) is recovered into (nil, error) rather than escaping to the caller —
+// matching the Words()/Lines()/Blocks() panic contract. Since both public methods call this
+// one method, they inherit the recovery through the single shared path.
 func (p Page) reconstructTables() ([]tableResult, error) {
 	c, fillRects := p.contentAndFillRects()
-	return reconstructTablesFromContent(c, fillRects, p.MediaBox())
+	media := p.MediaBox()
+	return recoverTableResults(func() ([]tableResult, error) {
+		return reconstructTablesFromContent(c, fillRects, media)
+	})
+}
+
+// recoverTableResults invokes f and recovers any panic into (nil, error), the same
+// panic-to-error contract linesFromContentRecovered (layout.go), blocksFromContentRecovered
+// (blocks.go), and wordsFromContentRecovered (layout.go) apply to their respective chains.
+// f's own genuine error (e.g. from wordsFromContentRecovered inside
+// reconstructTablesFromContent) passes through untouched — recover only overwrites the
+// return values when a panic actually occurred.
+func recoverTableResults(f func() ([]tableResult, error)) (res []tableResult, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			res = nil
+			err = errors.New(fmt.Sprint(r))
+		}
+	}()
+	return f()
 }
 
 // reconstructTablesFromContent is the single shared internal reconstruction path for

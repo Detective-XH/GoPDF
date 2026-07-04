@@ -7,6 +7,8 @@
 //   - TestTableRegionsNonRotated: page-space coords for a non-rotated fixture
 //   - TestTableRegionsRotated: page-space coords for a synthetic 90°-CCW table
 //   - TestTablesCellsNoHarm: byte-identical Table.Cells gate (golden hash capture)
+//   - TestRecoverTableResultsPanic / TestRecoverTableResultsNoPanic: reconstructTables()'s
+//     panic→error recovery mechanism (Words()/Lines()/Blocks() parity)
 //
 // Inner-loop commands:
 //
@@ -20,6 +22,7 @@ package pdf
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -317,6 +320,64 @@ func TestTableConfidenceRollup(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ── Panic→error recovery ──────────────────────────────────────────────────────
+
+// TestRecoverTableResultsPanic is the unit gate for recoverTableResults: it proves the
+// panic-to-error mechanism reconstructTables() relies on (a panic anywhere inside the
+// closure becomes (nil, error)), mirroring linesFromContentRecovered/
+// blocksFromContentRecovered/wordsFromContentRecovered. It does not drive a real panic
+// through the lattice reconstruction chain — the chain's internals are guarded throughout
+// (see e.g. staircaseSignatureHolds, cellsUnionRect), so constructing pathological Content
+// that reliably panics a specific internal would be a fragile probe of an implementation
+// detail, not of the recovery contract. reconstructTables()'s entire body runs inside this
+// same recoverTableResults call, so this unit test plus the wiring check below together
+// cover the contract end to end.
+func TestRecoverTableResultsPanic(t *testing.T) {
+	t.Parallel()
+
+	res, err := recoverTableResults(func() ([]tableResult, error) {
+		panic("boom")
+	})
+	if res != nil {
+		t.Errorf("res: got %v, want nil after recovered panic", res)
+	}
+	if err == nil {
+		t.Fatal("err: got nil, want non-nil after recovered panic")
+	}
+	if err.Error() != "boom" {
+		t.Errorf("err.Error(): got %q, want %q", err.Error(), "boom")
+	}
+}
+
+// TestRecoverTableResultsNoPanic verifies the non-panic path is a transparent pass-through:
+// f's own return values (including a genuine error, e.g. surfaced by
+// wordsFromContentRecovered inside reconstructTablesFromContent) are returned unchanged.
+func TestRecoverTableResultsNoPanic(t *testing.T) {
+	t.Parallel()
+
+	want := []tableResult{{grid: [][]string{{"a"}}}}
+	res, err := recoverTableResults(func() ([]tableResult, error) {
+		return want, nil
+	})
+	if err != nil {
+		t.Fatalf("err: got %v, want nil", err)
+	}
+	if len(res) != 1 || len(res[0].grid) != 1 || res[0].grid[0][0] != "a" {
+		t.Errorf("res: got %+v, want %+v", res, want)
+	}
+
+	wantErr := errors.New("genuine error")
+	res2, err2 := recoverTableResults(func() ([]tableResult, error) {
+		return nil, wantErr
+	})
+	if res2 != nil {
+		t.Errorf("res2: got %v, want nil", res2)
+	}
+	if err2 != wantErr {
+		t.Errorf("err2: got %v, want %v (pass-through, not wrapped)", err2, wantErr)
 	}
 }
 
