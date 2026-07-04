@@ -57,25 +57,46 @@ func latticeFixturePages(t *testing.T, rel string) []Content {
 	return pages
 }
 
-// TestLatticeEdgeInventory prints aggregate edge/stroke/rect counts for all 9
-// fixtures across all pages. Never fails — diagnostic dump only; run with -v.
+// latticeEdgeCounts is one fixture's aggregate stroke/rect/edge tally.
+type latticeEdgeCounts struct {
+	strokes, rects, thinRects, rawH, rawV, mergedH, mergedV int
+}
+
+// latticeEdgeInventoryWant pins the exact per-fixture counts TestLatticeEdgeInventory
+// asserts. Counts pinned 2026-07-04 against the committed testdata/corpus/ fixtures
+// (deterministic: same content stream in, same edgesFromContent/mergeEdges out). An
+// intentional edge-pool change (edgesFromContent, mergeEdges, or the thin-rect/merge
+// tolerances here) updates these numbers — with render-truth justification, not just a
+// re-run — since this is the regression lock on that pipeline, not a diagnostic dump.
+var latticeEdgeInventoryWant = map[string]latticeEdgeCounts{
+	"multicolumn/fr-2024-06543.pdf":      {strokes: 7, rects: 0, thinRects: 0, rawH: 7, rawV: 0, mergedH: 7, mergedV: 0},
+	"multicolumn/fr-2024-01353.pdf":      {strokes: 7, rects: 0, thinRects: 0, rawH: 7, rawV: 0, mergedH: 7, mergedV: 0},
+	"cjk/irs-p850-zh-hant.pdf":           {strokes: 133, rects: 9, thinRects: 0, rawH: 109, rawV: 60, mergedH: 62, mergedV: 46},
+	"cjk/udhr-zh-hans.pdf":               {strokes: 0, rects: 0, thinRects: 0, rawH: 0, rawV: 0, mergedH: 0, mergedV: 0},
+	"cjk/udhr-ja.pdf":                    {strokes: 0, rects: 0, thinRects: 0, rawH: 0, rawV: 0, mergedH: 0, mergedV: 0},
+	"cjk/udhr-ko.pdf":                    {strokes: 0, rects: 0, thinRects: 0, rawH: 0, rawV: 0, mergedH: 0, mergedV: 0},
+	"cyrillic/udhr-ru.pdf":               {strokes: 0, rects: 0, thinRects: 0, rawH: 0, rawV: 0, mergedH: 0, mergedV: 0},
+	"discriminator/shaded-non-table.pdf": {strokes: 0, rects: 8, thinRects: 0, rawH: 16, rawV: 16, mergedH: 16, mergedV: 16},
+	"tables/nist-hb44-appc-2026.pdf":     {strokes: 0, rects: 17920, thinRects: 6746, rawH: 26114, rawV: 30836, mergedH: 741, mergedV: 276},
+	"tables/irs-p55b-2025-excerpt.pdf":   {strokes: 1503, rects: 565, thinRects: 2, rawH: 2577, rawV: 1182, mergedH: 399, mergedV: 117},
+	"tables/irs-db-t4-3-2025.pdf":        {strokes: 33, rects: 1, thinRects: 0, rawH: 33, rawV: 4, mergedH: 9, mergedV: 4},
+	"tables/eia-aer-t3-1-2011.pdf":       {strokes: 32, rects: 83, thinRects: 1, rawH: 182, rawV: 180, mergedH: 36, mergedV: 13},
+}
+
+// TestLatticeEdgeInventory is the regression lock on edgesFromContent/mergeEdges: it
+// computes aggregate edge/stroke/rect counts for every fixture in allFixtures across
+// all pages and asserts each against latticeEdgeInventoryWant's pinned exact counts.
+// Uses t.Errorf (not Fatalf) so every drifted fixture surfaces in one run. Logf lines
+// are kept so `-v` still prints the full per-fixture breakdown.
 func TestLatticeEdgeInventory(t *testing.T) {
 	for _, rel := range allFixtures {
 		pages := latticeFixturePages(t, rel)
 
-		var (
-			totalStrokes   int
-			totalRects     int
-			totalThinRects int
-			totalRawH      int
-			totalRawV      int
-			totalMergedH   int
-			totalMergedV   int
-		)
+		var got latticeEdgeCounts
 
 		for _, c := range pages {
-			totalStrokes += len(c.Stroke)
-			totalRects += len(c.Rect)
+			got.strokes += len(c.Stroke)
+			got.rects += len(c.Rect)
 			for _, rc := range c.Rect {
 				w := rc.Max.X - rc.Min.X
 				h := rc.Max.Y - rc.Min.Y
@@ -86,29 +107,38 @@ func TestLatticeEdgeInventory(t *testing.T) {
 					h = -h
 				}
 				if w < 3 || h < 3 {
-					totalThinRects++
+					got.thinRects++
 				}
 			}
 			raw := edgesFromContent(c)
 			for _, e := range raw {
 				if e.orient == 'h' {
-					totalRawH++
+					got.rawH++
 				} else {
-					totalRawV++
+					got.rawV++
 				}
 			}
 			merged := mergeEdges(raw, 3, 3)
 			for _, e := range merged {
 				if e.orient == 'h' {
-					totalMergedH++
+					got.mergedH++
 				} else {
-					totalMergedV++
+					got.mergedV++
 				}
 			}
 		}
 
 		t.Logf("%-34s strokes=%d rects=%d thin=%d rawH=%d rawV=%d mergedH=%d mergedV=%d",
-			rel, totalStrokes, totalRects, totalThinRects, totalRawH, totalRawV, totalMergedH, totalMergedV)
+			rel, got.strokes, got.rects, got.thinRects, got.rawH, got.rawV, got.mergedH, got.mergedV)
+
+		want, ok := latticeEdgeInventoryWant[rel]
+		if !ok {
+			t.Errorf("%s: no pinned counts in latticeEdgeInventoryWant (new fixture added to allFixtures without pinning)", rel)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s: edge inventory drifted\n got  %+v\n want %+v", rel, got, want)
+		}
 	}
 }
 

@@ -2,11 +2,13 @@ package pdf
 
 import (
 	"bytes"
+	"compress/zlib"
 	"fmt"
 	"io"
 	"maps"
 	"strings"
 	"testing"
+	"time"
 )
 
 // makeXrefReader returns a *Reader whose underlying file holds body, so that
@@ -322,6 +324,39 @@ func TestXrefStreamReadSizeOutOfRange(t *testing.T) {
 	}
 }
 
+// TestXrefStreamReadInflatedSizeCapsEagerAlloc verifies that a declared /Size
+// far beyond what the file's real byte size can back does not drive the eager
+// table allocation: the file still opens, the real entries land correctly,
+// and the allocation scales with the file size (plausibleXrefSize), not with
+// the attacker-declared /Size.
+func TestXrefStreamReadInflatedSizeCapsEagerAlloc(t *testing.T) {
+	// Hugely inflated relative to the ~130-byte file, but within
+	// maxXrefObjects so the out-of-range guard does not reject it.
+	const declaredSize = 5_000_000
+	entries := [][]byte{
+		{0x00, 0x00, 0x00, 0x00}, // slot 0: free
+		{0x01, 0x00, 0x4D, 0x00}, // slot 1: type=1, offset=77, gen=0
+	}
+	// Explicit /Index [0 2] so only the two real entries are read.
+	block := xrefStreamBuildPrevBlock(1, declaredSize, entries, " /Index [0 2]")
+	b := newBuffer(bytes.NewReader(block), 0)
+	b.allowEOF = true
+	r := makeXrefReader(block)
+
+	table, _, _, err := readXrefStream(r, b)
+	if err != nil {
+		t.Fatalf("inflated /Size: unexpected error: %v", err)
+	}
+	want1 := xref{ptr: objptr{1, 0}, offset: 77}
+	if table[1] != want1 {
+		t.Errorf("slot 1: got %+v, want %+v", table[1], want1)
+	}
+	if cap(table) >= declaredSize {
+		t.Errorf("eager allocation not capped: cap(table)=%d for a %d-byte file declaring /Size %d",
+			cap(table), len(block), declaredSize)
+	}
+}
+
 // --- followXrefStreamPrevChain ------------------------------------------------
 
 // xrefStreamBuildPrevBlock returns raw PDF bytes for a complete xref stream
@@ -530,5 +565,134 @@ func TestXrefProcessEntryUnknownType(t *testing.T) {
 	// Slot must remain the zero value — unknown type leaves it untouched.
 	if got[0] != (xref{}) {
 		t.Errorf("unknown type: slot should be unmodified, got %+v", got[0])
+	}
+}
+
+// --- no-/Index inflated /Size adversarial regression -------------------------
+
+// TestXrefStreamNoIndexInflatedSizeBounded regression-tests the adversarial
+// review's no-/Index attack: readXrefStreamData defaults a missing /Index to
+// [0, /Size], so a huge declared /Size with no /Index makes
+// processXrefIndexPairs attempt up to /Size on-demand slot growths via
+// ensureXrefSlot, independent of the eager-allocation cap in plausibleXrefSize.
+// The concern was that this path could be driven unbounded by an
+// attacker-declared /Size alone.
+//
+// This test builds a real FlateDecode xref stream (as a genuine PDF object,
+// not a synthetic slice) that declares /Size 8,000,000 with no /Index, but
+// whose real decompressed body backs only a few thousand rows. It proves the
+// growth tracks the ACTUAL decompressed row count, not the declared /Size:
+// reading must fail once the real data is exhausted (long before row
+// 8,000,000), and a direct replay of the same production entry point
+// (processXrefEntry) shows the table length after the real rows is bounded by
+// those real rows, never anywhere near the declared size.
+func TestXrefStreamNoIndexInflatedSizeBounded(t *testing.T) {
+	const declaredSize = 8_000_000
+	const realRows = 3000
+	w := []int{1, 1, 1} // type(1) + offset(1) + gen(1) = 3 bytes/row
+	const wtotal = 3
+
+	// Real backing data: realRows free (type-0) entries, all-zero bytes.
+	// Highly compressible, so the PDF file itself stays tiny even though it
+	// decompresses to a genuine, boundedly-sized set of real rows.
+	raw := make([]byte, realRows*wtotal)
+	var zbuf bytes.Buffer
+	zw := zlib.NewWriter(&zbuf)
+	if _, err := zw.Write(raw); err != nil {
+		t.Fatalf("compress real body: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("compress real body: close: %v", err)
+	}
+	compressed := zbuf.Bytes()
+
+	// No /Index entry: the reader must default to [0, declaredSize].
+	hdrEntries := fmt.Sprintf("/Type /XRef /Size %d /W [1 1 1] /Filter /FlateDecode", declaredSize)
+	data := buildStreamObjBytes(1, hdrEntries, compressed)
+	b := newBuffer(bytes.NewReader(data), 0)
+	b.allowEOF = true
+	r := makeXrefReader(data)
+
+	// Guard against a genuine unbounded-loop/allocation regression hanging the
+	// test process: readXrefStream must return quickly (it can process at
+	// most a few thousand real rows before the real data runs out), never
+	// attempt to spin through anywhere near 8,000,000 iterations.
+	type result struct {
+		table []xref
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		table, _, _, err := readXrefStream(r, b)
+		done <- result{table, err}
+	}()
+
+	var res result
+	select {
+	case res = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("readXrefStream did not return within 5s: looks like it is trying to process the full declared /Size instead of stopping at the real data")
+	}
+
+	if res.err == nil {
+		// Outcome (a): opened successfully. The table must not have grown
+		// anywhere near the declared size — growth must have tracked the real
+		// decompressed rows only.
+		if len(res.table) >= declaredSize {
+			t.Fatalf("no-Index inflated /Size: table grew to declared size %d, want bounded by real rows (%d)",
+				len(res.table), realRows)
+		}
+	} else if !strings.Contains(res.err.Error(), "error reading xref stream") {
+		// Outcome (b): rejected. It must be rejected because the real data
+		// ran out (an xref-stream read failure), not because of an upfront
+		// validation error (which would mean it never even attempted to read
+		// the real rows).
+		t.Fatalf("no-Index inflated /Size: expected an xref-stream read failure once real data was exhausted, got: %v", res.err)
+	}
+
+	// Directly confirm the table-length claim: replay the same real,
+	// FlateDecode-compressed body through processXrefEntry — the same
+	// production entry point readXrefStreamData/processXrefIndexPairs use for
+	// every row — retaining the table across iterations (readXrefStreamData
+	// discards it on error) so the length can be inspected precisely.
+	r2 := makeXrefReader(compressed)
+	strm2 := makeXrefStream(compressed, dict{
+		name("W"):      array{int64(1), int64(1), int64(1)},
+		name("Filter"): name("FlateDecode"),
+	})
+	data2 := (Value{r2, objptr{}, strm2}).Reader()
+	buf := make([]byte, wtotal)
+	var growTable []xref
+	var err error
+	for i := 0; i < realRows; i++ {
+		growTable, err = processXrefEntry(buf, w, 0, i, growTable, data2)
+		if err != nil {
+			t.Fatalf("replay: unexpected error at real row %d: %v", i, err)
+		}
+	}
+	if len(growTable) != realRows {
+		t.Errorf("replay: table length after %d real rows = %d, want %d (bounded by real data, not declared %d)",
+			realRows, len(growTable), realRows, declaredSize)
+	}
+	if _, err = processXrefEntry(buf, w, 0, realRows, growTable, data2); err == nil {
+		t.Error("replay: expected an error reading past the real backing data, got nil")
+	}
+}
+
+// TestEnsureXrefSlotCeiling verifies the absolute ceiling on xref object
+// numbers: ensureXrefSlot rejects any object number beyond maxXrefObjects
+// before any growth is attempted. This is the hard backstop that bounds a
+// no-/Index xref-stream's on-demand growth (readXrefStreamData /
+// processXrefEntry) to at most maxXrefObjects entries, regardless of how
+// large a declared /Size claims to be.
+func TestEnsureXrefSlotCeiling(t *testing.T) {
+	table := make([]xref, 1)
+
+	_, err := ensureXrefSlot(table, maxXrefObjects+1)
+	if err == nil {
+		t.Fatal("ensureXrefSlot(maxXrefObjects+1): expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "out of range") {
+		t.Errorf("ensureXrefSlot(maxXrefObjects+1): unexpected error message: %v", err)
 	}
 }

@@ -39,6 +39,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Security/robustness:** a malformed PDF declaring a huge cross-reference `/Size` no longer forces a
+  large up-front memory allocation disproportionate to the file's actual size; the xref table is now
+  allocated in proportion to the file and grows only as real entries are read, with the same absolute
+  object-count ceiling enforced as before.
 - **Security/robustness:** a malformed ToUnicode CMap whose replacement text has an odd byte length
   (legal hex-string syntax) no longer panics the decoder — the panic was previously swallowed
   internally and silently truncated the page's extracted text with no diagnostic. Odd trailing bytes
