@@ -15,28 +15,8 @@ import (
 )
 
 // --- open-column recovery ---
-
-// Constants for open-column recovery (the only tunables; locked by the synthetic guard tests).
 //
-//	overhangTol — minimum rule extension past vMin/vMax to count as a real overhang.
-//	              = 2×snapTol = 6 pt. Filters snap-noise artifacts (NIST ~1 pt < 6 pt)
-//	              while admitting genuine overhangs (IRS ~258 pt >> 6 pt).
-//	minOpenRows — open-side words must span >= this many admitted bands (rejects a
-//	              single marginal note outside the outer rule).
-//	minOpenColW — reject a sub-rule sliver narrower than 2× snapTol (6 pt).
-//	openPad     — outward pad so near-boundary word anchors are fully contained; the
-//	              INNER side gets NO pad — it is exactly vMin/vMax so the synthesized cell
-//	              never overlaps any interior cell.
-//
-// minOpenColW and openPad are also read by synthOpenColumns (tables_lattice.go), the
-// rect-bordered-rows sibling recovery path. Defined here because recoverOpenColumns/
-// recoverOneSide are the primary/eponymous owner of this constant group.
-const (
-	overhangTol = 6.0
-	minOpenRows = 2
-	minOpenColW = 6.0
-	openPad     = 2.0
-)
+// The tolerances (overhangTol, minOpenRows, minOpenColW, openPad) live in tables_tolerances.go.
 
 // latticeTablesOpen is latticeTables plus open edge-column recovery per table.
 //
@@ -54,7 +34,7 @@ const (
 // existing tests) may pass nil — inferShadedSiblingRows degrades to a no-op, matching prior
 // behavior before this pass existed.
 func latticeTablesOpen(c Content, words []Word, media [4]float64, fillRects []Rect) [][]lCell {
-	edges := mergeEdges(edgesFromContent(c), 3, 3) // same pool latticeTables uses
+	edges := mergeEdges(edgesFromContent(c), latticeSnapTol, latticeJoinTol) // same pool latticeTables uses
 	var hEdges, vEdges []lEdge
 	for _, e := range edges {
 		if e.orient == 'h' {
@@ -117,13 +97,12 @@ func cellYSpan(cells []lCell) (yTop, yBot float64) {
 	return yTop, yBot
 }
 
-// tableHEdges selects the h-edges within the table's Y-span (± snapTol) and returns
+// tableHEdges selects the h-edges within the table's Y-span (± rectRowSnapTol) and returns
 // them along with the sorted, clustered row-top representatives.
 func tableHEdges(cells []lCell, hEdges []lEdge) (tableH []lEdge, rowTops []float64) {
-	const snapTol = 3.0
 	yTop, yBot := cellYSpan(cells)
 	for _, e := range hEdges {
-		if e.top >= yTop-snapTol && e.top <= yBot+snapTol {
+		if e.top >= yTop-rectRowSnapTol && e.top <= yBot+rectRowSnapTol {
 			tableH = append(tableH, e)
 		}
 	}
@@ -134,7 +113,7 @@ func tableHEdges(cells []lCell, hEdges []lEdge) (tableH []lEdge, rowTops []float
 	for _, e := range tableH {
 		htops = append(htops, e.top)
 	}
-	rowTops = cluster1D(htops, snapTol)
+	rowTops = cluster1D(htops, rectRowSnapTol)
 	sort.Float64s(rowTops)
 	return tableH, rowTops
 }
@@ -147,9 +126,8 @@ func tableHEdges(cells []lCell, hEdges []lEdge) (tableH []lEdge, rowTops []float
 // title box, or a sidebar rule) has x1 < vMin and is rejected, so unrelated page geometry
 // cannot fabricate a phantom column.
 func edgeOverhangsLeft(tableH []lEdge, y, vMin float64) bool {
-	const snapTol = 3.0
 	for _, e := range tableH {
-		if math.Abs(e.top-y) <= snapTol && e.x0 <= vMin-overhangTol && e.x1 >= vMin {
+		if math.Abs(e.top-y) <= rectRowSnapTol && e.x0 <= vMin-overhangTol && e.x1 >= vMin {
 			return true
 		}
 	}
@@ -160,9 +138,8 @@ func edgeOverhangsLeft(tableH []lEdge, y, vMin float64) bool {
 // vMax+overhangTol AND reaches the inner boundary vMax (x0 <= vMax). See edgeOverhangsLeft
 // for why the reach-inner-boundary requirement binds the evidence to this table.
 func edgeOverhangsRight(tableH []lEdge, y, vMax float64) bool {
-	const snapTol = 3.0
 	for _, e := range tableH {
-		if math.Abs(e.top-y) <= snapTol && e.x1 >= vMax+overhangTol && e.x0 <= vMax {
+		if math.Abs(e.top-y) <= rectRowSnapTol && e.x1 >= vMax+overhangTol && e.x0 <= vMax {
 			return true
 		}
 	}
@@ -186,7 +163,7 @@ func recoverOneSide(sideWords []Word, x0, x1 float64, minW float64, rowTops []fl
 // recoverOpenColumns synthesizes half-open edge cells for one closed lattice table.
 //
 // STRUCTURAL EXISTENCE GATE: A half-open cell is admitted only when the table's horizontal
-// row rules overhang past vMin/vMax by more than overhangTol (= 6 pt = 2×snapTol).
+// row rules overhang past vMin/vMax by more than overhangTol (= 6 pt = 2×rectRowSnapTol).
 // rowTops is derived from the SAME merged table h-edges the overhang test reads
 // (single source of truth), so band-bounding edges match by construction.
 //

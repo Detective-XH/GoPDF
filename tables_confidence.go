@@ -527,19 +527,13 @@ func wordCenterInCells(w Word, cells []lCell) bool {
 	return false
 }
 
-// legacyFontGarbleFrac / minLegacyGarbledWords: flag when BOTH (a) at least legacyFontGarbleFrac
-// of a table's in-cell alphabetic words are legacy-Indic-font glyphs that decoded to non-Indic
-// (Latin) gibberish, AND (b) there are at least minLegacyGarbledWords such words. The fraction
-// gate alone gives no protection for a 1–2-label table (a single coincidental match reaches
-// frac=1.0); the absolute floor requires a substantial body of garbled text, which a genuinely
-// garbled table always has (its row-label column alone is dozens of words). The signal SEPARATES
-// sharply — measured 0 on every clean corpus PDF (47/48) and fired on three legacy-font fixtures
-// across three publishers and two embedding styles (in-ecosurvey Walkman-Chanakya/Vivek; Rajasthan
-// Kruti-Dev/DevLys CID; Himachal Pradesh Kruti Dev TrueType).
-const (
-	legacyFontGarbleFrac  = 0.3
-	minLegacyGarbledWords = 3
-)
+// legacyFontGarbleFrac / minLegacyGarbledWords (tables_tolerances.go): flag when BOTH (a) at
+// least legacyFontGarbleFrac of a table's in-cell alphabetic words are legacy-Indic-font glyphs
+// that decoded to non-Indic (Latin) gibberish, AND (b) there are at least minLegacyGarbledWords
+// such words. The fraction gate alone gives no protection for a 1–2-label table (a single
+// coincidental match reaches frac=1.0); the absolute floor requires a substantial body of
+// garbled text, which a genuinely garbled table always has (its row-label column alone is
+// dozens of words).
 
 // detectLegacyFontText flags a table whose in-cell text was rendered through a legacy non-Unicode
 // Indic font and decoded to Latin gibberish (see TableWarningLegacyFont). It is STRICTLY

@@ -364,8 +364,8 @@ func cellsToTables(cells []lCell) [][]lCell {
 
 // latticeTables is the end-to-end closed lattice driver: edges -> merge -> intersections -> cells -> tables.
 func latticeTables(c Content) [][]lCell {
-	edges := mergeEdges(edgesFromContent(c), 3, 3)
-	inters, _, _ := edgesToIntersections(edges, 3, 3)
+	edges := mergeEdges(edgesFromContent(c), latticeSnapTol, latticeJoinTol)
+	inters, _, _ := edgesToIntersections(edges, latticeSnapTol, latticeJoinTol)
 	return cellsToTables(intersectionsToCells(inters))
 }
 
@@ -494,7 +494,7 @@ func decodableWords(ws []Word) []Word {
 // builds), consumed by mergeAbuttingWords to forbid welding values a real column rule separates.
 func verticalRules(c Content) []lEdge {
 	var v []lEdge
-	for _, e := range mergeEdges(edgesFromContent(c), 3, 3) {
+	for _, e := range mergeEdges(edgesFromContent(c), latticeSnapTol, latticeJoinTol) {
 		if e.orient == 'v' {
 			v = append(v, e)
 		}
