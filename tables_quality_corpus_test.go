@@ -32,6 +32,7 @@ package pdf
 
 import (
 	"os"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -331,6 +332,7 @@ func TestPublicTablesQualityCorpus(t *testing.T) {
 	}
 
 	logQualitySummary(t, byClass)
+	logQualityAggregate(t, byClass)
 }
 
 // logQualitySummary emits the per-class diagnostic table and enforces each in-scope
@@ -404,4 +406,47 @@ func isInScopeQualityClass(cls string) bool {
 		}
 	}
 	return false
+}
+
+// logQualityAggregate is the Q3 instrument (ROADMAP.md step 2, v0.9.0 cut condition #1):
+// it emits ONE machine-greppable aggregate accuracy number, per class and TOTAL, across
+// every held-out fixture scored above. It reuses the harness's EXISTING per-fixture
+// scoring exactly — byClass already carries substContentHit/substTotal, the SUBSTANTIVE
+// content tally (non-anchor, non-empty data cells; see perClassQuality and
+// classifyQualityCell) that logFixtureQuality/reportClassGate already report as the
+// load-bearing headline metric. No new metric is invented here; this only sums the
+// existing per-class subtotals into a grand total. Weighted by scored SUBSTANTIVE cells
+// (unit=substantive_cells, stated in the log line for grep-ability).
+//
+// DIAGNOSTIC-ONLY, like the rest of this file: this is the FIRST recorded measurement.
+// The blocking accuracy floor (t.Errorf) is added in a follow-up change, once this
+// aggregate has been observed at least once — never in the same change that introduces
+// the instrument (ROADMAP.md).
+func logQualityAggregate(t *testing.T, byClass map[string]*perClassQuality) {
+	t.Helper()
+	classes := make([]string, 0, len(byClass))
+	for cls := range byClass {
+		classes = append(classes, cls)
+	}
+	sort.Strings(classes) // stable emission order across runs
+
+	var totalScored, totalCorrect int
+	for _, cls := range classes {
+		cr := byClass[cls]
+		totalScored += cr.substTotal
+		totalCorrect += cr.substContentHit
+		t.Logf("QUALITY-AGGREGATE class=%s scored=%d correct=%d acc=%.4f unit=substantive_cells",
+			cls, cr.substTotal, cr.substContentHit, qualityAggregateAcc(cr.substContentHit, cr.substTotal))
+	}
+	t.Logf("QUALITY-AGGREGATE TOTAL scored=%d correct=%d acc=%.4f unit=substantive_cells",
+		totalScored, totalCorrect, qualityAggregateAcc(totalCorrect, totalScored))
+}
+
+// qualityAggregateAcc returns correct/scored as a 0-1 ratio, 0 when scored is 0 (a class
+// with no scored substantive cells) so the QUALITY-AGGREGATE acc field never emits NaN.
+func qualityAggregateAcc(correct, scored int) float64 {
+	if scored == 0 {
+		return 0
+	}
+	return float64(correct) / float64(scored)
 }
