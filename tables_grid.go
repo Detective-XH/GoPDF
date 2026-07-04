@@ -84,15 +84,6 @@ func joinReading(ws []Word) string {
 	return strings.Join(parts, " ")
 }
 
-// wordJoinGapTol (points) bounds the inter-word horizontal gap below which two same-row words
-// are treated as one fragmented token. The true discriminator is gap <= 0 (the runs touch or
-// overlap — the fragmented NASS values overlap at gap -0.03); the small positive margin only
-// absorbs float noise. A genuine word space advances the pen well past this, and distinct column
-// values are a whole column's padding apart, so the re-join is a no-op on correct cells: two
-// words can only reach this gap when they are fragments of one token (or a degenerate zero-padding
-// layout that renders as a single visual run anyway).
-const wordJoinGapTol = 0.25
-
 // mergeAbuttingWords re-joins words that a zero-advance space glyph fragmented mid-token before
 // reconstructGrid assigns them to cells. wordsFromBand emits a new Word at every isAllSpace glyph;
 // some producers lay a token out with an embedded space carrying zero horizontal advance — a
@@ -191,30 +182,6 @@ func ruleBetween(left, right Word, vRules []lEdge) bool {
 	return false
 }
 
-// ruleSpanFrac is the minimum fraction of a table's own vertical extent that a page vertical
-// rule must overlap before reconstructGrid treats it as a genuine column-boundary rule (a
-// "governing" rule) rather than a decorative header-only box line. Real column dividers in
-// single-axis-ruled tables (full-height verticals, no horizontal rules between data rows)
-// overlap most of the table's height even when they stop short of a merged multi-tier header;
-// decorative per-cell header box lines cover only the header band. See
-// plans/decisions/SINGLE-AXIS-RULED-TRIAGE-2026-07-01.md and the Item 1 spike verdict.
-const ruleSpanFrac = 0.5
-
-// ruleSnapTol is how close (pt) a cell's own x0 must sit to a table's governing rule x-position
-// before reconstructGrid snaps that cell onto the rule for column-identity purposes. Wider than
-// colClusterTol (4.0pt) because a header label's own content x0 can sit several points inside
-// its true rule-bounded column. Calibrated against the single-axis-ruled fixtures (observed
-// offsets ranged 5.3-10.3pt across publishers).
-const ruleSnapTol = 12.0
-
-// governingLeftSlack is the tolerance (pt) by which a candidate rule may sit to the RIGHT of a
-// cell's own x0 and still be considered "at" that x0 rather than strictly to its right. It
-// exists only to absorb sub-point rounding jitter (a cell's own x0 landing a hair left of its
-// true governing rule due to float quantization) — it must stay much smaller than ruleSnapTol
-// so it never lets a genuinely different (neighboring) rule qualify as this cell's own left
-// boundary. See snapToGoverningRule's directional-boundary rationale (Item 1 fix, defect (2)).
-const governingLeftSlack = 0.75
-
 // governingVRules filters a page-wide vertical-rule pool (vRules is page-scoped: the same
 // slice is passed to reconstructGrid for every table on the page) down to the x-positions that
 // actually define THIS table's own column structure: within the table's own x-bounds (risk:
@@ -289,21 +256,6 @@ func snapToGoverningRule(x float64, ruleXs []float64) float64 {
 	}
 	return x
 }
-
-// sparseRowCoverageFrac is the row-coverage fraction (of the table's total distinct rows) below
-// which a raw (unsnapped) column cluster is treated as a sparse, possibly-anomalous artifact
-// (e.g. a header/label row whose own cell x0 differs from the data body's established column)
-// and is therefore eligible for governing-rule reconciliation. At or above this fraction, a
-// cluster is treated as an independently-established real column and is NEVER snapped onto a
-// nearby rule, however close. This closes the hkcsd-monthly-digest-2024-01.pdf p169 defect: two
-// genuinely distinct columns, EACH with 21/21 (100%) row coverage, sat 9.12pt apart — well
-// within ruleSnapTol(12) of the same governing rule — and a naive per-cell/per-cluster snap
-// (with no coverage awareness) collapsed one into the other, gluing a footnote marker onto the
-// wrong neighboring column's value. Calibrated against real data: the Jordan 14.7-shaped
-// (jo-dos-health-2023.pdf p6/p7) header-artifact clusters needing reconciliation had 1-2 rows out
-// of 12-17 (8-17%); the dense columns they reconcile onto had 11-17 rows (92-100%). 0.5 sits with
-// a wide margin on both sides of that real-data gap.
-const sparseRowCoverageFrac = 0.5
 
 // clusterRowSets returns, for each representative in reps, the SET of distinct row bands
 // (indices into rowReps, via nearestIdx) among the cells at the given indices that map to it —
@@ -529,7 +481,7 @@ func reconstructGrid(cells []lCell, words []Word, vRules ...lEdge) [][]string {
 	for i, c := range cells {
 		tops[i] = c.top
 	}
-	rowReps := cluster1D(tops, 4)
+	rowReps := cluster1D(tops, rectRowGapTol)
 
 	colReps, cellCol, snapped := resolveGridColumns(cells, words, ruleXs, rowReps)
 
@@ -684,17 +636,6 @@ func cellHasWordRightOf(placed []placedWord, key [2]int, x float64) bool {
 	return false
 }
 
-// colClusterTol is the single-linkage tolerance used to cluster cell x0 positions into column
-// representatives (reconstructGrid: cluster1D(x0s, colClusterTol)). It doubles as the
-// span-interior margin in spanContainsRealColumn. Because cluster1D is single-linkage gap-based,
-// a legitimately edge-sharing column's cluster-mean colRep can drift INWARD from the shared rule
-// by up to ~one tolerance (members chain across gaps ≤ tol). Requiring a non-empty rep to lie
-// MORE than colClusterTol inside the empty column's span therefore distinguishes a genuinely
-// distinct interior sub-column (the mis-split spanning-cell signature) from a mere edge-sharing
-// neighbour whose mean jittered inward. Tying the margin to the column cluster tolerance keeps
-// the drop predicate self-consistent with how the columns were clustered in the first place.
-const colClusterTol = 4.0
-
 // trimDotLeaders drops tabular dot-leader filler words from a cell's word set, but ONLY when the
 // cell also holds real (non-leader) content. A leader visually connects a label to its value, so
 // in a real leader cell the trim leaves the label/value behind; a cell whose ENTIRE content is a
@@ -721,17 +662,6 @@ func trimDotLeaders(ws []Word) []Word {
 	}
 	return out
 }
-
-// leaderDotRunFloor is the minimum length of a consecutive '.' (U+002E) run that, when flanked by
-// letters on BOTH sides (hasInterleavedLeaderRun), marks a table cell as carrying a dot-leader
-// fused INTO a label rather than isolated decimal points or an abbreviation. Measured against the
-// USDA NASS crop table, where a State label's trailing dot leader is rendered with its glyphs
-// interleaved into the label and so fuses into the label token: "Iowa" arrives as "Iow...a..."
-// (3-dot runs), "Alabama" as "Alaba...m...a...." (4-dot runs), while "U.S." carries only single-dot
-// runs. A floor of 3 fires on every fused State label (lifting the held-out fixture 0/300 ->
-// 294/300) yet never on "U.S." (run length 1); a floor of 4 misses the exact-3-run states
-// (Iowa/Utah/Ohio), dropping the score to 276/300.
-const leaderDotRunFloor = 3
 
 // hasInterleavedLeaderRun reports whether s contains a dot-leader run — n or more consecutive '.'
 // (U+002E) — immediately flanked by a Unicode letter on BOTH sides. This is the signature of a dot

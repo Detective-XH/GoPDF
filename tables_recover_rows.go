@@ -58,7 +58,7 @@ func headerColumnDefiningRow(cells []lCell) (cdCells []lCell, cdTop float64, ok 
 	for i, c := range cells {
 		tops[i] = c.top
 	}
-	rowReps := cluster1D(tops, 4) // the row tolerance reconstructGrid also uses
+	rowReps := cluster1D(tops, rectRowGapTol) // the row tolerance reconstructGrid also uses
 	byBand := map[int][]lCell{}
 	for _, c := range cells {
 		byBand[nearestIdx(rowReps, c.top)] = append(byBand[nearestIdx(rowReps, c.top)], c)
@@ -164,47 +164,8 @@ func wordInBox(words []Word, x0, x1, top, bottom float64) bool {
 // short header over a single tall multi-line band that is one wrapped row, not many rows — is
 // indistinguishable from the target and will be row-split. That ambiguity is inherent (the
 // 1-wrapped-row and N-row inputs are byte-identical); see the rect-bordered decision record.
-const (
-	// rectRowSnapTol matches a cell bottom to the table bottom and bounds the interior-rule
-	// exclusion window around the data-body extremes.
-	rectRowSnapTol = 3.0
-	// rectMinRowClusters is the minimum word-Y-rows a full-height cell must hold to count as a
-	// collapsed multi-row data column. It doubles as the multi-row guard: a one- or two-line
-	// framed box (a callout) never reaches it.
-	rectMinRowClusters = 3
-	// rectMinRowSplit is the minimum number of numeric cross-column record bands a BEA-branch cell
-	// must contain before splitTallBandCells (PR-2) splits it into rows. It is deliberately HIGHER
-	// than rectMinRowClusters: a corpus sweep of the shipped mechanism showed the exactly-3-band
-	// zone is false-positive-dense (blank-row insertion at group separators, displaced multi-line
-	// headers), while every genuine collapsed data table (FT-900 months, German census waves, MHLW
-	// wage rows) carries far more (10–46) record bands. It is a HEURISTIC boundary, NOT a complete
-	// false-positive guard: a count threshold cannot by itself separate a 4-row numeric HEADER /
-	// annotation block (each row carrying year-like tokens in ≥2 columns) from a 4-row collapsed
-	// data block — that residual, and prose/cover/TOC blocks that reach the BEA branch at all, are
-	// documented known limitations (a structural body-vs-header discriminator is a follow-on).
-	rectMinRowSplit = 4
-	// rectRowGapTol clusters word Y-centers into row bands. Kept equal to reconstructGrid's row
-	// clustering tol so the synthesized tops re-cluster consistently downstream.
-	rectRowGapTol = 4.0
-	// rectMinBodyFrac is the minimum fraction of the table's vertical extent that the full-height
-	// candidate cells must span. It separates a genuinely collapsed data body (which dominates
-	// the table — ERP B-1 spans ~85%) from a multi-line BOTTOM ROW of an otherwise fully-ruled
-	// table (whose cells also reach the table bottom and can hold >=3 wrapped lines, but span only
-	// a small fraction). Without it, a multi-row ruled table whose last row wraps in >=2 aligned
-	// columns would be wrongly row-split. It does NOT catch a ruled table that is geometrically
-	// rect-bordered (a short header over one tall wrapped row dominating the body) — that input is
-	// indistinguishable from the target; see the rect-bordered decision record.
-	rectMinBodyFrac = 0.6
-	// headerRuledMinCols is the minimum cell count of the column-defining header row for the
-	// header-ruled data-cell recovery (inferHeaderRuledDataCells) to engage. >=3 ruled columns
-	// is a genuine multi-column header, not a 1-2 cell caption/frame band.
-	headerRuledMinCols = 3
-	// headerRuledMinColBands is the minimum number of distinct data-row bands a header data-column
-	// must receive dropped words in before that column is synthesized. >=2 demands column-level
-	// cluster evidence so a lone in-envelope word (geometrically indistinguishable from a single
-	// real value — e.g. a footnote inside the data rectangle) is never promoted to table data.
-	headerRuledMinColBands = 2
-)
+// The tolerances (rectRowSnapTol, rectMinRowClusters, rectMinRowSplit, rectRowGapTol,
+// rectMinBodyFrac, headerRuledMinCols, headerRuledMinColBands) live in tables_tolerances.go.
 
 // inferRectBorderedRows splits each full-height data column (plus a synthesized open anchor
 // column) of a rect-bordered table into rows inferred from word Y-centers. It returns cells
@@ -268,24 +229,7 @@ func inferRectBorderedRows(cells []lCell, words []Word, hEdges []lEdge, media [4
 // row-spanning label/footnote cell whose wrapped text happens to fall one line per shaded band
 // would pass both this gate and the consequence invariant, and get wrongly split. No known fix
 // exists for that case yet; each round that changes this pass must explicitly sweep for it.
-const (
-	// shadedSiblingColTol clusters cell left edges (x0) into column groups when locating a
-	// candidate donor stack. Tighter than rectRowSnapTol because two genuinely distinct
-	// columns can sit within a few points of each other in a dense grid.
-	shadedSiblingColTol = 2.0
-	// shadedSiblingRectSpanTol bounds how closely a candidate rect-derived edge's OWN x-span
-	// must match the donor cell's x-span for the boundary to count as shading-derived. An
-	// overlap-only test (any rect edge whose x-range intersects the cell's) is NOT enough: a
-	// real-world page's table-wide background/frame fill (e.g. x=[43,784] spanning the whole
-	// table) trivially overlaps every narrow column's x-range at the table's own top/bottom Y,
-	// so an overlap test cannot tell "this fill rect IS this cell's own per-row shading" apart
-	// from "some unrelated, much wider fill rect happens to pass through this Y". Measured on
-	// the real irs-p1040 shaded columns, a genuine per-row shading fill's edge x-span matches
-	// the cell's own x-span to within 0.01-0.08pt; measured on the destatis regression's donor,
-	// its wide-frame false match has a x-span mismatch of hundreds of points — tol=3.0 (matching
-	// rectRowSnapTol's scale) cleanly separates the two without being a corpus-frequency bet.
-	shadedSiblingRectSpanTol = 3.0
-)
+// The tolerances (shadedSiblingColTol, shadedSiblingRectSpanTol) live in tables_tolerances.go.
 
 // inferShadedSiblingRows borrows an already row-closed sibling column's row boundaries onto a
 // same-table, same-y-span tall cell that a shading-column-selective layout left uncollapsed.

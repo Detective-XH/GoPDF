@@ -23,28 +23,9 @@ import (
 // The data cells never close, so latticeTables produces only the header cells and
 // every data value is dropped from the grid (present in Page.Lines() but absent
 // from Tables()). inferCombBodyRows recovers the missing rows by synthesizing one
-// cell per (word-Y-cluster × column-interval).
-const (
-	// combBodyMinCols is the minimum number of interior crossing V-edges required
-	// for the comb-body data-row recovery (inferCombBodyRows) to engage. >=2 interior
-	// crossing verticals represent at least two column divisions (a genuine multi-column
-	// comb body), not a single split or a page-margin border that slipped through.
-	combBodyMinCols = 2
-	// combBodyStraddleTol is the touch-margin (points) for the anti-straddle gate: a
-	// column cut falls "strictly inside" a word when it lies within
-	// [w.X+combBodyStraddleTol, w.X+w.W-combBodyStraddleTol]. The 0.5 pt margin
-	// absorbs sub-pixel PDF coordinate rounding without masking a genuine misalignment —
-	// a word that truly straddles a rule will lie several points inside the word's
-	// x-span, not 0.5 pt.
-	combBodyStraddleTol = 0.5
-	// combBodyMinDataRows is the minimum number of row-bands that must each fill >=2
-	// NON-LABEL columns (a genuine multi-column data row) for the body to qualify as a
-	// real comb-body data grid. A per-COLUMN occupancy test is too weak: scattered
-	// infographic/map labels can occupy two columns in DISJOINT bands with no actual
-	// multi-column row. Requiring >=2 co-occupied non-label columns IN THE SAME band
-	// rejects scattered map labels, table-of-contents lists, formula/prose, and charts.
-	combBodyMinDataRows = 2
-)
+// cell per (word-Y-cluster × column-interval). The tolerances (combBodyMinCols,
+// combBodyStraddleTol, combBodyMinDataRows, combBodyForeignXPad) live in
+// tables_tolerances.go.
 
 // combCol is a recovered comb-body column interval [x0, x1].
 type combCol struct{ x0, x1 float64 }
@@ -119,8 +100,8 @@ func inferCombBodyRows(closed, placed []lCell, tableIdx int, allClosed [][]lCell
 	}
 
 	// Synthesize one cell per (band × column). The ±6 pt height matches the cluster1D
-	// tolerance (4 pt) used to derive the bands, so reconstructGrid re-clusters the
-	// synth-cell tops consistently and assigns each word to the correct row.
+	// tolerance (rectRowGapTol) used to derive the bands, so reconstructGrid re-clusters
+	// the synth-cell tops consistently and assigns each word to the correct row.
 	synth := make([]lCell, 0, len(bands)*len(cols))
 	for _, b := range bands {
 		for _, cc := range cols {
@@ -184,7 +165,7 @@ func combBodyForeignInBody(allClosed [][]lCell, tableIdx int, headerBot, bodyBot
 			cx := (c.x0 + c.x1) / 2
 			cy := (c.top + c.bottom) / 2
 			if cy > headerBot+rectRowSnapTol && cy < bodyBot+rectRowSnapTol &&
-				cx > tableLeft-2 && cx < tableRight+2 {
+				cx > tableLeft-combBodyForeignXPad && cx < tableRight+combBodyForeignXPad {
 				foreign++
 			}
 		}
@@ -228,7 +209,7 @@ func combBodyBodyWords(placed []lCell, words []Word, headerBot, bodyBot, tableLe
 	if len(bodyWords) == 0 {
 		return nil, nil
 	}
-	bands = cluster1D(bays, 4)
+	bands = cluster1D(bays, rectRowGapTol)
 	sort.Float64s(bands)
 	return bodyWords, bands
 }

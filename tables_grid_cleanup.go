@@ -290,53 +290,6 @@ func mergePhantomHeaderBand(cells []lCell, firstDataRowTop float64) []lCell {
 	return append(result, data...)
 }
 
-// A gutter column (a thin cell from a double-wall decorative border rect) is dropped only
-// when it is all-empty AND below BOTH of these gates — a column failing either is preserved:
-//
-//   - gutterFraction (relative): widest cell < gutterFraction × the table's median
-//     data-column width. Targets the actual gutter property — thin RELATIVE to siblings —
-//     so it is scale-robust across document sizes.
-//   - absoluteGutterCap (absolute ceiling): widest cell < absoluteGutterCap pt. A hard
-//     bound so a real, merely-narrow data column is never dropped just because wide sibling
-//     columns inflate the median (the relative-gate-only false-positive class).
-//
-// Measured on all committed fixtures (2026-06-18):
-//   - True gutter widths (double-wall border rects): 4.99–13.02 pt (EPA p1)
-//   - Narrowest real data columns: 24.65 pt (ERP tables), 28.44 pt (HHS-ASPE)
-//   - Normal data columns: 34–647 pt range
-//
-// The cap (16 pt) sits between max-gutter (13.02) and narrowest-real-column (24.65) with
-// margin on both sides; the relative gate (0.25) additionally guards uniformly-narrow tables.
-// A column must fall under both to be a gutter — far outside any observed real layout.
-const (
-	gutterFraction    = 0.25
-	absoluteGutterCap = 16.0
-)
-
-const (
-	// nestedWallTol is the maximum distance (pt) between the x1 right-edges of two adjacent
-	// grid-columns that still qualifies as a shared wall. Normal adjacent columns share a
-	// boundary (x1[i] == x0[i+1]); nested sub-cell pairs share the SAME x1 — this tolerance
-	// distinguishes them.
-	nestedWallTol = 3.0
-	// phantomMaxSparseCells is the maximum number of non-empty cells (over ALL rows) that the
-	// sparser member of a candidate merge-pair may hold. A phantom header column carries only
-	// the header label — at most one line (or two for a two-line wrapped header), so ≤2 is
-	// generous. A data-bearing column carries many more cells and is never merged away.
-	// Documented reopen: a 3+-line wrapped-header phantom will NOT merge (sparse limit = 2);
-	// this is loss-free (no worse than today) and the reopen trigger is a confirmed real-world
-	// fixture with a triple-line header phantom. The x0/left-aligned shared-wall variant also
-	// never fired on real data and is a documented reopen.
-	phantomMaxSparseCells = 2
-	// phantomMinDataCells is the minimum non-empty cell count (over ALL rows) the DENSE partner of
-	// a sparse phantom must hold for a merge to fire. Without it, a SMALL table whose columns are
-	// trivially "sparse" (≤2 cells just because the table has ≤2 data rows) would be over-merged —
-	// the EPA p1 false positive (a 2-row complementary table, both columns ≤2 cells, no real
-	// phantom). Requiring the data partner to carry ≥3 cells confirms a genuine (header + data)
-	// doubling. Loss-free reopen: a real phantom whose data column has <3 rows will not merge.
-	phantomMinDataCells = 3
-)
-
 // dropGutterColumns removes columns that are entirely empty and meet at least one of:
 //
 //  1. Thin by BOTH the relative (gutterFraction × median data-column width) and absolute
