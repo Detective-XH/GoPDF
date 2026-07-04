@@ -457,6 +457,37 @@ func TestXrefReadTableSizeTruncates(t *testing.T) {
 	}
 }
 
+// TestXrefReadTableInflatedSizeNoEagerAlloc verifies that an inflated trailer
+// /Size in a classic xref table neither fails the open nor drives the table
+// allocation: the table stays proportional to the entries actually read
+// (/Size only ever truncates, never grows, the table), and the real entries
+// land correctly.
+func TestXrefReadTableInflatedSizeNoEagerAlloc(t *testing.T) {
+	// Hugely inflated relative to the ~70-byte file, but within maxXrefObjects.
+	const declaredSize = 5_000_000
+	sec := buildXrefTableSection(0, [][3]int64{
+		{0, 65535, 'f'},
+		{100, 0, 'n'},
+	})
+	trailerBytes := fmt.Appendf(nil, "trailer\n<< /Size %d >>\n", declaredSize)
+	data := append(sec, trailerBytes...)
+	b := newBuffer(bytes.NewReader(data), 0)
+	b.allowEOF = true
+	r := makeReaderFromBytes(data)
+
+	table, _, _, err := readXrefTable(r, b)
+	if err != nil {
+		t.Fatalf("inflated /Size: unexpected error: %v", err)
+	}
+	if table[1].offset != 100 {
+		t.Errorf("slot 1: expected offset 100, got %d", table[1].offset)
+	}
+	if cap(table) >= declaredSize {
+		t.Errorf("table allocation driven by declared /Size: cap(table)=%d for a %d-byte file",
+			cap(table), len(data))
+	}
+}
+
 // --- FuzzXrefTable -----------------------------------------------------------
 
 // FuzzXrefTable feeds arbitrary bytes as the body of an xref-table buffer to

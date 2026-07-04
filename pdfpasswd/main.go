@@ -4,7 +4,7 @@
 
 // Pdfpasswd searches for the password for an encrypted PDF
 // by trying all strings over a given alphabet up to a given length.
-package main // import "rsc.io/pdf/pdfpasswd"
+package main
 
 import (
 	"flag"
@@ -52,7 +52,6 @@ func (it *passwordIter) next() string {
 		buf[i] = it.alpha[it.ctr[i]-1]
 	}
 	it.last = string(buf[:i])
-	println(it.last)
 	return it.last
 }
 

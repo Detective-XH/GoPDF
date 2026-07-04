@@ -88,6 +88,37 @@ func applyXrefStm(r *Reader, table []xref, trailer dict) ([]xref, error) {
 
 const maxXrefObjects = 8_388_607 // PDF spec max indirect object number
 
+// xrefEagerSlack pads the plausibility bound derived from the file size so
+// that tiny valid PDFs always fit their whole table in the initial
+// allocation (a minimal one-page file holds fewer than 10 objects in well
+// under 1KB).
+const xrefEagerSlack = 32
+
+// plausibleXrefSize bounds the eager xref-table allocation by the file's
+// real size: a real N-object PDF carries at least ~20 bytes of file content
+// per object (a classic xref entry alone is 20 bytes, and the object bodies
+// occupy further bytes), so a declared /Size far beyond end/20 cannot all be
+// backed by real entries. Exceeding the bound is not an error and does not
+// reject the declared size: the table merely starts at the plausible bound
+// and ensureXrefSlot grows it on demand as entries are actually read, so
+// allocation scales with real input instead of with an attacker-declared
+// count (cf. maxDecompressedSize in filter.go). maxXrefObjects remains the
+// absolute ceiling on object numbers.
+//
+// This bound covers only the INITIAL allocation. It is deliberately not
+// re-applied as a hard row-count cap during on-demand growth (including the
+// no-/Index xref-stream path, where a missing /Index defaults to scanning
+// [0, /Size) regardless of end — see readXrefStreamData): a legitimate
+// object-stream-heavy PDF can reference far more indirect objects than
+// end/20 predicts. Instead, growth via ensureXrefSlot tracks only the
+// object numbers actually encountered in real (decompressed) entries, and is
+// absolutely ceilinged at maxXrefObjects, which rejects anything beyond it
+// (TestEnsureXrefSlotCeiling; TestXrefStreamNoIndexInflatedSizeBounded proves
+// the no-/Index path in particular is bounded by real data, not by /Size).
+func plausibleXrefSize(declared, end int64) int64 {
+	return min(declared, end/20+xrefEagerSlack)
+}
+
 func ensureXrefSlot(table []xref, x int) ([]xref, error) {
 	if x < 0 || x > maxXrefObjects {
 		return nil, fmt.Errorf("malformed PDF: xref object number out of range: %d", x)

@@ -26,7 +26,10 @@ func readXrefStream(r *Reader, b *buffer) ([]xref, objptr, dict, error) {
 	if size <= 0 || size > maxXrefObjects {
 		return nil, objptr{}, nil, fmt.Errorf("malformed PDF: xref Size out of range: %d", size)
 	}
-	table := make([]xref, size)
+	// Eagerly allocate only what the file's real size makes plausible; an
+	// inflated declared /Size is not rejected — ensureXrefSlot grows the table
+	// on demand as entries are actually read (see plausibleXrefSize).
+	table := make([]xref, plausibleXrefSize(size, r.end))
 	table, err := readXrefStreamData(r, strm, table, size)
 	if err != nil {
 		return nil, objptr{}, nil, fmt.Errorf("malformed PDF: %v", err)
@@ -153,6 +156,19 @@ func processXrefEntry(buf []byte, w []int, start int64, i int, table []xref, dat
 	return table, nil
 }
 
+// readXrefStreamData reads the entries described by strm's /Index pairs (or,
+// when /Index is absent, the default [0, size) — ISO 32000-1 §7.5.8.2) into
+// table. A missing /Index is not itself bounded by the eager-allocation cap
+// in plausibleXrefSize: an attacker-declared size (up to maxXrefObjects) with
+// no /Index drives processXrefIndexPairs to attempt up to size on-demand
+// ensureXrefSlot growths. This is safe because each attempted row still costs
+// one real read from the (bounded, cf. maxDecompressedSize) decompressed
+// stream — the loop fails fast with an I/O error the moment real data runs
+// out, so growth tracks actual decompressed rows, not the declared size, and
+// ensureXrefSlot's absolute ceiling at maxXrefObjects rejects anything beyond
+// it regardless. See TestXrefStreamNoIndexInflatedSizeBounded (the no-/Index,
+// inflated-/Size regression) and TestEnsureXrefSlotCeiling (the ceiling
+// itself).
 func readXrefStreamData(r *Reader, strm stream, table []xref, size int64) ([]xref, error) {
 	index, _ := strm.hdr["Index"].(array)
 	if index == nil {
