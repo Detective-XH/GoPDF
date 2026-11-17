@@ -73,6 +73,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   if a single column's own shading boundary is drawn as several adjoining fill shapes rather than one,
   recovery may not fire for that column — no occurrence of this causing incorrect output has been
   found in real-world testing.
+- A ToUnicode `bfrange` that spans more than 256 codes — for example the single identity range
+  `<0000> <FFFF> <0000>` emitted by go-pdf/fpdf for UTF-8 fonts — no longer decodes every code above
+  `U+00FF` to its low byte. The offset from the range start is now computed over the full source-code
+  width and added to the destination's last UTF-16 code unit, so Korean/CJK text extracts correctly
+  instead of silently becoming Latin-1/control characters (with no `U+FFFD` and no warning). Ranges
+  that fit within one high byte decode exactly as before (#118).
 
 ### Changed
 
