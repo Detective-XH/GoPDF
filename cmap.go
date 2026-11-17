@@ -145,7 +145,26 @@ func decodeBfrange(entry bfrange, text string) ([]rune, bool) {
 			if len(b) == 0 {
 				return []rune{noRune}, true
 			}
-			b[len(b)-1] += text[len(text)-1] - entry.lo[len(entry.lo)-1]
+			// The offset from the range start is taken over the full source-code
+			// width and added to the destination's last UTF-16 code unit (its last
+			// two bytes when available), so a range wider than 256 codes — such as
+			// the identity range <0000> <FFFF> <0000> some producers emit — maps
+			// every code, not only the ones whose high byte equals the range start's.
+			delta := 0
+			for i := 0; i < len(text); i++ {
+				delta = delta<<8 | int(text[i])
+			}
+			base := 0
+			for i := 0; i < len(entry.lo); i++ {
+				base = base<<8 | int(entry.lo[i])
+			}
+			delta -= base
+			if len(b) >= 2 {
+				v := (int(b[len(b)-2])<<8 | int(b[len(b)-1])) + delta
+				b[len(b)-2], b[len(b)-1] = byte(v>>8), byte(v)
+			} else {
+				b[len(b)-1] += byte(delta)
+			}
 			s = string(b)
 		}
 		return []rune(utf16Decode(s)), true
